@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Langium's Hello World in the Web</title>
+    <link rel="stylesheet" href="packages/web/style.css" />
+  </head>
+
+  <body>
+    <div class="exampleHeadlineDiv">
+      <b class="exampleHeadline">
+        Helloworld Client & Language Server (Worker)
+      </b>
+      <br />
+      <button type="button" id="button-start">Start</button>
+      <button type="button" id="button-dispose">Dispose</button>
+      <button type="button" id="button-summary">Update Summary</button>
+      <button type="button" id="button-code">Update Code</button>
+    </div>
+    <div id="monaco-editor-root" style="height: 80vh"></div>
+    <script type="module">
+      import { runDsl } from "./packages/web/src/main.ts";
+
+      runDsl();
+    </script>
+    <b>Summary:</b>
+    <br />
+    <span id="summaryspan"> -nothing yet- </span>
+    <br />
+    <b>Code:</b>
+    <br />
+    <span id="codespan"> -no code yet- </span>
+  </body>
+</html>

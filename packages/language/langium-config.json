@@ -1,0 +1,16 @@
+{
+    "projectName": "Pseudo2",
+    "languages": [
+        {
+            "id": "pseudo2",
+            "grammar": "src/pseudo2.langium",
+            "fileExtensions": [
+                "hello"
+            ],
+            "textMate": {
+                "out": "syntaxes/pseudo2.tmLanguage.json"
+            }
+        }
+    ],
+    "out": "src/generated"
+}

@@ -1,0 +1,61 @@
+{
+    "name": "vscode-pseudo2",
+    "description": "The extension specific package",
+    "version": "0.0.1",
+    "displayName": "pseudo2",
+    "type": "module",
+    "engines": {
+        "vscode": "^1.67.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "contributes": {
+        "languages": [
+            {
+                "id": "pseudo2",
+                "aliases": [
+                    "Pseudo2",
+                    "pseudo2"
+                ],
+                "extensions": [
+                    ".pseudo2"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "pseudo2",
+                "scopeName": "source.pseudo2",
+                "path": "syntaxes/pseudo2.tmLanguage.json"
+            }
+        ]
+    },
+    "activationEvents": [
+        "onLanguage:pseudo2"
+    ],
+    "main": "./out/extension/main.cjs",
+    "scripts": {
+        "clean": "shx rm -fr *.tsbuildinfo out syntaxes",
+        "vscode:prepublish": "npm run build",
+        "build:prepare": "shx mkdir -p ./syntaxes/ && shx cp -f ../language/syntaxes/pseudo2.tmLanguage.json ./syntaxes/pseudo2.tmLanguage.json",
+        "build": "npm run build:prepare && tsc -b tsconfig.json && node esbuild.mjs",
+        "build:clean": "npm run clean && npm run build",
+        "watch": "npm run build:prepare && concurrently -n tsc,esbuild -c blue,yellow \"tsc -b tsconfig.json --watch\" \"node esbuild.mjs --watch\""
+    },
+    "dependencies": {
+        "pseudo2-language": "0.0.1",
+        "vscode-languageclient": "~9.0.1",
+        "vscode-languageserver": "~9.0.1"
+    },
+    "devDependencies": {
+        "@types/vscode": "~1.67.0",
+        "concurrently": "~8.2.1",
+        "esbuild": "~0.25.5",
+        "shx": "^0.4.0"
+    },
+    "vsce": {
+        "dependencies": false
+    }
+}

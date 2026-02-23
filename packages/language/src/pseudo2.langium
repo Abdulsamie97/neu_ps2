@@ -19,6 +19,7 @@ Instruction:
 
 CompoundInstruction:
     Block
+    | IfStatement
 ;
 
 // --- blocks with braces
@@ -35,7 +36,13 @@ IndentedBlock:
   INDENT instructions+=Instruction+ DEDENT
 ;
 
+Expression:
+  value=('true' | 'false')
+;
 
+IfStatement:
+  'if' condition=Expression thenBlock=Block
+  ('else' elseBlock=Block)?;
 
 
 

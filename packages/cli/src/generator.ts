@@ -6,6 +6,8 @@ import { extractDestinationAndName } from './util.js';
 
 // Optional: falls dein generated/ast Typeguards exportiert (meist ja)
 import { isBracedBlock, isIndentedBlock } from 'pseudo2-language';
+import type { IfStatement } from 'pseudo2-language';
+import { isIfStatement } from 'pseudo2-language';
 
 export function generate(programAst: Program, filePath: string, destination: string | undefined): string {
     const data = extractDestinationAndName(filePath, destination);
@@ -31,6 +33,7 @@ function genInstruction(i: Instruction, indent = ''): string {
     // Block-Handling: BracedBlock / IndentedBlock in deinem AST
     if (isBracedBlock(i)) return genBracedBlock(i, indent);
     if (isIndentedBlock(i)) return genIndentedBlock(i, indent);
+    if (isIfStatement(i)) return genIfStatement(i, indent);
 
     // Step 1: andere Instructions existieren noch nicht / werden später ergänzt
     return `${indent}// TODO: instruction\n`;
@@ -55,4 +58,31 @@ function genIndentedBlock(b: any, indent = ''): string {
     }
     out += `${indent}}\n`;
     return out;
+}
+function genIfStatement(n: IfStatement, indent = ''): string {
+  let out = `${indent}if (${genExpr(n.condition)}) `;
+  out += genBlockAny(n.thenBlock, indent);
+
+  if (n.elseBlock) {
+    out += `${indent}else `;
+    out += genBlockAny(n.elseBlock, indent);
+  }
+  return out;
+}
+
+function genExpr(e: any): string {
+  // Minimal: Expression ist aktuell nur true/false
+  return String(e.value);
+}
+
+// helper: Block kann BracedBlock oder IndentedBlock sein
+function genBlockAny(b: any, indent = ''): string {
+  // Beide Blocktypen haben instructions – wir rendern aktuell immer als { ... }
+  let out = `${indent}{\n`;
+  const inner = indent + ' ';
+  for (const instr of b.instructions ?? []) {
+    out += genInstruction(instr, inner);
+  }
+  out += `${indent}}\n`;
+  return out;
 }

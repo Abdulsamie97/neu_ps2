@@ -1,5 +1,5 @@
 import type { ValidationAcceptor, ValidationChecks } from 'langium';
-import type { Pseudo2AstType , Block } from './generated/ast.js';
+import type { Pseudo2AstType , Block, IfStatement } from './generated/ast.js';
 import type { Pseudo2Services} from './pseudo2-module.js';
 
 /**
@@ -10,6 +10,8 @@ export function registerValidationChecks(services: Pseudo2Services) {
     const validator = services.validation.Pseudo2Validator;
     const checks: ValidationChecks<Pseudo2AstType> = {
        // Person: validator.checkPersonStartsWithCapital
+        Block: validator.checkBlock,
+        IfStatement: validator.checkIfStatement
     };
     registry.register(checks, validator);
 }
@@ -25,6 +27,11 @@ export class Pseudo2Validator {
     // if (node.instructions.length === 0) {
     //   accept('warning', 'Leerer Block.', { node });
     // }
+  }
+  
+  checkIfStatement(node: IfStatement, accept: ValidationAcceptor): void {
+    // Step 2: keine Regeln erzwingen
+    // optional später: warn, wenn thenBlock leer etc.
   }
 
 /*  checkPersonStartsWithCapital(person: Person, accept: ValidationAcceptor): void {

@@ -1,43 +1,35 @@
-import { afterEach, beforeAll, describe, expect, test } from "vitest";
-import { EmptyFileSystem, type LangiumDocument } from "langium";
-import { expandToString as s } from "langium/generate";
-import { clearDocuments, parseHelper } from "langium/test";
-import type { Model } from "pseudo2-language";
-import { createPseudo2Services, isModel } from "pseudo2-language";
+import { beforeAll, describe, expect, test } from 'vitest';
+import { EmptyFileSystem, type LangiumDocument } from 'langium';
+import { expandToString as s } from 'langium/generate';
+import { parseHelper } from 'langium/test';
+import type { Program } from 'pseudo2-language';
+import { createPseudo2Services, isProgram } from 'pseudo2-language';
 
 let services: ReturnType<typeof createPseudo2Services>;
-let parse:    ReturnType<typeof parseHelper<Model>>;
-let document: LangiumDocument<Model> | undefined;
+let parse: ReturnType<typeof parseHelper<Program>>;
+let document: LangiumDocument<Program> | undefined;
 
 beforeAll(async () => {
     services = createPseudo2Services(EmptyFileSystem);
-    parse = parseHelper<Model>(services.Pseudo2);
-
-    // activate the following if your linking test requires elements from a built-in library, for example
-    // await services.shared.workspace.WorkspaceManager.initializeWorkspace([]);
+    parse = parseHelper<Program>(services.Pseudo2);
 });
 
-afterEach(async () => {
-    document && clearDocuments(services.shared, [ document ]);
-});
-
-describe('Linking tests', () => {
-
-    test('linking of greetings', async () => {
+describe('Structure tests', () => {
+    test('nested block parent-child relationship', async () => {
         document = await parse(`
-            person Langium
-            Hello Langium!
+            {
+                {}
+            }
         `);
 
+        const rootBlock = document.parseResult.value.instructions[0];
+        const nestedBlock = rootBlock.instructions[0];
+
         expect(
-            // here we first check for validity of the parsed document object by means of the reusable function
-            //  'checkDocumentValid()' to sort out (critical) typos first,
-            // and then evaluate the cross references we're interested in by checking
-            //  the referenced AST element as well as for a potential error message;
             checkDocumentValid(document)
-                || document.parseResult.value.greetings.map(g => g.person.ref?.name || g.person.error?.message).join('\n')
+                || `${nestedBlock.$container === rootBlock}|${rootBlock.$container === document.parseResult.value}`
         ).toBe(s`
-            Langium
+            true|true
         `);
     });
 });
@@ -48,6 +40,6 @@ function checkDocumentValid(document: LangiumDocument): string | undefined {
           ${document.parseResult.parserErrors.map(e => e.message).join('\n  ')}
     `
         || document.parseResult.value === undefined && `ParseResult is 'undefined'.`
-        || !isModel(document.parseResult.value) && `Root AST object is a ${document.parseResult.value.$type}, expected a 'Model'.`
+        || !isProgram(document.parseResult.value) && `Root AST object is a ${document.parseResult.value.$type}, expected a 'Program'.`
         || undefined;
 }

@@ -28,11 +28,11 @@
     },
     "scripts": {
         "clean": "shx rm -fr *.tsbuildinfo out",
-        "build": "echo 'No build step'",
+        "build": "npm run langium:generate && tsc -p tsconfig.src.json",
         "build:clean": "npm run clean && npm run build",
         "langium:generate": "langium generate",
         "langium:watch": "langium generate --watch",
-        "test": "vitest run"
+        "test": "npm run build && vitest run"
     },
     "dependencies": {
         "langium": "~4.1.0"

@@ -3,7 +3,7 @@ import { EmptyFileSystem, type LangiumDocument } from 'langium';
 import { expandToString as s } from 'langium/generate';
 import { parseHelper } from 'langium/test';
 import type { Program } from 'pseudo2-language';
-import { createPseudo2Services, isProgram } from 'pseudo2-language';
+import { createPseudo2Services, isBracedBlock, isIndentedBlock, isProgram } from 'pseudo2-language';
 
 let services: ReturnType<typeof createPseudo2Services>;
 let parse: ReturnType<typeof parseHelper<Program>>;
@@ -23,6 +23,10 @@ describe('Structure tests', () => {
         `);
 
         const rootBlock = document.parseResult.value.instructions[0];
+        if (!isBracedBlock(rootBlock) && !isIndentedBlock(rootBlock)) {
+            throw new Error(`Expected block, got ${rootBlock.$type}`);
+        }
+
         const nestedBlock = rootBlock.instructions[0];
 
         expect(

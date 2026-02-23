@@ -1,51 +1,43 @@
-import type { Program } from './generated/ast.js';
+import type { Block, IfStatement, Instruction, Program } from './generated/ast.js';
+import { isBlock, isIfStatement } from './generated/ast.js';
 
-/**
- * Step 1: Block-only generator.
- * For now we just return an empty string so the project builds.
- * Later we will generate real output (e.g., VeriFast C/Java).
- */
-export function generateProgram(_program: Program): string {
-  return '';
+export function generateProgram(program: Program): string {
+    return program.instructions.map(instruction => generateInstruction(instruction)).join('\n');
 }
 
-
-
-/*import type { Model } from './generated/ast.js';
-import { createPseudo2Services } from './pseudo2-module.js';
-import { EmptyFileSystem } from 'langium';
-import { isModel } from './generated/ast.js';
-import { parseHelper } from 'langium/test';
-
-
-export function getSummary(model: Model): string {
-    const greetings = model.greetings.map(greeting => greeting.person.ref?.name ?? 'unknown').join(', ');
-    return `Model with ${model.greetings.length} greeting(s) to: ${greetings}`;
-}
-
-export const getSummaryFromCode = async (code: string) => {
-    const model = await parseTextToModel(code);
-
-    if (!isModel(model)) {
-        throw new Error('Invalid Model.');
+function generateInstruction(instruction: Instruction, indent = 0): string {
+    if (isBlock(instruction)) {
+        return generateBlock(instruction, indent);
     }
 
-    return getSummary(model);
+    if (isIfStatement(instruction)) {
+        return generateIfStatement(instruction, indent);
+    }
+
+    return '';
 }
 
+function generateBlock(block: Block, indent = 0): string {
+    const padding = ' '.repeat(indent);
 
-async function parseTextToModel(text: string): Promise<Model> {
-    // 1. Create the language services
-    const services = createPseudo2Services(EmptyFileSystem).Pseudo2; // Use the correct language name property
+    if (block.instructions.length === 0) {
+        return `${padding}{}`;
+    }
 
-    // 2. Get the parse helper configured for your Model type
-    const parse = parseHelper<Model>(services);
+    const nested = block.instructions
+        .map(instruction => generateInstruction(instruction, indent + 2))
+        .join('\n');
 
-    // 3. Parse the text
-    const document = await parse(text);
-
-    // 4. Return the resulting AST model
-    const model = document.parseResult.value;
-    return model;
+    return `${padding}{\n${nested}\n${padding}}`;
 }
-*/
+
+function generateIfStatement(ifStatement: IfStatement, indent = 0): string {
+    const padding = ' '.repeat(indent);
+    const condition = ifStatement.condition.value;
+    const thenBlock = generateBlock(ifStatement.thenBlock, indent + 2);
+    const elsePart = ifStatement.elseBlock
+        ? `\n${padding}else\n${generateBlock(ifStatement.elseBlock, indent + 2)}`
+        : '';
+
+    return `${padding}if ${condition} then\n${thenBlock}${elsePart}\n${padding}end`;
+}

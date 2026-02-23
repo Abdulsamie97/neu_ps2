@@ -3,7 +3,7 @@ import { EmptyFileSystem, type LangiumDocument } from 'langium';
 import { expandToString as s } from 'langium/generate';
 import { parseHelper } from 'langium/test';
 import type { Program } from 'pseudo2-language';
-import { createPseudo2Services, isProgram } from 'pseudo2-language';
+import { createPseudo2Services, isBracedBlock, isIndentedBlock, isProgram } from 'pseudo2-language';
 
 let services: ReturnType<typeof createPseudo2Services>;
 let parse: ReturnType<typeof parseHelper<Program>>;
@@ -28,7 +28,9 @@ describe('Parsing tests', () => {
                   ${document.parseResult.value.instructions.length}
                 Nested instructions:
                   ${document.parseResult.value.instructions
-                      .map(instruction => instruction.instructions.length)
+                      .map(instruction => (isBracedBlock(instruction) || isIndentedBlock(instruction))
+                          ? instruction.instructions.length
+                          : 0)
                       .join('\n  ')}
             `
         ).toBe(s`

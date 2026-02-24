@@ -1,28 +1,21 @@
 grammar Pseudo2
 
-//entry Model:
- //   (persons+=Person | greetings+=Greeting)*;
-
-//Person:
-//    'person' name=ID;
-
-//Greeting:
-//    'Hello' person=[Person:ID] '!';
-
 entry Program:
   instructions+=Instruction*;
 
-
 Instruction:
-    CompoundInstruction
+  CompoundInstruction
 ;
 
 CompoundInstruction:
     Block
-    | IfStatement
+  | IfStatement
 ;
 
-// --- blocks with braces
+// --------------------
+// Blocks
+// --------------------
+
 Block:
     BracedBlock
   | IndentedBlock
@@ -36,25 +29,151 @@ IndentedBlock:
   INDENT instructions+=Instruction+ DEDENT
 ;
 
-Expression:
-  value=('true' | 'false')
-;
+// --------------------
+// If
+// --------------------
 
 IfStatement:
   'if' condition=Expression thenBlock=Block
-  ('else' elseBlock=Block)?;
+  ('else' elseBlock=Block)?
+;
 
+// --------------------
+// Explicit AST types (strict-friendly)
+// --------------------
 
+interface Expr {}
 
-//hidden terminal WS: /\s+/;
-terminal ID: /[_a-zA-Z][\w_]*/;
-terminal INT returns number: /[0-9]+/;
-terminal STRING: /"(\\.|[^"\\])*"|'(\\.|[^'\\])*'/;
+interface Or extends Expr {
+  left: Expr
+  right: Expr[]
+}
 
-hidden terminal ML_COMMENT: /\/\*[\s\S]*?\*\//;
-hidden terminal SL_COMMENT: /\/\/[^\n\r]*/;
+interface And extends Expr {
+  left: Expr
+  right: Expr[]
+}
+
+interface Equality extends Expr {
+  left: Expr
+  op: string[]
+  right: Expr[]
+}
+
+interface Comparison extends Expr {
+  left: Expr
+  op: string[]
+  right: Expr[]
+}
+
+interface Addition extends Expr {
+  left: Expr
+  op: string[]
+  right: Expr[]
+}
+
+interface Multiplication extends Expr {
+  left: Expr
+  op: string[]
+  right: Expr[]
+}
+
+interface Not extends Expr { value: Expr }
+interface Neg extends Expr { value: Expr }
+
+interface Grouping extends Expr { value: Expr }
+
+interface IntLiteral extends Expr { value: number }
+interface BoolLiteral extends Expr { value: 'true' | 'false' }
+interface StringLiteral extends Expr { value: string }
+interface VarRef extends Expr { name: string }
+
+// --------------------
+// Expressions (precedence ladder)
+// --------------------
+
+Expression returns Expr:
+  Or
+;
+
+Or returns Or:
+  left=And ( '||' right+=And )*
+;
+
+And returns And:
+  left=Equality ( '&&' right+=Equality )*
+;
+
+Equality returns Equality:
+  left=Comparison ( op+=('==' | '!=') right+=Comparison )*
+;
+
+Comparison returns Comparison:
+  left=Addition ( op+=('<' | '<=' | '>' | '>=') right+=Addition )*
+;
+
+Addition returns Addition:
+  left=Multiplication ( op+=('+' | '-') right+=Multiplication )*
+;
+
+Multiplication returns Multiplication:
+  left=Unary ( op+=('*' | '/' | '%') right+=Unary )*
+;
+
+Unary returns Expr:
+    NotRule
+  | NegRule
+  | Primary
+;
+
+NotRule returns Not:
+  '!' value=Unary
+;
+
+NegRule returns Neg:
+  '-' value=Unary
+;
+
+Primary returns Expr:
+    GroupingRule
+  | IntLit
+  | BoolLit
+  | StringLit
+  | VarRefRule
+;
+
+GroupingRule returns Grouping:
+  '(' value=Expression ')'
+;
+
+IntLit returns IntLiteral:
+  value=INT
+;
+
+BoolLit returns BoolLiteral:
+  value=('true' | 'false')
+;
+
+StringLit returns StringLiteral:
+  value=STRING
+;
+
+VarRefRule returns VarRef:
+  name=ID
+;
+
+// --------------------
+// Terminals
+// --------------------
 
 terminal INDENT: 'synthetic:indent';
 terminal DEDENT: 'synthetic:dedent';
+hidden terminal ML_COMMENT: /\/\*[\s\S]*?\*\//;
+hidden terminal SL_COMMENT: /\/\/[^\n\r]*/;
+
 hidden terminal WS: /[\t ]+/;
 hidden terminal NL: /[\r\n]+/;
+
+terminal INT returns number: /[0-9]+/;
+terminal STRING: /"(\\.|[^"\\])*"|'(\\.|[^'\\])*'/;
+terminal ID: /[_a-zA-Z][\w_]*/;

@@ -1,43 +1,103 @@
-import type { Block, IfStatement, Instruction, Program } from './generated/ast.js';
-import { isBlock, isIfStatement } from './generated/ast.js';
+// packages/language/src/langenerator.ts
+
+import type {
+  BracedBlock,
+  IndentedBlock,
+  IfStatement,
+  Instruction,
+  Program,
+  Expr
+} from './generated/ast.js';
+
+import {
+  isBracedBlock,
+  isIndentedBlock,
+  isIfStatement,
+
+  isOr, isAnd, isEquality, isComparison, isAddition, isMultiplication,
+  isNot, isNeg,
+  isGrouping, isIntLiteral, isBoolLiteral, isStringLiteral, isVarRef
+} from './generated/ast.js';
 
 export function generateProgram(program: Program): string {
-    return program.instructions.map(instruction => generateInstruction(instruction)).join('\n');
+  return program.instructions.map(i => generateInstruction(i)).join('\n');
 }
 
 function generateInstruction(instruction: Instruction, indent = 0): string {
-    if (isBlock(instruction)) {
-        return generateBlock(instruction, indent);
-    }
+  if (isBracedBlock(instruction) || isIndentedBlock(instruction)) {
+    return generateBlock(instruction, indent);
+  }
 
-    if (isIfStatement(instruction)) {
-        return generateIfStatement(instruction, indent);
-    }
+  if (isIfStatement(instruction)) {
+    return generateIfStatement(instruction, indent);
+  }
 
-    return '';
+  return '';
 }
 
-function generateBlock(block: Block, indent = 0): string {
-    const padding = ' '.repeat(indent);
+function generateBlock(block: BracedBlock | IndentedBlock, indent = 0): string {
+  const padding = ' '.repeat(indent);
 
-    if (block.instructions.length === 0) {
-        return `${padding}{}`;
-    }
+  const body = block.instructions ?? [];
+  if (body.length === 0) {
+    return `${padding}{}`;
+  }
 
-    const nested = block.instructions
-        .map(instruction => generateInstruction(instruction, indent + 2))
-        .join('\n');
+  const nested = body
+    .map(instruction => generateInstruction(instruction, indent + 2))
+    .join('\n');
 
-    return `${padding}{\n${nested}\n${padding}}`;
+  return `${padding}{\n${nested}\n${padding}}`;
 }
 
 function generateIfStatement(ifStatement: IfStatement, indent = 0): string {
-    const padding = ' '.repeat(indent);
-    const condition = ifStatement.condition.value;
-    const thenBlock = generateBlock(ifStatement.thenBlock, indent + 2);
-    const elsePart = ifStatement.elseBlock
-        ? `\n${padding}else\n${generateBlock(ifStatement.elseBlock, indent + 2)}`
-        : '';
+  const padding = ' '.repeat(indent);
 
-    return `${padding}if ${condition} then\n${thenBlock}${elsePart}\n${padding}end`;
+  const condition = genExpr(ifStatement.condition);
+  const thenBlock = generateBlock(ifStatement.thenBlock, indent);
+
+  const elsePart = ifStatement.elseBlock
+    ? `\n${padding}else ${generateBlock(ifStatement.elseBlock, indent)}`
+    : '';
+
+  return `${padding}if (${condition}) ${thenBlock}${elsePart}`;
+}
+
+// --------------------
+// Expression generation
+// --------------------
+
+function genExpr(e: Expr): string {
+  if (isIntLiteral(e)) return String(e.value);
+  if (isBoolLiteral(e)) return String(e.value);
+  if (isStringLiteral(e)) return String(e.value);
+  if (isVarRef(e)) return e.name;
+
+  if (isGrouping(e)) return `(${genExpr(e.value)})`;
+  if (isNot(e)) return `(!${genExpr(e.value)})`;
+  if (isNeg(e)) return `(-${genExpr(e.value)})`;
+
+  // Chain nodes:
+  if (isOr(e)) return genChain(genExpr(e.left), '||', e.right);
+  if (isAnd(e)) return genChain(genExpr(e.left), '&&', e.right);
+
+  if (isEquality(e) || isComparison(e) || isAddition(e) || isMultiplication(e)) {
+    return genOpChain(genExpr(e.left), e.op ?? [], e.right ?? []);
+  }
+
+  return '/*expr*/';
+}
+
+function genChain(left: string, op: string, rights: Expr[]): string {
+  let out = `(${left}`;
+  for (const r of rights) out += ` ${op} ${genExpr(r)}`;
+  return out + ')';
+}
+
+function genOpChain(left: string, ops: string[], rights: Expr[]): string {
+  let out = `(${left}`;
+  for (let i = 0; i < rights.length; i++) {
+    out += ` ${ops[i] ?? '?'} ${genExpr(rights[i])}`;
+  }
+  return out + ')';
 }

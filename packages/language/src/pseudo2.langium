@@ -1,10 +1,15 @@
 grammar Pseudo2
 
+// ======================================================
+// Program structure
+// ======================================================
+
 entry Program:
   instructions+=Instruction*;
 
 Instruction:
-  CompoundInstruction
+    CompoundInstruction
+  | SimpleStatement
 ;
 
 CompoundInstruction:
@@ -12,9 +17,14 @@ CompoundInstruction:
   | IfStatement
 ;
 
-// --------------------
+SimpleStatement:
+    VarDeclaration
+  | Assignment
+;
+
+// ======================================================
 // Blocks
-// --------------------
+// ======================================================
 
 Block:
     BracedBlock
@@ -29,18 +39,36 @@ IndentedBlock:
   INDENT instructions+=Instruction+ DEDENT
 ;
 
-// --------------------
+// ======================================================
+// Variables: declaration & assignment (Xtext-style)
+// ======================================================
+
+VarDeclaration:
+  'var' name=ID ('=' initializer=Expression)?
+;
+
+interface IdentifierRef { ref: @VarDeclaration }
+
+IdentifierRefRule returns IdentifierRef:
+  ref=[VarDeclaration:ID]
+;
+
+Assignment:
+  target=IdentifierRefRule '=' value=Expression
+;
+
+// ======================================================
 // If
-// --------------------
+// ======================================================
 
 IfStatement:
   'if' condition=Expression thenBlock=Block
   ('else' elseBlock=Block)?
 ;
 
-// --------------------
-// Explicit AST types (strict-friendly)
-// --------------------
+// ======================================================
+// Expression AST types (strict-friendly)
+// ======================================================
 
 interface Expr {}
 
@@ -86,11 +114,12 @@ interface Grouping extends Expr { value: Expr }
 interface IntLiteral extends Expr { value: number }
 interface BoolLiteral extends Expr { value: 'true' | 'false' }
 interface StringLiteral extends Expr { value: string }
-interface VarRef extends Expr { name: string }
 
-// --------------------
+interface VarRef extends Expr { ref: @VarDeclaration }
+
+// ======================================================
 // Expressions (precedence ladder)
-// --------------------
+// ======================================================
 
 Expression returns Expr:
   Or
@@ -159,15 +188,16 @@ StringLit returns StringLiteral:
 ;
 
 VarRefRule returns VarRef:
-  name=ID
+  ref=[VarDeclaration:ID]
 ;
 
-// --------------------
-// Terminals
-// --------------------
+// ======================================================
+// Terminals (ORDER MATTERS for indentation lexer!)
+// ======================================================
 
 terminal INDENT: 'synthetic:indent';
 terminal DEDENT: 'synthetic:dedent';
+
 hidden terminal ML_COMMENT: /\/\*[\s\S]*?\*\//;
 hidden terminal SL_COMMENT: /\/\/[^\n\r]*/;
 

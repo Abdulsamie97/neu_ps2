@@ -1,64 +1,77 @@
-import type { Program, Instruction } from 'pseudo2-language';
+import type {
+  Program,
+  Instruction,
+  IfStatement,
+  Expr,
+  VarDeclaration,
+  Assignment
+} from 'pseudo2-language';
+
+import {
+  isBracedBlock,
+  isIndentedBlock,
+  isIfStatement,
+  isVarDeclaration,
+  isAssignment,
+
+  isOr, isAnd, isEquality, isComparison, isAddition, isMultiplication,
+  isNot, isNeg,
+  isGrouping, isIntLiteral, isBoolLiteral, isStringLiteral, isVarRef
+} from 'pseudo2-language';
+
 import { expandToNode, toString } from 'langium/generate';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { extractDestinationAndName } from './util.js';
 
-// Optional: falls dein generated/ast Typeguards exportiert (meist ja)
-import { isBracedBlock, isIndentedBlock } from 'pseudo2-language';
-import type { IfStatement } from 'pseudo2-language';
-import { isIfStatement } from 'pseudo2-language';
-
 export function generate(programAst: Program, filePath: string, destination: string | undefined): string {
-    const data = extractDestinationAndName(filePath, destination);
-    const generatedFilePath = `${path.join(data.destination, data.name)}.js`;
+  const data = extractDestinationAndName(filePath, destination);
+  const generatedFilePath = `${path.join(data.destination, data.name)}.js`;
 
-    // Step 1: Wir generieren erstmal nur ein leer laufendes JS-File + Kommentar,
-    // aber traversieren die AST-Struktur, damit Block "komplett funktioniert".
-    const fileNode = expandToNode`
-        "use strict";
+  const fileNode = expandToNode`
+    "use strict";
 
-        // Pseudo2 generator (Step 1: blocks only)
-        ${programAst.instructions.map(i => genInstruction(i)).join('')}
-    `.appendNewLineIfNotEmpty();
+    // Pseudo2 generator
+    ${programAst.instructions.map(i => genInstruction(i)).join('')}
+  `.appendNewLineIfNotEmpty();
 
-    if (!fs.existsSync(data.destination)) {
-        fs.mkdirSync(data.destination, { recursive: true });
-    }
-    fs.writeFileSync(generatedFilePath, toString(fileNode));
-    return generatedFilePath;
+  if (!fs.existsSync(data.destination)) {
+    fs.mkdirSync(data.destination, { recursive: true });
+  }
+  fs.writeFileSync(generatedFilePath, toString(fileNode));
+  return generatedFilePath;
 }
 
 function genInstruction(i: Instruction, indent = ''): string {
-    // Block-Handling: BracedBlock / IndentedBlock in deinem AST
-    if (isBracedBlock(i)) return genBracedBlock(i, indent);
-    if (isIndentedBlock(i)) return genIndentedBlock(i, indent);
-    if (isIfStatement(i)) return genIfStatement(i, indent);
+  if (isBracedBlock(i)) return genBracedBlock(i, indent);
+  if (isIndentedBlock(i)) return genIndentedBlock(i, indent);
+  if (isIfStatement(i)) return genIfStatement(i, indent);
 
-    // Step 1: andere Instructions existieren noch nicht / werden später ergänzt
-    return `${indent}// TODO: instruction\n`;
+  if (isVarDeclaration(i)) return genVarDeclaration(i, indent);
+  if (isAssignment(i)) return genAssignment(i, indent);
+
+  return `${indent}// TODO: instruction\n`;
 }
 
 function genBracedBlock(b: any, indent = ''): string {
-    let out = `${indent}{\n`;
-    const inner = indent + '  ';
-    for (const instr of b.instructions ?? []) {
-        out += genInstruction(instr, inner);
-    }
-    out += `${indent}}\n`;
-    return out;
+  return genBlockBody(b, indent);
 }
 
 function genIndentedBlock(b: any, indent = ''): string {
-    // IndentedBlock hat auch instructions, nur anderer Node-Typ
-    let out = `${indent}{\n`;
-    const inner = indent + '  ';
-    for (const instr of b.instructions ?? []) {
-        out += genInstruction(instr, inner);
-    }
-    out += `${indent}}\n`;
-    return out;
+  // we currently render indented blocks as normal braces in JS output
+  return genBlockBody(b, indent);
 }
+
+function genBlockBody(b: any, indent = ''): string {
+  let out = `${indent}{\n`;
+  const inner = indent + '  ';
+  for (const instr of b.instructions ?? []) {
+    out += genInstruction(instr, inner);
+  }
+  out += `${indent}}\n`;
+  return out;
+}
+
 function genIfStatement(n: IfStatement, indent = ''): string {
   let out = `${indent}if (${genExpr(n.condition)}) `;
   out += genBlockAny(n.thenBlock, indent);
@@ -70,19 +83,58 @@ function genIfStatement(n: IfStatement, indent = ''): string {
   return out;
 }
 
-function genExpr(e: any): string {
-  // Minimal: Expression ist aktuell nur true/false
-  return String(e.value);
+function genVarDeclaration(n: VarDeclaration, indent = ''): string {
+  if (n.initializer) {
+    return `${indent}var ${n.name} = ${genExpr(n.initializer)}\n`;
+  }
+  return `${indent}var ${n.name}\n`;
 }
 
-// helper: Block kann BracedBlock oder IndentedBlock sein
-function genBlockAny(b: any, indent = ''): string {
-  // Beide Blocktypen haben instructions – wir rendern aktuell immer als { ... }
-  let out = `${indent}{\n`;
-  const inner = indent + ' ';
-  for (const instr of b.instructions ?? []) {
-    out += genInstruction(instr, inner);
+function genAssignment(n: Assignment, indent = ''): string {
+  const targetName = n.target.ref?.ref?.name ?? '/*unresolved*/';
+  return `${indent}${targetName} = ${genExpr(n.value)}\n`;
+}
+
+// --------------------
+// Expression generation (matches your current AST shape)
+// --------------------
+
+function genExpr(e: Expr): string {
+  if (isIntLiteral(e)) return String(e.value);
+  if (isBoolLiteral(e)) return String(e.value);
+  if (isStringLiteral(e)) return String(e.value);
+
+  if (isVarRef(e)) return e.ref.ref?.name ?? '/*unresolved*/';
+
+  if (isGrouping(e)) return `(${genExpr(e.value)})`;
+  if (isNot(e)) return `(!${genExpr(e.value)})`;
+  if (isNeg(e)) return `(-${genExpr(e.value)})`;
+
+  if (isOr(e)) return genChain(genExpr(e.left), '||', e.right);
+  if (isAnd(e)) return genChain(genExpr(e.left), '&&', e.right);
+
+  if (isEquality(e) || isComparison(e) || isAddition(e) || isMultiplication(e)) {
+    return genOpChain(genExpr(e.left), e.op ?? [], e.right ?? []);
   }
-  out += `${indent}}\n`;
-  return out;
+
+  return '/*expr*/';
+}
+
+function genChain(left: string, op: string, rights: Expr[]): string {
+  let out = `(${left}`;
+  for (const r of rights) out += ` ${op} ${genExpr(r)}`;
+  return out + ')';
+}
+
+function genOpChain(left: string, ops: string[], rights: Expr[]): string {
+  let out = `(${left}`;
+  for (let i = 0; i < rights.length; i++) {
+    out += ` ${ops[i] ?? '?'} ${genExpr(rights[i])}`;
+  }
+  return out + ')';
+}
+
+// helper: Block can be BracedBlock or IndentedBlock
+function genBlockAny(b: any, indent = ''): string {
+  return genBlockBody(b, indent);
 }

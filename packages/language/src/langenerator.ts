@@ -6,13 +6,17 @@ import type {
   IfStatement,
   Instruction,
   Program,
-  Expr
+  Expr,
+  VarDeclaration,
+  Assignment
 } from './generated/ast.js';
 
 import {
   isBracedBlock,
   isIndentedBlock,
   isIfStatement,
+  isVarDeclaration,
+  isAssignment,
 
   isOr, isAnd, isEquality, isComparison, isAddition, isMultiplication,
   isNot, isNeg,
@@ -30,6 +34,14 @@ function generateInstruction(instruction: Instruction, indent = 0): string {
 
   if (isIfStatement(instruction)) {
     return generateIfStatement(instruction, indent);
+  }
+
+  if (isVarDeclaration(instruction)) {
+    return generateVarDeclaration(instruction, indent);
+  }
+
+  if (isAssignment(instruction)) {
+    return generateAssignment(instruction, indent);
   }
 
   return '';
@@ -64,6 +76,28 @@ function generateIfStatement(ifStatement: IfStatement, indent = 0): string {
 }
 
 // --------------------
+// Simple statements
+// --------------------
+
+function generateVarDeclaration(decl: VarDeclaration, indent = 0): string {
+  const padding = ' '.repeat(indent);
+  if (decl.initializer) {
+    return `${padding}var ${decl.name} = ${genExpr(decl.initializer)}`;
+  }
+  return `${padding}var ${decl.name}`;
+}
+
+function generateAssignment(assign: Assignment, indent = 0): string {
+  const padding = ' '.repeat(indent);
+
+  // assign.target.ref is a Reference<VarDeclaration>, actual node is in .ref
+  const targetDecl = assign.target.ref.ref;
+  const targetName = targetDecl?.name ?? '/*unresolved*/';
+
+  return `${padding}${targetName} = ${genExpr(assign.value)}`;
+}
+
+// --------------------
 // Expression generation
 // --------------------
 
@@ -71,7 +105,11 @@ function genExpr(e: Expr): string {
   if (isIntLiteral(e)) return String(e.value);
   if (isBoolLiteral(e)) return String(e.value);
   if (isStringLiteral(e)) return String(e.value);
-  if (isVarRef(e)) return e.name;
+
+  if (isVarRef(e)) {
+    // e.ref is Reference<VarDeclaration>
+    return e.ref.ref?.name ?? '/*unresolved*/';
+  }
 
   if (isGrouping(e)) return `(${genExpr(e.value)})`;
   if (isNot(e)) return `(!${genExpr(e.value)})`;

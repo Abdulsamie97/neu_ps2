@@ -1,19 +1,32 @@
+// packages/language/src/pseudo2-validator.ts
+
 import type { ValidationAcceptor, ValidationChecks } from 'langium';
-import type { Pseudo2AstType , Block, IfStatement } from './generated/ast.js';
-import type { Pseudo2Services} from './pseudo2-module.js';
+import type {
+  Pseudo2AstType,
+  BracedBlock,
+  IndentedBlock,
+  IfStatement,
+  VarDeclaration,
+  Assignment
+} from './generated/ast.js';
+import type { Pseudo2Services } from './pseudo2-module.js';
 
 /**
  * Register custom validation checks.
  */
 export function registerValidationChecks(services: Pseudo2Services) {
-    const registry = services.validation.ValidationRegistry;
-    const validator = services.validation.Pseudo2Validator;
-    const checks: ValidationChecks<Pseudo2AstType> = {
-       // Person: validator.checkPersonStartsWithCapital
-        Block: validator.checkBlock,
-        IfStatement: validator.checkIfStatement
-    };
-    registry.register(checks, validator);
+  const registry = services.validation.ValidationRegistry;
+  const validator = services.validation.Pseudo2Validator;
+
+  const checks: ValidationChecks<Pseudo2AstType> = {
+    BracedBlock: validator.checkBracedBlock,
+    IndentedBlock: validator.checkIndentedBlock,
+    IfStatement: validator.checkIfStatement,
+    VarDeclaration: validator.checkVarDeclaration,
+    Assignment: validator.checkAssignment
+  };
+
+  registry.register(checks, validator);
 }
 
 /**
@@ -21,26 +34,29 @@ export function registerValidationChecks(services: Pseudo2Services) {
  */
 export class Pseudo2Validator {
 
-  checkBlock(node: Block, accept: ValidationAcceptor): void {
-    // Schritt 1: noch keine Regeln erzwingen.
-    // Optional (nur wenn du willst):
-    // if (node.instructions.length === 0) {
+  checkBracedBlock(node: BracedBlock, accept: ValidationAcceptor): void {
+    // Step 1: no rules yet
+    // Optional:
+    // if ((node.instructions ?? []).length === 0) {
     //   accept('warning', 'Leerer Block.', { node });
     // }
   }
-  
-  checkIfStatement(node: IfStatement, accept: ValidationAcceptor): void {
-    // Step 2: keine Regeln erzwingen
-    // optional später: warn, wenn thenBlock leer etc.
+
+  checkIndentedBlock(node: IndentedBlock, accept: ValidationAcceptor): void {
+    // Step 1: no rules yet
   }
 
-/*  checkPersonStartsWithCapital(person: Person, accept: ValidationAcceptor): void {
-        if (person.name) {
-            const firstChar = person.name.substring(0, 1);
-            if (firstChar.toUpperCase() !== firstChar) {
-                accept('warning', 'Person name should start with a capital.', { node: person, property: 'name' });
-            }
-        }
-    }
-*/
+  checkIfStatement(node: IfStatement, accept: ValidationAcceptor): void {
+    // Step 2: no rules yet
+  }
+
+  checkVarDeclaration(node: VarDeclaration, accept: ValidationAcceptor): void {
+    // Step 3: no rules yet (later: warn on shadowing, unused vars, etc.)
+  }
+
+  checkAssignment(node: Assignment, accept: ValidationAcceptor): void {
+    // Step 3: no rules yet
+    // Optional example:
+    // if (!node.target.ref.ref) accept('error', 'Unbekannte Variable.', { node: node.target, property: 'ref' });
+  }
 }

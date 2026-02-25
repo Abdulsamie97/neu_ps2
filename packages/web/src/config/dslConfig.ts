@@ -32,9 +32,9 @@ export const createLangiumGlobalConfig = (params: {
     extensionFilesOrContents.set(`/${params.languageServerId}-dsl-grammar.json`, responseDslTm);
 
     const languageClientConfig: LanguageClientConfig = {
-        languageId: 'hello-world',  //TBC
+        languageId: 'pseudo2',  //TBC
         clientOptions: {
-            documentSelector: ['hello-world']  //TBC
+            documentSelector: ['pseudo2']  //TBC
         },
         connection: {
             options: {
@@ -71,7 +71,7 @@ export const createLangiumGlobalConfig = (params: {
         },
         extensions: [{
             config: {
-                name: 'hello-world-example', //TBC
+                name: 'pseudo2-example', //TBC
                 publisher: 'typefox',  //TBC
                 version: '1.0.0',  //TBC
                 engines: {
@@ -80,14 +80,14 @@ export const createLangiumGlobalConfig = (params: {
                 contributes: {
                     // should correspond with  "contributes"-section in ../extension/package.json
                     languages: [{
-                        id: 'hello-world',  //TBC
-                        extensions: ['.hello'],  //TBC
-                        aliases: ['hello-world', 'HelloWorld'],  //TBC
+                        id: 'pseudo2',  //TBC
+                        extensions: ['.pseudo2'],  //TBC
+                        aliases: ['pseudo2', 'Pseudo2'],  //TBC
                         configuration: `./${params.languageServerId}-dsl-configuration.json`
                     }],
                     grammars: [{
-                        language: 'hello-world',  //TBC
-                        scopeName: 'source.hello-world',  //TBC
+                        language: 'pseudo2',  //TBC
+                        scopeName: 'source.pseudo2',  //TBC
                         path: `./${params.languageServerId}-dsl-grammar.json`
                     }]
                 }

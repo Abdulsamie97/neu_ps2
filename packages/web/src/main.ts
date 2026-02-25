@@ -41,7 +41,7 @@ const startEditor = async () => {
         languageServerId: 'first',
         codeContent: {
             text,
-            uri: '/workspace/example.hello'   //TBC  (suffix might be important)
+            uri: '/workspace/example.pseudo2'   //TBC  (suffix might be important)
         },
         worker,
         messageTransports: { reader, writer },
@@ -121,7 +121,7 @@ const loadWorkerRegular = () => {
     console.log(`Langium worker URL: ${workerUrl}`);
     return new Worker(workerUrl, {
         type: 'module',
-        name: 'HelloWorld Server Regular',  //TBC
+        name: 'Pseudo2 Server Regular',  //TBC
     });
 };
 

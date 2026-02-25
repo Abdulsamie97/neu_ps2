@@ -9,4 +9,4 @@ import { start } from './dsl-server-start.js';
 
 declare const self: DedicatedWorkerGlobalScope;
 
-start(self, 'helloworld-server');  //TBC  
+start(self, 'pseudo2-server');  //TBC  

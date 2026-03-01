@@ -4,6 +4,7 @@ import type {
   BracedBlock,
   IndentedBlock,
   IfStatement,
+  WhileLoop,
   Instruction,
   Program,
   Expr,
@@ -15,6 +16,7 @@ import {
   isBracedBlock,
   isIndentedBlock,
   isIfStatement,
+  isWhileLoop,
   isVarDeclaration,
   isAssignment,
 
@@ -34,6 +36,10 @@ function generateInstruction(instruction: Instruction, indent = 0): string {
 
   if (isIfStatement(instruction)) {
     return generateIfStatement(instruction, indent);
+  }
+
+  if (isWhileLoop(instruction)) {
+    return generateWhileLoop(instruction, indent);
   }
 
   if (isVarDeclaration(instruction)) {
@@ -75,6 +81,13 @@ function generateIfStatement(ifStatement: IfStatement, indent = 0): string {
   return `${padding}if (${condition}) ${thenBlock}${elsePart}`;
 }
 
+function generateWhileLoop(loop: WhileLoop, indent = 0): string {
+  const padding = ' '.repeat(indent);
+  const condition = genExpr(loop.condition);
+  const body = generateBlock(loop.body, indent);
+  return `${padding}while (${condition}) ${body}`;
+}
+
 // --------------------
 // Simple statements
 // --------------------
@@ -90,7 +103,6 @@ function generateVarDeclaration(decl: VarDeclaration, indent = 0): string {
 function generateAssignment(assign: Assignment, indent = 0): string {
   const padding = ' '.repeat(indent);
 
-  // assign.target.ref is a Reference<VarDeclaration>, actual node is in .ref
   const targetDecl = assign.target.ref.ref;
   const targetName = targetDecl?.name ?? '/*unresolved*/';
 
@@ -107,7 +119,6 @@ function genExpr(e: Expr): string {
   if (isStringLiteral(e)) return String(e.value);
 
   if (isVarRef(e)) {
-    // e.ref is Reference<VarDeclaration>
     return e.ref.ref?.name ?? '/*unresolved*/';
   }
 
@@ -115,7 +126,6 @@ function genExpr(e: Expr): string {
   if (isNot(e)) return `(!${genExpr(e.value)})`;
   if (isNeg(e)) return `(-${genExpr(e.value)})`;
 
-  // Chain nodes:
   if (isOr(e)) return genChain(genExpr(e.left), '||', e.right);
   if (isAnd(e)) return genChain(genExpr(e.left), '&&', e.right);
 

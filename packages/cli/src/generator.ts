@@ -1,7 +1,10 @@
+// packages/cli/src/generator.ts
+
 import type {
   Program,
   Instruction,
   IfStatement,
+  WhileLoop,
   Expr,
   VarDeclaration,
   Assignment
@@ -11,6 +14,7 @@ import {
   isBracedBlock,
   isIndentedBlock,
   isIfStatement,
+  isWhileLoop,
   isVarDeclaration,
   isAssignment,
 
@@ -45,7 +49,9 @@ export function generate(programAst: Program, filePath: string, destination: str
 function genInstruction(i: Instruction, indent = ''): string {
   if (isBracedBlock(i)) return genBracedBlock(i, indent);
   if (isIndentedBlock(i)) return genIndentedBlock(i, indent);
+
   if (isIfStatement(i)) return genIfStatement(i, indent);
+  if (isWhileLoop(i)) return genWhileLoop(i, indent);
 
   if (isVarDeclaration(i)) return genVarDeclaration(i, indent);
   if (isAssignment(i)) return genAssignment(i, indent);
@@ -83,6 +89,12 @@ function genIfStatement(n: IfStatement, indent = ''): string {
   return out;
 }
 
+function genWhileLoop(w: WhileLoop, indent = ''): string {
+  let out = `${indent}while (${genExpr(w.condition)}) `;
+  out += genBlockAny(w.body, indent);
+  return out;
+}
+
 function genVarDeclaration(n: VarDeclaration, indent = ''): string {
   if (n.initializer) {
     return `${indent}var ${n.name} = ${genExpr(n.initializer)}\n`;
@@ -96,7 +108,7 @@ function genAssignment(n: Assignment, indent = ''): string {
 }
 
 // --------------------
-// Expression generation (matches your current AST shape)
+// Expression generation
 // --------------------
 
 function genExpr(e: Expr): string {

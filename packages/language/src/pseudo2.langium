@@ -15,6 +15,7 @@ Instruction:
 CompoundInstruction:
     Block
   | IfStatement
+  | WhileLoop
 ;
 
 SimpleStatement:
@@ -65,6 +66,14 @@ IfStatement:
   'if' condition=Expression thenBlock=Block
   ('else' elseBlock=Block)?
 ;
+
+// ======================================================
+// While Loop
+// ======================================================
+WhileLoop:
+  'while' condition=Expression body=Block
+;
+
 
 // ======================================================
 // Expression AST types (strict-friendly)

@@ -16,6 +16,8 @@ CompoundInstruction:
     Block
   | IfStatement
   | WhileLoop
+  | ForLoop
+  | DoWhileLoop
 ;
 
 SimpleStatement:
@@ -41,17 +43,26 @@ IndentedBlock:
 ;
 
 // ======================================================
+// Explicit statement-related AST types (strict-friendly)
+// ======================================================
+
+interface VarDecl {
+  name: string
+  initializer?: Expr
+}
+
+interface IdentifierRef { ref: @VarDecl }
+
+// ======================================================
 // Variables: declaration & assignment (Xtext-style)
 // ======================================================
 
-VarDeclaration:
+VarDeclaration returns VarDecl:
   'var' name=ID ('=' initializer=Expression)?
 ;
 
-interface IdentifierRef { ref: @VarDeclaration }
-
 IdentifierRefRule returns IdentifierRef:
-  ref=[VarDeclaration:ID]
+  ref=[VarDecl:ID]
 ;
 
 Assignment:
@@ -70,10 +81,33 @@ IfStatement:
 // ======================================================
 // While Loop
 // ======================================================
+
 WhileLoop:
   'while' condition=Expression body=Block
 ;
 
+// ======================================================
+// For / DoWhile (Xtext-compatible)
+// ======================================================
+
+ForLoop:
+  'for'
+  (iterator=LengthParameter '=' )?
+  from=Expression
+  direction=('to' | 'downto')
+  to=Expression
+  ('by' step=Expression)?
+  body=Block
+;
+
+// Xtext: LengthParameter returns VariableDeclaration
+LengthParameter returns VarDecl:
+  name=ID
+;
+
+DoWhileLoop:
+  'do' body=Block 'while' condition=Expression
+;
 
 // ======================================================
 // Expression AST types (strict-friendly)
@@ -124,7 +158,7 @@ interface IntLiteral extends Expr { value: number }
 interface BoolLiteral extends Expr { value: 'true' | 'false' }
 interface StringLiteral extends Expr { value: string }
 
-interface VarRef extends Expr { ref: @VarDeclaration }
+interface VarRef extends Expr { ref: @VarDecl }
 
 // ======================================================
 // Expressions (precedence ladder)
@@ -197,7 +231,7 @@ StringLit returns StringLiteral:
 ;
 
 VarRefRule returns VarRef:
-  ref=[VarDeclaration:ID]
+  ref=[VarDecl:ID]
 ;
 
 // ======================================================

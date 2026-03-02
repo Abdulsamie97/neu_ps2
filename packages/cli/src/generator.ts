@@ -5,8 +5,10 @@ import type {
   Instruction,
   IfStatement,
   WhileLoop,
+  ForLoop,
+  DoWhileLoop,
   Expr,
-  VarDeclaration,
+  VarDecl,
   Assignment
 } from 'pseudo2-language';
 
@@ -15,7 +17,9 @@ import {
   isIndentedBlock,
   isIfStatement,
   isWhileLoop,
-  isVarDeclaration,
+  isForLoop,
+  isDoWhileLoop,
+  isVarDecl,
   isAssignment,
 
   isOr, isAnd, isEquality, isComparison, isAddition, isMultiplication,
@@ -52,8 +56,10 @@ function genInstruction(i: Instruction, indent = ''): string {
 
   if (isIfStatement(i)) return genIfStatement(i, indent);
   if (isWhileLoop(i)) return genWhileLoop(i, indent);
+  if (isForLoop(i)) return genForLoop(i, indent);
+  if (isDoWhileLoop(i)) return genDoWhileLoop(i, indent);
 
-  if (isVarDeclaration(i)) return genVarDeclaration(i, indent);
+  if (isVarDecl(i)) return genVarDecl(i, indent);
   if (isAssignment(i)) return genAssignment(i, indent);
 
   return `${indent}// TODO: instruction\n`;
@@ -95,7 +101,33 @@ function genWhileLoop(w: WhileLoop, indent = ''): string {
   return out;
 }
 
-function genVarDeclaration(n: VarDeclaration, indent = ''): string {
+function genForLoop(loop: ForLoop, indent = ''): string {
+  const from = genExpr(loop.from);
+  const to = genExpr(loop.to);
+  const step = loop.step ? genExpr(loop.step) : '1';
+
+  const iterName = loop.iterator?.name ?? null;
+  if (!iterName) {
+    let out = `${indent}// TODO: for-loop without iterator is not supported in JS output\n`;
+    out += `${indent}// for ${from} ${loop.direction} ${to} by ${step}\n`;
+    out += genBlockAny(loop.body, indent);
+    return out;
+  }
+
+  if (loop.direction === 'to') {
+    return `${indent}for (let ${iterName} = ${from}; ${iterName} <= ${to}; ${iterName} += ${step}) ` +
+           genBlockAny(loop.body, indent);
+  } else {
+    return `${indent}for (let ${iterName} = ${from}; ${iterName} >= ${to}; ${iterName} -= ${step}) ` +
+           genBlockAny(loop.body, indent);
+  }
+}
+
+function genDoWhileLoop(loop: DoWhileLoop, indent = ''): string {
+  return `${indent}do ` + genBlockAny(loop.body, indent) + `${indent}while (${genExpr(loop.condition)});\n`;
+}
+
+function genVarDecl(n: VarDecl, indent = ''): string {
   if (n.initializer) {
     return `${indent}var ${n.name} = ${genExpr(n.initializer)}\n`;
   }

@@ -5,10 +5,12 @@ import type {
   IndentedBlock,
   IfStatement,
   WhileLoop,
+  ForLoop,
+  DoWhileLoop,
   Instruction,
   Program,
   Expr,
-  VarDeclaration,
+  VarDecl,
   Assignment
 } from './generated/ast.js';
 
@@ -17,7 +19,9 @@ import {
   isIndentedBlock,
   isIfStatement,
   isWhileLoop,
-  isVarDeclaration,
+  isForLoop,
+  isDoWhileLoop,
+  isVarDecl,
   isAssignment,
 
   isOr, isAnd, isEquality, isComparison, isAddition, isMultiplication,
@@ -42,8 +46,16 @@ function generateInstruction(instruction: Instruction, indent = 0): string {
     return generateWhileLoop(instruction, indent);
   }
 
-  if (isVarDeclaration(instruction)) {
-    return generateVarDeclaration(instruction, indent);
+  if (isForLoop(instruction)) {
+    return generateForLoop(instruction, indent);
+  }
+
+  if (isDoWhileLoop(instruction)) {
+    return generateDoWhileLoop(instruction, indent);
+  }
+
+  if (isVarDecl(instruction)) {
+    return generateVarDecl(instruction, indent);
   }
 
   if (isAssignment(instruction)) {
@@ -88,11 +100,40 @@ function generateWhileLoop(loop: WhileLoop, indent = 0): string {
   return `${padding}while (${condition}) ${body}`;
 }
 
+function generateForLoop(loop: ForLoop, indent = 0): string {
+  const padding = ' '.repeat(indent);
+
+  const from = genExpr(loop.from);
+  const to = genExpr(loop.to);
+  const step = loop.step ? genExpr(loop.step) : '1';
+  const body = generateBlock(loop.body, indent);
+
+  const iterName = loop.iterator?.name ?? null;
+  if (!iterName) {
+    return `${padding}// TODO: for-loop without iterator is not supported in JS output\n` +
+           `${padding}// for ${from} ${loop.direction} ${to} by ${step}\n` +
+           `${padding}${body}\n`;
+  }
+
+  if (loop.direction === 'to') {
+    return `${padding}for (let ${iterName} = ${from}; ${iterName} <= ${to}; ${iterName} += ${step}) ${body}`;
+  } else {
+    return `${padding}for (let ${iterName} = ${from}; ${iterName} >= ${to}; ${iterName} -= ${step}) ${body}`;
+  }
+}
+
+function generateDoWhileLoop(loop: DoWhileLoop, indent = 0): string {
+  const padding = ' '.repeat(indent);
+  const body = generateBlock(loop.body, indent);
+  const condition = genExpr(loop.condition);
+  return `${padding}do ${body} while (${condition})`;
+}
+
 // --------------------
 // Simple statements
 // --------------------
 
-function generateVarDeclaration(decl: VarDeclaration, indent = 0): string {
+function generateVarDecl(decl: VarDecl, indent = 0): string {
   const padding = ' '.repeat(indent);
   if (decl.initializer) {
     return `${padding}var ${decl.name} = ${genExpr(decl.initializer)}`;

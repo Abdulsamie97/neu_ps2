@@ -6,7 +6,10 @@ import type {
   BracedBlock,
   IndentedBlock,
   IfStatement,
-  VarDeclaration,
+  WhileLoop,
+  ForLoop,
+  DoWhileLoop,
+  VarDecl,
   Assignment
 } from './generated/ast.js';
 import type { Pseudo2Services } from './pseudo2-module.js';
@@ -21,8 +24,13 @@ export function registerValidationChecks(services: Pseudo2Services) {
   const checks: ValidationChecks<Pseudo2AstType> = {
     BracedBlock: validator.checkBracedBlock,
     IndentedBlock: validator.checkIndentedBlock,
+
     IfStatement: validator.checkIfStatement,
-    VarDeclaration: validator.checkVarDeclaration,
+    WhileLoop: validator.checkWhileLoop,
+    ForLoop: validator.checkForLoop,
+    DoWhileLoop: validator.checkDoWhileLoop,
+
+    VarDecl: validator.checkVarDecl,
     Assignment: validator.checkAssignment
   };
 
@@ -35,28 +43,37 @@ export function registerValidationChecks(services: Pseudo2Services) {
 export class Pseudo2Validator {
 
   checkBracedBlock(node: BracedBlock, accept: ValidationAcceptor): void {
-    // Step 1: no rules yet
-    // Optional:
-    // if ((node.instructions ?? []).length === 0) {
-    //   accept('warning', 'Leerer Block.', { node });
-    // }
+    // no rules yet
   }
 
   checkIndentedBlock(node: IndentedBlock, accept: ValidationAcceptor): void {
-    // Step 1: no rules yet
+    // no rules yet
   }
 
   checkIfStatement(node: IfStatement, accept: ValidationAcceptor): void {
-    // Step 2: no rules yet
+    // no rules yet
   }
 
-  checkVarDeclaration(node: VarDeclaration, accept: ValidationAcceptor): void {
-    // Step 3: no rules yet (later: warn on shadowing, unused vars, etc.)
+  checkWhileLoop(node: WhileLoop, accept: ValidationAcceptor): void {
+    // no rules yet
+  }
+
+  checkForLoop(node: ForLoop, accept: ValidationAcceptor): void {
+    // no rules yet
+    // Optional: warn if iterator missing
+    // if (!node.iterator) accept('warning', 'For-Schleife ohne Iterator.', { node, property: 'iterator' });
+  }
+
+  checkDoWhileLoop(node: DoWhileLoop, accept: ValidationAcceptor): void {
+    // no rules yet
+  }
+
+  checkVarDecl(node: VarDecl, accept: ValidationAcceptor): void {
+    // no rules yet
   }
 
   checkAssignment(node: Assignment, accept: ValidationAcceptor): void {
-    // Step 3: no rules yet
-    // Optional example:
+    // Optional:
     // if (!node.target.ref.ref) accept('error', 'Unbekannte Variable.', { node: node.target, property: 'ref' });
   }
 }

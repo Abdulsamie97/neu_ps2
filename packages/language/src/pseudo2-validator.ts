@@ -9,8 +9,15 @@ import type {
   WhileLoop,
   ForLoop,
   DoWhileLoop,
+  FunctionDeclaration,
+  FunctionCall,
+  ReturnStmt,
   VarDecl,
-  Assignment
+  Assignment,
+  // NEW: because references now point to the common base type
+  Variable,
+  IdentifierRef,
+  VarRef
 } from './generated/ast.js';
 import type { Pseudo2Services } from './pseudo2-module.js';
 
@@ -30,8 +37,19 @@ export function registerValidationChecks(services: Pseudo2Services) {
     ForLoop: validator.checkForLoop,
     DoWhileLoop: validator.checkDoWhileLoop,
 
+    FunctionDeclaration: validator.checkFunctionDeclaration,
+    FunctionCall: validator.checkFunctionCall,
+    ReturnStmt: validator.checkReturnStmt,
+
+    // Variable base type: optional checks, useful for duplicates etc.
+    Variable: validator.checkVariable,
+
     VarDecl: validator.checkVarDecl,
-    Assignment: validator.checkAssignment
+    Assignment: validator.checkAssignment,
+
+    // Optional: explicit checks for unresolved refs (nicer messages)
+    IdentifierRef: validator.checkIdentifierRef,
+    VarRef: validator.checkVarRef
   };
 
   registry.register(checks, validator);
@@ -59,7 +77,6 @@ export class Pseudo2Validator {
   }
 
   checkForLoop(node: ForLoop, accept: ValidationAcceptor): void {
-    // no rules yet
     // Optional: warn if iterator missing
     // if (!node.iterator) accept('warning', 'For-Schleife ohne Iterator.', { node, property: 'iterator' });
   }
@@ -68,12 +85,45 @@ export class Pseudo2Validator {
     // no rules yet
   }
 
+  checkFunctionDeclaration(node: FunctionDeclaration, accept: ValidationAcceptor): void {
+    // no rules yet
+  }
+
+  checkFunctionCall(node: FunctionCall, accept: ValidationAcceptor): void {
+    // Better error than default unresolved ref (optional but helpful)
+    if (node.f && !node.f.ref) {
+      accept('error', 'Unbekannte Funktion.', { node, property: 'f' });
+    }
+  }
+
+  checkReturnStmt(node: ReturnStmt, accept: ValidationAcceptor): void {
+    // no rules yet (later: ensure return only inside functions)
+  }
+
+  checkVariable(node: Variable, accept: ValidationAcceptor): void {
+    // no rules yet (later: shadowing/duplicates in same scope)
+  }
+
   checkVarDecl(node: VarDecl, accept: ValidationAcceptor): void {
     // no rules yet
   }
 
   checkAssignment(node: Assignment, accept: ValidationAcceptor): void {
-    // Optional:
-    // if (!node.target.ref.ref) accept('error', 'Unbekannte Variable.', { node: node.target, property: 'ref' });
+    // assignment target is IdentifierRef -> Variable reference
+    if (node.target?.ref && !node.target.ref.ref) {
+      accept('error', 'Unbekannte Variable.', { node: node.target, property: 'ref' });
+    }
+  }
+
+  checkIdentifierRef(node: IdentifierRef, accept: ValidationAcceptor): void {
+    if (node.ref && !node.ref.ref) {
+      accept('error', 'Unbekannte Variable.', { node, property: 'ref' });
+    }
+  }
+
+  checkVarRef(node: VarRef, accept: ValidationAcceptor): void {
+    if (node.ref && !node.ref.ref) {
+      accept('error', 'Unbekannte Variable.', { node, property: 'ref' });
+    }
   }
 }

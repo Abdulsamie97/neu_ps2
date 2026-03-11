@@ -7,6 +7,9 @@ import type {
   WhileLoop,
   ForLoop,
   DoWhileLoop,
+  FunctionDeclaration,
+  FunctionCall,
+  ReturnStmt,
   Instruction,
   Program,
   Expr,
@@ -21,6 +24,9 @@ import {
   isWhileLoop,
   isForLoop,
   isDoWhileLoop,
+  isFunctionDeclaration,
+  isFunctionCall,
+  isReturnStmt,
   isVarDecl,
   isAssignment,
 
@@ -54,12 +60,24 @@ function generateInstruction(instruction: Instruction, indent = 0): string {
     return generateDoWhileLoop(instruction, indent);
   }
 
+  if (isFunctionDeclaration(instruction)) {
+    return generateFunctionDeclaration(instruction, indent);
+  }
+
   if (isVarDecl(instruction)) {
     return generateVarDecl(instruction, indent);
   }
 
   if (isAssignment(instruction)) {
     return generateAssignment(instruction, indent);
+  }
+
+  if (isFunctionCall(instruction)) {
+    return generateFunctionCall(instruction, indent);
+  }
+
+  if (isReturnStmt(instruction)) {
+    return generateReturnStatement(instruction, indent);
   }
 
   return '';
@@ -130,6 +148,33 @@ function generateDoWhileLoop(loop: DoWhileLoop, indent = 0): string {
 }
 
 // --------------------
+// Functions
+// --------------------
+
+function generateFunctionDeclaration(fn: FunctionDeclaration, indent = 0): string {
+  const padding = ' '.repeat(indent);
+  const params = (fn.params ?? []).map(p => p.name).join(', ');
+  const body = generateBlock(fn.body, indent);
+  return `${padding}function ${fn.name}(${params}) ${body}`;
+}
+
+function generateFunctionCall(call: FunctionCall, indent = 0): string {
+  const padding = ' '.repeat(indent);
+  // call.f is Reference<FunctionDeclaration>
+  const fnName = call.f?.ref?.name ?? '/*unresolved*/';
+  const args = (call.params ?? []).map(p => genExpr(p)).join(', ');
+  return `${padding}${fnName}(${args})`;
+}
+
+function generateReturnStatement(ret: ReturnStmt, indent = 0): string {
+  const padding = ' '.repeat(indent);
+  if (ret.retExpr) {
+    return `${padding}return ${genExpr(ret.retExpr)}`;
+  }
+  return `${padding}return`;
+}
+
+// --------------------
 // Simple statements
 // --------------------
 
@@ -144,9 +189,8 @@ function generateVarDecl(decl: VarDecl, indent = 0): string {
 function generateAssignment(assign: Assignment, indent = 0): string {
   const padding = ' '.repeat(indent);
 
-  const targetDecl = assign.target.ref.ref;
-  const targetName = targetDecl?.name ?? '/*unresolved*/';
-
+  // assign.target.ref is Reference<Variable> now (Variable is the common base)
+  const targetName = assign.target.ref?.ref?.name ?? '/*unresolved*/';
   return `${padding}${targetName} = ${genExpr(assign.value)}`;
 }
 
@@ -172,6 +216,12 @@ function genExpr(e: Expr): string {
 
   if (isEquality(e) || isComparison(e) || isAddition(e) || isMultiplication(e)) {
     return genOpChain(genExpr(e.left), e.op ?? [], e.right ?? []);
+  }
+
+  if (isFunctionCall(e)) {
+    const fnName = e.f?.ref?.name ?? '/*unresolved*/';
+    const args = (e.params ?? []).map(p => genExpr(p)).join(', ');
+    return `${fnName}(${args})`;
   }
 
   return '/*expr*/';

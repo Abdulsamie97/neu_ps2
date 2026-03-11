@@ -18,11 +18,14 @@ CompoundInstruction:
   | WhileLoop
   | ForLoop
   | DoWhileLoop
+  | FunctionDeclaration
 ;
 
 SimpleStatement:
     VarDeclaration
   | Assignment
+  | FunctionCall
+  | ReturnStatement
 ;
 
 // ======================================================
@@ -38,23 +41,13 @@ BracedBlock:
   '{' instructions+=Instruction* '}'
 ;
 
+// Instruction* caused an error (keep +)
 IndentedBlock:
   INDENT instructions+=Instruction+ DEDENT
 ;
 
 // ======================================================
-// Explicit statement-related AST types (strict-friendly)
-// ======================================================
-
-interface VarDecl {
-  name: string
-  initializer?: Expr
-}
-
-interface IdentifierRef { ref: @VarDecl }
-
-// ======================================================
-// Variables: declaration & assignment (Xtext-style)
+// Variables: declaration & assignment
 // ======================================================
 
 VarDeclaration returns VarDecl:
@@ -62,7 +55,7 @@ VarDeclaration returns VarDecl:
 ;
 
 IdentifierRefRule returns IdentifierRef:
-  ref=[VarDecl:ID]
+  ref=[Variable:ID]
 ;
 
 Assignment:
@@ -87,7 +80,7 @@ WhileLoop:
 ;
 
 // ======================================================
-// For / DoWhile (Xtext-compatible)
+// For / DoWhile
 // ======================================================
 
 ForLoop:
@@ -100,7 +93,6 @@ ForLoop:
   body=Block
 ;
 
-// Xtext: LengthParameter returns VariableDeclaration
 LengthParameter returns VarDecl:
   name=ID
 ;
@@ -110,7 +102,31 @@ DoWhileLoop:
 ;
 
 // ======================================================
-// Expression AST types (strict-friendly)
+// Functions
+// ======================================================
+
+FunctionDeclaration:
+  (keyword?='func')? name=ID
+  '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+  body=Block
+;
+
+Parameter returns ParameterDecl:
+  name=ID
+;
+
+FunctionCall:
+  f=[FunctionDeclaration:ID]
+  '(' (params+=Expression (',' params+=Expression)*)? ')'
+;
+
+// Langium strict-friendly return statement
+ReturnStatement returns ReturnStmt:
+  'return' retExpr=Expression?
+;
+
+// ======================================================
+// Expression AST types (wegen langium strict mode)
 // ======================================================
 
 interface Expr {}
@@ -158,10 +174,39 @@ interface IntLiteral extends Expr { value: number }
 interface BoolLiteral extends Expr { value: 'true' | 'false' }
 interface StringLiteral extends Expr { value: string }
 
-interface VarRef extends Expr { ref: @VarDecl }
+interface VarRef extends Expr { ref: @Variable }
 
 // ======================================================
-// Expressions (precedence ladder)
+// Variable-related AST types (common for VarDecl + ParameterDecl)
+// ======================================================
+
+interface Variable {
+  name: string
+}
+
+// ======================================================
+// Explicit statement-related AST types
+// ======================================================
+
+interface VarDecl extends Variable {
+  initializer?: Expr
+}
+
+interface IdentifierRef { ref: @Variable }
+
+// ======================================================
+// Function-related AST types
+// ======================================================
+
+interface ParameterDecl extends Variable {
+}
+
+interface ReturnStmt {
+  retExpr?: Expr
+}
+
+// ======================================================
+// Expressions
 // ======================================================
 
 Expression returns Expr:
@@ -212,6 +257,7 @@ Primary returns Expr:
   | BoolLit
   | StringLit
   | VarRefRule
+  | FunctionCall
 ;
 
 GroupingRule returns Grouping:
@@ -231,11 +277,11 @@ StringLit returns StringLiteral:
 ;
 
 VarRefRule returns VarRef:
-  ref=[VarDecl:ID]
+  ref=[Variable:ID]
 ;
 
 // ======================================================
-// Terminals (ORDER MATTERS for indentation lexer!)
+// Terminals
 // ======================================================
 
 terminal INDENT: 'synthetic:indent';

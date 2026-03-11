@@ -7,6 +7,9 @@ import type {
   WhileLoop,
   ForLoop,
   DoWhileLoop,
+  FunctionDeclaration,
+  FunctionCall,
+  ReturnStmt,
   Expr,
   VarDecl,
   Assignment
@@ -19,6 +22,9 @@ import {
   isWhileLoop,
   isForLoop,
   isDoWhileLoop,
+  isFunctionDeclaration,
+  isFunctionCall,
+  isReturnStmt,
   isVarDecl,
   isAssignment,
 
@@ -58,6 +64,10 @@ function genInstruction(i: Instruction, indent = ''): string {
   if (isWhileLoop(i)) return genWhileLoop(i, indent);
   if (isForLoop(i)) return genForLoop(i, indent);
   if (isDoWhileLoop(i)) return genDoWhileLoop(i, indent);
+
+  if (isFunctionDeclaration(i)) return genFunctionDeclaration(i, indent);
+  if (isFunctionCall(i)) return genFunctionCall(i, indent);
+  if (isReturnStmt(i)) return genReturnStmt(i, indent);
 
   if (isVarDecl(i)) return genVarDecl(i, indent);
   if (isAssignment(i)) return genAssignment(i, indent);
@@ -127,6 +137,27 @@ function genDoWhileLoop(loop: DoWhileLoop, indent = ''): string {
   return `${indent}do ` + genBlockAny(loop.body, indent) + `${indent}while (${genExpr(loop.condition)});\n`;
 }
 
+// --------------------
+// Functions
+// --------------------
+
+function genFunctionDeclaration(fn: FunctionDeclaration, indent = ''): string {
+  const params = (fn.params ?? []).map(p => p.name).join(', ');
+  return `${indent}function ${fn.name}(${params}) ` + genBlockAny(fn.body, indent);
+}
+
+function genFunctionCall(call: FunctionCall, indent = ''): string {
+  // call.f is Reference<FunctionDeclaration>
+  const fnName = call.f?.ref?.name ?? '/*unresolved*/';
+  const args = (call.params ?? []).map(p => genExpr(p)).join(', ');
+  return `${indent}${fnName}(${args})\n`;
+}
+
+function genReturnStmt(ret: ReturnStmt, indent = ''): string {
+  if (ret.retExpr) return `${indent}return ${genExpr(ret.retExpr)}\n`;
+  return `${indent}return\n`;
+}
+
 function genVarDecl(n: VarDecl, indent = ''): string {
   if (n.initializer) {
     return `${indent}var ${n.name} = ${genExpr(n.initializer)}\n`;
@@ -135,6 +166,7 @@ function genVarDecl(n: VarDecl, indent = ''): string {
 }
 
 function genAssignment(n: Assignment, indent = ''): string {
+  // n.target.ref is Reference<Variable>
   const targetName = n.target.ref?.ref?.name ?? '/*unresolved*/';
   return `${indent}${targetName} = ${genExpr(n.value)}\n`;
 }
@@ -159,6 +191,12 @@ function genExpr(e: Expr): string {
 
   if (isEquality(e) || isComparison(e) || isAddition(e) || isMultiplication(e)) {
     return genOpChain(genExpr(e.left), e.op ?? [], e.right ?? []);
+  }
+
+  if (isFunctionCall(e)) {
+    const fnName = e.f?.ref?.name ?? '/*unresolved*/';
+    const args = (e.params ?? []).map(p => genExpr(p)).join(', ');
+    return `${fnName}(${args})`;
   }
 
   return '/*expr*/';

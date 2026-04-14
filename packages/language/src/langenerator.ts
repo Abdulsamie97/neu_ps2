@@ -14,7 +14,12 @@ import type {
   Program,
   Expr,
   VarDecl,
-  Assignment
+  Assignment,
+  StructDeclaration,
+  ExprStatement,
+  VarRef,
+  AttSelection,
+  MethSelection
 } from './generated/ast.js';
 
 import {
@@ -29,14 +34,32 @@ import {
   isReturnStmt,
   isVarDecl,
   isAssignment,
+  isStructDeclaration,
+  isExprStatement,
 
-  isOr, isAnd, isEquality, isComparison, isAddition, isMultiplication,
-  isNot, isNeg,
-  isGrouping, isIntLiteral, isBoolLiteral, isStringLiteral, isVarRef
+  isOr,
+  isAnd,
+  isEquality,
+  isComparison,
+  isAddition,
+  isMultiplication,
+  isNot,
+  isNeg,
+  isGrouping,
+  isIntLiteral,
+  isBoolLiteral,
+  isStringLiteral,
+  isNullLiteral,
+  isNewExpr,
+  isThisExpr,
+  isVarRef,
+  isAttSelection,
+  isMethSelection,
+  isStructAttDeclaration
 } from './generated/ast.js';
 
 export function generateProgram(program: Program): string {
-  return program.instructions.map(i => generateInstruction(i)).join('\n');
+  return program.instructions.map(i => generateInstruction(i)).filter(Boolean).join('\n\n');
 }
 
 function generateInstruction(instruction: Instruction, indent = 0): string {
@@ -60,6 +83,10 @@ function generateInstruction(instruction: Instruction, indent = 0): string {
     return generateDoWhileLoop(instruction, indent);
   }
 
+  if (isStructDeclaration(instruction)) {
+    return generateStructDeclaration(instruction, indent);
+  }
+
   if (isFunctionDeclaration(instruction)) {
     return generateFunctionDeclaration(instruction, indent);
   }
@@ -80,19 +107,24 @@ function generateInstruction(instruction: Instruction, indent = 0): string {
     return generateReturnStatement(instruction, indent);
   }
 
+  if (isExprStatement(instruction)) {
+    return generateExprStatement(instruction, indent);
+  }
+
   return '';
 }
 
 function generateBlock(block: BracedBlock | IndentedBlock, indent = 0): string {
   const padding = ' '.repeat(indent);
-
   const body = block.instructions ?? [];
+
   if (body.length === 0) {
     return `${padding}{}`;
   }
 
   const nested = body
     .map(instruction => generateInstruction(instruction, indent + 2))
+    .filter(Boolean)
     .join('\n');
 
   return `${padding}{\n${nested}\n${padding}}`;
@@ -100,7 +132,6 @@ function generateBlock(block: BracedBlock | IndentedBlock, indent = 0): string {
 
 function generateIfStatement(ifStatement: IfStatement, indent = 0): string {
   const padding = ' '.repeat(indent);
-
   const condition = genExpr(ifStatement.condition);
   const thenBlock = generateBlock(ifStatement.thenBlock, indent);
 
@@ -128,9 +159,11 @@ function generateForLoop(loop: ForLoop, indent = 0): string {
 
   const iterName = loop.iterator?.name ?? null;
   if (!iterName) {
-    return `${padding}// TODO: for-loop without iterator is not supported in JS output\n` +
-           `${padding}// for ${from} ${loop.direction} ${to} by ${step}\n` +
-           `${padding}${body}\n`;
+    return (
+      `${padding}// TODO: for-loop without iterator is not supported in JS output\n` +
+      `${padding}// for ${from} ${loop.direction} ${to} by ${step}\n` +
+      `${padding}${body}\n`
+    );
   }
 
   if (loop.direction === 'to') {
@@ -148,6 +181,38 @@ function generateDoWhileLoop(loop: DoWhileLoop, indent = 0): string {
 }
 
 // --------------------
+// Structs
+// --------------------
+
+function generateStructDeclaration(structDecl: StructDeclaration, indent = 0): string {
+  const padding = ' '.repeat(indent);
+
+  const attributes = (structDecl.children ?? []).filter(isStructAttDeclaration);
+  const methods = (structDecl.children ?? []).filter(isFunctionDeclaration);
+
+  const ctorLines = attributes.map(att => `${' '.repeat(indent + 4)}this.${att.name} = null;`).join('\n');
+  const ctor =
+    attributes.length > 0
+      ? `${' '.repeat(indent + 2)}constructor() {\n${ctorLines}\n${' '.repeat(indent + 2)}}`
+      : `${' '.repeat(indent + 2)}constructor() {}`;
+
+  const methodText = methods
+    .map(m => generateMethodDeclaration(m, indent + 2))
+    .join('\n\n');
+
+  const body = methodText ? `${ctor}\n\n${methodText}` : ctor;
+
+  return `${padding}class ${structDecl.name} {\n${body}\n${padding}}`;
+}
+
+function generateMethodDeclaration(fn: FunctionDeclaration, indent = 0): string {
+  const padding = ' '.repeat(indent);
+  const params = (fn.params ?? []).map(p => p.name).join(', ');
+  const body = generateBlock(fn.body, indent);
+  return `${padding}${fn.name}(${params}) ${body}`;
+}
+
+// --------------------
 // Functions
 // --------------------
 
@@ -160,7 +225,6 @@ function generateFunctionDeclaration(fn: FunctionDeclaration, indent = 0): strin
 
 function generateFunctionCall(call: FunctionCall, indent = 0): string {
   const padding = ' '.repeat(indent);
-  // call.f is Reference<FunctionDeclaration>
   const fnName = call.f?.ref?.name ?? '/*unresolved*/';
   const args = (call.params ?? []).map(p => genExpr(p)).join(', ');
   return `${padding}${fnName}(${args})`;
@@ -174,6 +238,11 @@ function generateReturnStatement(ret: ReturnStmt, indent = 0): string {
   return `${padding}return`;
 }
 
+function generateExprStatement(stmt: ExprStatement, indent = 0): string {
+  const padding = ' '.repeat(indent);
+  return `${padding}${genExpr(stmt.expr)}`;
+}
+
 // --------------------
 // Simple statements
 // --------------------
@@ -181,17 +250,17 @@ function generateReturnStatement(ret: ReturnStmt, indent = 0): string {
 function generateVarDecl(decl: VarDecl, indent = 0): string {
   const padding = ' '.repeat(indent);
   if (decl.initializer) {
-    return `${padding}var ${decl.name} = ${genExpr(decl.initializer)}`;
+    return `${padding}let ${decl.name} = ${genExpr(decl.initializer)}`;
   }
-  return `${padding}var ${decl.name}`;
+  return `${padding}let ${decl.name}`;
 }
 
 function generateAssignment(assign: Assignment, indent = 0): string {
   const padding = ' '.repeat(indent);
-
   const left = genExpr(assign.sel as unknown as Expr);
   return `${padding}${left} = ${genExpr(assign.value)}`;
 }
+
 // --------------------
 // Expression generation
 // --------------------
@@ -200,20 +269,47 @@ function genExpr(e: Expr): string {
   if (isIntLiteral(e)) return String(e.value);
   if (isBoolLiteral(e)) return String(e.value);
   if (isStringLiteral(e)) return String(e.value);
+  if (isNullLiteral(e)) return 'null';
+
+  if (isNewExpr(e)) {
+    const typeName = e.type?.ref?.name ?? '/*unresolved*/';
+    return `new ${typeName}()`;
+  }
+
+  if (isThisExpr(e)) return 'this';
 
   if (isVarRef(e)) {
-    return e.ref.ref?.name ?? '/*unresolved*/';
+    return genVarRef(e);
+  }
+
+  if (isAttSelection(e)) {
+    return `${genExpr(e.receiver)}.${genAttRefName(e)}`;
+  }
+
+  if (isMethSelection(e)) {
+    return `${genExpr(e.receiver)}.${genMethRefCall(e)}`;
   }
 
   if (isGrouping(e)) return `(${genExpr(e.value)})`;
   if (isNot(e)) return `(!${genExpr(e.value)})`;
   if (isNeg(e)) return `(-${genExpr(e.value)})`;
 
-  if (isOr(e)) return genChain(genExpr(e.left), '||', e.right);
-  if (isAnd(e)) return genChain(genExpr(e.left), '&&', e.right);
+  if (isOr(e)) {
+    return (e.right?.length ?? 0) === 0
+      ? genExpr(e.left)
+      : genChain(genExpr(e.left), '||', e.right);
+  }
+
+  if (isAnd(e)) {
+    return (e.right?.length ?? 0) === 0
+      ? genExpr(e.left)
+      : genChain(genExpr(e.left), '&&', e.right);
+  }
 
   if (isEquality(e) || isComparison(e) || isAddition(e) || isMultiplication(e)) {
-    return genOpChain(genExpr(e.left), e.op ?? [], e.right ?? []);
+    return (e.right?.length ?? 0) === 0
+      ? genExpr(e.left)
+      : genOpChain(genExpr(e.left), e.op ?? [], e.right ?? []);
   }
 
   if (isFunctionCall(e)) {
@@ -223,6 +319,36 @@ function genExpr(e: Expr): string {
   }
 
   return '/*expr*/';
+}
+
+function genVarRef(e: VarRef): string {
+  const target = e.ref?.ref;
+  const name = target?.name ?? '/*unresolved*/';
+
+  // Inside struct methods, plain attribute access becomes this.attr
+  if (target && isStructAttDeclaration(target)) {
+    return `this.${name}`;
+  }
+
+  if (e.index) {
+    return `${name}[${genExpr(e.index)}]`;
+  }
+
+  return name;
+}
+
+function genAttRefName(e: AttSelection): string {
+  const attName = e.attref.ref?.ref?.name ?? '/*unresolved*/';
+  if (e.attref.index) {
+    return `${attName}[${genExpr(e.attref.index)}]`;
+  }
+  return attName;
+}
+
+function genMethRefCall(e: MethSelection): string {
+  const methName = e.methref.f?.ref?.name ?? '/*unresolved*/';
+  const args = (e.methref.params ?? []).map(p => genExpr(p)).join(', ');
+  return `${methName}(${args})`;
 }
 
 function genChain(left: string, op: string, rights: Expr[]): string {

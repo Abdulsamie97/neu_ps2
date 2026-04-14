@@ -13,12 +13,11 @@ import type {
   Expr,
   VarDecl,
   Assignment,
-/*  ThisExpr,
+  StructDeclaration,
+  ExprStatement,
   VarRef,
-  AttSelection,
-  MethSelection,
-  NullLiteral,
-  NewExpr,*/
+ // AttSelection,
+  //MethSelection,
   AttRef,
   MethRef
 } from 'pseudo2-language';
@@ -35,20 +34,29 @@ import {
   isReturnStmt,
   isVarDecl,
   isAssignment,
+  isStructDeclaration,
+  isExprStatement,
 
-  isOr, isAnd, isEquality, isComparison, isAddition, isMultiplication,
-  isNot, isNeg,
-  isGrouping, isIntLiteral, isBoolLiteral, isStringLiteral,
+  isOr,
+  isAnd,
+  isEquality,
+  isComparison,
+  isAddition,
+  isMultiplication,
+  isNot,
+  isNeg,
+  isGrouping,
+  isIntLiteral,
+  isBoolLiteral,
+  isStringLiteral,
 
-  // NEW guards
   isThisExpr,
   isVarRef,
   isAttSelection,
   isMethSelection,
   isNullLiteral,
-  isNewExpr//,
-  //isAttRef,
-  //isMethRef
+  isNewExpr,
+  isStructAttDeclaration
 } from 'pseudo2-language';
 
 import { expandToNode, toString } from 'langium/generate';
@@ -64,7 +72,7 @@ export function generate(programAst: Program, filePath: string, destination: str
     "use strict";
 
     // Pseudo2 generator
-    ${programAst.instructions.map(i => genInstruction(i)).join('')}
+    ${programAst.instructions.map(i => genInstruction(i)).filter(Boolean).join('\n\n')}
   `.appendNewLineIfNotEmpty();
 
   if (!fs.existsSync(data.destination)) {
@@ -83,14 +91,15 @@ function genInstruction(i: Instruction, indent = ''): string {
   if (isForLoop(i)) return genForLoop(i, indent);
   if (isDoWhileLoop(i)) return genDoWhileLoop(i, indent);
 
+  if (isStructDeclaration(i)) return genStructDeclaration(i, indent);
   if (isFunctionDeclaration(i)) return genFunctionDeclaration(i, indent);
   if (isFunctionCall(i)) return genFunctionCall(i, indent);
   if (isReturnStmt(i)) return genReturnStmt(i, indent);
+  if (isExprStatement(i)) return genExprStatement(i, indent);
 
   if (isVarDecl(i)) return genVarDecl(i, indent);
   if (isAssignment(i)) return genAssignment(i, indent);
 
-  // StructDeclaration currently ignored in JS output (optional later: emit class stubs)
   return `${indent}// TODO: instruction\n`;
 }
 
@@ -99,7 +108,6 @@ function genBracedBlock(b: any, indent = ''): string {
 }
 
 function genIndentedBlock(b: any, indent = ''): string {
-  // we currently render indented blocks as normal braces in JS output
   return genBlockBody(b, indent);
 }
 
@@ -157,6 +165,35 @@ function genDoWhileLoop(loop: DoWhileLoop, indent = ''): string {
 }
 
 // --------------------
+// Structs
+// --------------------
+
+function genStructDeclaration(structDecl: StructDeclaration, indent = ''): string {
+  const attributes = (structDecl.children ?? []).filter(isStructAttDeclaration);
+  const methods = (structDecl.children ?? []).filter(isFunctionDeclaration);
+
+  const ctorLines = attributes
+    .map(att => `${indent}    this.${att.name} = null;\n`)
+    .join('');
+
+  const ctor = attributes.length > 0
+    ? `${indent}  constructor() {\n${ctorLines}${indent}  }\n`
+    : `${indent}  constructor() {}\n`;
+
+  const methodText = methods
+    .map(m => genMethodDeclaration(m, indent + '  '))
+    .join('\n');
+
+  return `${indent}class ${structDecl.name} {\n${ctor}${methodText ? '\n' + methodText : ''}${indent}}\n`;
+}
+
+function genMethodDeclaration(fn: FunctionDeclaration, indent = ''): string {
+  const params = (fn.params ?? []).map(p => p.name).join(', ');
+  const body = genBlockAny(fn.body, indent);
+  return `${indent}${fn.name}(${params}) ${body}`;
+}
+
+// --------------------
 // Functions
 // --------------------
 
@@ -176,15 +213,18 @@ function genReturnStmt(ret: ReturnStmt, indent = ''): string {
   return `${indent}return\n`;
 }
 
+function genExprStatement(stmt: ExprStatement, indent = ''): string {
+  return `${indent}${genExpr(stmt.expr)}\n`;
+}
+
 function genVarDecl(n: VarDecl, indent = ''): string {
   if (n.initializer) {
-    return `${indent}var ${n.name} = ${genExpr(n.initializer)}\n`;
+    return `${indent}let ${n.name} = ${genExpr(n.initializer)}\n`;
   }
-  return `${indent}var ${n.name}\n`;
+  return `${indent}let ${n.name}\n`;
 }
 
 function genAssignment(n: Assignment, indent = ''): string {
-  // NEW: assignment target is Selection (Expr), not IdentifierRef/target
   const left = genExpr(n.sel as unknown as Expr);
   return `${indent}${left} = ${genExpr(n.value)}\n`;
 }
@@ -208,9 +248,7 @@ function genExpr(e: Expr): string {
   if (isThisExpr(e)) return 'this';
 
   if (isVarRef(e)) {
-    const name = e.ref.ref?.name ?? '/*unresolved*/';
-    if (e.index) return `${name}[${genExpr(e.index)}]`;
-    return name;
+    return genVarRef(e);
   }
 
   if (isAttSelection(e)) {
@@ -229,11 +267,22 @@ function genExpr(e: Expr): string {
   if (isNot(e)) return `(!${genExpr(e.value)})`;
   if (isNeg(e)) return `(-${genExpr(e.value)})`;
 
-  if (isOr(e)) return genChain(genExpr(e.left), '||', e.right);
-  if (isAnd(e)) return genChain(genExpr(e.left), '&&', e.right);
+  if (isOr(e)) {
+    return (e.right?.length ?? 0) === 0
+      ? genExpr(e.left)
+      : genChain(genExpr(e.left), '||', e.right);
+  }
+
+  if (isAnd(e)) {
+    return (e.right?.length ?? 0) === 0
+      ? genExpr(e.left)
+      : genChain(genExpr(e.left), '&&', e.right);
+  }
 
   if (isEquality(e) || isComparison(e) || isAddition(e) || isMultiplication(e)) {
-    return genOpChain(genExpr(e.left), e.op ?? [], e.right ?? []);
+    return (e.right?.length ?? 0) === 0
+      ? genExpr(e.left)
+      : genOpChain(genExpr(e.left), e.op ?? [], e.right ?? []);
   }
 
   if (isFunctionCall(e)) {
@@ -243,6 +292,20 @@ function genExpr(e: Expr): string {
   }
 
   return '/*expr*/';
+}
+
+function genVarRef(e: VarRef): string {
+  const target = e.ref.ref;
+  const name = target?.name ?? '/*unresolved*/';
+
+  // Inside struct methods, plain attribute access becomes this.attr
+  if (target && isStructAttDeclaration(target)) {
+    if (e.index) return `this.${name}[${genExpr(e.index)}]`;
+    return `this.${name}`;
+  }
+
+  if (e.index) return `${name}[${genExpr(e.index)}]`;
+  return name;
 }
 
 function genAttRef(r: AttRef): string {

@@ -189,11 +189,9 @@ function generateVarDecl(decl: VarDecl, indent = 0): string {
 function generateAssignment(assign: Assignment, indent = 0): string {
   const padding = ' '.repeat(indent);
 
-  // assign.target.ref is Reference<Variable> now (Variable is the common base)
-  const targetName = assign.target.ref?.ref?.name ?? '/*unresolved*/';
-  return `${padding}${targetName} = ${genExpr(assign.value)}`;
+  const left = genExpr(assign.sel as unknown as Expr);
+  return `${padding}${left} = ${genExpr(assign.value)}`;
 }
-
 // --------------------
 // Expression generation
 // --------------------

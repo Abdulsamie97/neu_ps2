@@ -12,7 +12,15 @@ import type {
   ReturnStmt,
   Expr,
   VarDecl,
-  Assignment
+  Assignment,
+/*  ThisExpr,
+  VarRef,
+  AttSelection,
+  MethSelection,
+  NullLiteral,
+  NewExpr,*/
+  AttRef,
+  MethRef
 } from 'pseudo2-language';
 
 import {
@@ -30,7 +38,17 @@ import {
 
   isOr, isAnd, isEquality, isComparison, isAddition, isMultiplication,
   isNot, isNeg,
-  isGrouping, isIntLiteral, isBoolLiteral, isStringLiteral, isVarRef
+  isGrouping, isIntLiteral, isBoolLiteral, isStringLiteral,
+
+  // NEW guards
+  isThisExpr,
+  isVarRef,
+  isAttSelection,
+  isMethSelection,
+  isNullLiteral,
+  isNewExpr//,
+  //isAttRef,
+  //isMethRef
 } from 'pseudo2-language';
 
 import { expandToNode, toString } from 'langium/generate';
@@ -72,6 +90,7 @@ function genInstruction(i: Instruction, indent = ''): string {
   if (isVarDecl(i)) return genVarDecl(i, indent);
   if (isAssignment(i)) return genAssignment(i, indent);
 
+  // StructDeclaration currently ignored in JS output (optional later: emit class stubs)
   return `${indent}// TODO: instruction\n`;
 }
 
@@ -147,7 +166,6 @@ function genFunctionDeclaration(fn: FunctionDeclaration, indent = ''): string {
 }
 
 function genFunctionCall(call: FunctionCall, indent = ''): string {
-  // call.f is Reference<FunctionDeclaration>
   const fnName = call.f?.ref?.name ?? '/*unresolved*/';
   const args = (call.params ?? []).map(p => genExpr(p)).join(', ');
   return `${indent}${fnName}(${args})\n`;
@@ -166,9 +184,9 @@ function genVarDecl(n: VarDecl, indent = ''): string {
 }
 
 function genAssignment(n: Assignment, indent = ''): string {
-  // n.target.ref is Reference<Variable>
-  const targetName = n.target.ref?.ref?.name ?? '/*unresolved*/';
-  return `${indent}${targetName} = ${genExpr(n.value)}\n`;
+  // NEW: assignment target is Selection (Expr), not IdentifierRef/target
+  const left = genExpr(n.sel as unknown as Expr);
+  return `${indent}${left} = ${genExpr(n.value)}\n`;
 }
 
 // --------------------
@@ -180,7 +198,32 @@ function genExpr(e: Expr): string {
   if (isBoolLiteral(e)) return String(e.value);
   if (isStringLiteral(e)) return String(e.value);
 
-  if (isVarRef(e)) return e.ref.ref?.name ?? '/*unresolved*/';
+  if (isNullLiteral(e)) return 'null';
+
+  if (isNewExpr(e)) {
+    const typeName = e.type?.ref?.name ?? '/*unresolved*/';
+    return `new ${typeName}()`;
+  }
+
+  if (isThisExpr(e)) return 'this';
+
+  if (isVarRef(e)) {
+    const name = e.ref.ref?.name ?? '/*unresolved*/';
+    if (e.index) return `${name}[${genExpr(e.index)}]`;
+    return name;
+  }
+
+  if (isAttSelection(e)) {
+    const recv = genExpr(e.receiver);
+    const att = genAttRef(e.attref);
+    return `${recv}.${att}`;
+  }
+
+  if (isMethSelection(e)) {
+    const recv = genExpr(e.receiver);
+    const meth = genMethRef(e.methref);
+    return `${recv}.${meth}`;
+  }
 
   if (isGrouping(e)) return `(${genExpr(e.value)})`;
   if (isNot(e)) return `(!${genExpr(e.value)})`;
@@ -202,6 +245,18 @@ function genExpr(e: Expr): string {
   return '/*expr*/';
 }
 
+function genAttRef(r: AttRef): string {
+  const name = r.ref?.ref?.name ?? '/*unresolved*/';
+  if (r.index) return `${name}[${genExpr(r.index)}]`;
+  return name;
+}
+
+function genMethRef(r: MethRef): string {
+  const name = r.f?.ref?.name ?? '/*unresolved*/';
+  const args = (r.params ?? []).map(p => genExpr(p)).join(', ');
+  return `${name}(${args})`;
+}
+
 function genChain(left: string, op: string, rights: Expr[]): string {
   let out = `(${left}`;
   for (const r of rights) out += ` ${op} ${genExpr(r)}`;
@@ -216,7 +271,6 @@ function genOpChain(left: string, ops: string[], rights: Expr[]): string {
   return out + ')';
 }
 
-// helper: Block can be BracedBlock or IndentedBlock
 function genBlockAny(b: any, indent = ''): string {
   return genBlockBody(b, indent);
 }

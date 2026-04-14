@@ -24,8 +24,14 @@ CompoundInstruction:
 SimpleStatement:
     VarDeclaration
   | Assignment
+  | StructDeclaration
   | FunctionCall
   | ReturnStatement
+  | ExprStatement
+;
+
+ExprStatement:
+  expr=Expression
 ;
 
 // ======================================================
@@ -41,10 +47,28 @@ BracedBlock:
   '{' instructions+=Instruction* '}'
 ;
 
-// Instruction* caused an error (keep +)
 IndentedBlock:
   INDENT instructions+=Instruction+ DEDENT
 ;
+
+// ======================================================
+// Variable base type (VarDecl + Parameters + StructAtt are Variables)
+// ======================================================
+
+interface Variable {
+  name: string
+}
+
+interface VarDecl extends Variable {
+  initializer?: Expr
+}
+
+interface ParameterDecl extends Variable {}
+
+
+interface StructAttDeclaration extends Variable {
+  type: TypeRef
+}
 
 // ======================================================
 // Variables: declaration & assignment
@@ -54,12 +78,9 @@ VarDeclaration returns VarDecl:
   'var' name=ID ('=' initializer=Expression)?
 ;
 
-IdentifierRefRule returns IdentifierRef:
-  ref=[Variable:ID]
-;
-
+// Assignment uses Selection (VarRef/This + .chain)
 Assignment:
-  target=IdentifierRefRule '=' value=Expression
+  sel=Selection '=' value=Expression
 ;
 
 // ======================================================
@@ -102,6 +123,71 @@ DoWhileLoop:
 ;
 
 // ======================================================
+// Structs
+// ======================================================
+
+StructDeclaration:
+  'struct' name=ID
+  '{'
+    children+=StructDeclarationChild*
+  '}'
+;
+
+StructDeclarationChild:
+    StructAttDeclarationRule
+  | FunctionDeclaration
+;
+
+
+StructAttDeclarationRule returns StructAttDeclaration:
+  type=TypeRef name=ID
+;
+
+// -------------------- Types --------------------
+
+interface TypeRef {}
+interface NonArrayTypeRef extends TypeRef {}
+
+interface ArrayType extends TypeRef { base: NonArrayTypeRef }
+
+interface NumType extends NonArrayTypeRef {}
+interface StringType extends NonArrayTypeRef {}
+interface BoolType extends NonArrayTypeRef {}
+interface StructType extends NonArrayTypeRef { struct: @StructDeclaration }
+
+TypeRef returns TypeRef:
+    NonArrayTypeRefRule
+  | ArrayTypeRule
+;
+
+ArrayTypeRule returns ArrayType:
+  {ArrayType} base=NonArrayTypeRefRule '[' ']'
+;
+
+NonArrayTypeRefRule returns NonArrayTypeRef:
+    NumTypeRule
+  | StringTypeRule
+  | BoolTypeRule
+  | StructTypeRule
+;
+
+NumTypeRule returns NumType:
+  {NumType} 'num'
+;
+
+StringTypeRule returns StringType:
+  {StringType} 'string'
+;
+
+BoolTypeRule returns BoolType:
+  {BoolType} 'bool'
+;
+
+StructTypeRule returns StructType:
+  {StructType} struct=[StructDeclaration:ID]
+;
+
+// ======================================================
 // Functions
 // ======================================================
 
@@ -120,86 +206,9 @@ FunctionCall:
   '(' (params+=Expression (',' params+=Expression)*)? ')'
 ;
 
-// Langium strict-friendly return statement
 ReturnStatement returns ReturnStmt:
   'return' retExpr=Expression?
 ;
-
-// ======================================================
-// Expression AST types (wegen langium strict mode)
-// ======================================================
-
-interface Expr {}
-
-interface Or extends Expr {
-  left: Expr
-  right: Expr[]
-}
-
-interface And extends Expr {
-  left: Expr
-  right: Expr[]
-}
-
-interface Equality extends Expr {
-  left: Expr
-  op: string[]
-  right: Expr[]
-}
-
-interface Comparison extends Expr {
-  left: Expr
-  op: string[]
-  right: Expr[]
-}
-
-interface Addition extends Expr {
-  left: Expr
-  op: string[]
-  right: Expr[]
-}
-
-interface Multiplication extends Expr {
-  left: Expr
-  op: string[]
-  right: Expr[]
-}
-
-interface Not extends Expr { value: Expr }
-interface Neg extends Expr { value: Expr }
-
-interface Grouping extends Expr { value: Expr }
-
-interface IntLiteral extends Expr { value: number }
-interface BoolLiteral extends Expr { value: 'true' | 'false' }
-interface StringLiteral extends Expr { value: string }
-
-interface VarRef extends Expr { ref: @Variable }
-
-// ======================================================
-// Variable-related AST types (common for VarDecl + ParameterDecl)
-// ======================================================
-
-interface Variable {
-  name: string
-}
-
-// ======================================================
-// Explicit statement-related AST types
-// ======================================================
-
-interface VarDecl extends Variable {
-  initializer?: Expr
-}
-
-interface IdentifierRef { ref: @Variable }
-
-// ======================================================
-// Function-related AST types
-// ======================================================
-
-interface ParameterDecl extends Variable {
-}
 
 interface ReturnStmt {
   retExpr?: Expr
@@ -208,6 +217,97 @@ interface ReturnStmt {
 // ======================================================
 // Expressions
 // ======================================================
+
+interface Expr {}
+
+// ---- Selection / Access chain ----
+
+// "this"
+interface ThisExpr extends Expr {}
+This returns ThisExpr:
+  {ThisExpr} 'this'
+;
+
+// VarRef with optional array access: x or x[i]
+interface VarRef extends Expr { ref: @Variable index?: Expr }
+VarRefRule returns VarRef:
+  {VarRef} ref=[Variable:ID] ('[' index=Expression ']')?
+;
+
+// Attribute ref: field or field[i]
+interface AttRef { ref: @StructAttDeclaration index?: Expr }
+AttRefRule returns AttRef:
+  {AttRef} ref=[StructAttDeclaration:ID] ('[' index=Expression ']')?
+;
+
+// Method ref: method(args...)
+interface MethRef { f: @FunctionDeclaration params: Expr[] }
+MethRefRule returns MethRef:
+  {MethRef} f=[FunctionDeclaration:ID]
+  '(' (params+=Expression (',' params+=Expression)*)? ')'
+;
+
+// Selection chain node types
+interface AttSelection extends Expr { receiver: Expr attref: AttRef }
+interface MethSelection extends Expr { receiver: Expr methref: MethRef }
+
+// Selection starts with VarRef or This, then .att / .meth(...) chain
+Selection returns Expr:
+  (VarRefRule | This)
+  (
+      ({AttSelection.receiver=current} '.' attref=AttRefRule)
+    | ({MethSelection.receiver=current} '.' methref=MethRefRule)
+  )*
+;
+
+// ---- Primary literals etc ----
+
+interface Grouping extends Expr { value: Expr }
+interface IntLiteral extends Expr { value: number }
+interface BoolLiteral extends Expr { value: 'true' | 'false' }
+interface StringLiteral extends Expr { value: string }
+
+interface NullLiteral extends Expr {}
+interface NewExpr extends Expr { type: @StructDeclaration }
+
+GroupingRule returns Grouping:
+  '(' value=Expression ')'
+;
+
+IntLit returns IntLiteral:
+  value=INT
+;
+
+BoolLit returns BoolLiteral:
+  value=('true' | 'false')
+;
+
+StringLit returns StringLiteral:
+  value=STRING
+;
+
+NullLit returns NullLiteral:
+  {NullLiteral} 'null'
+;
+
+NewRule returns NewExpr:
+  {NewExpr} 'new' type=[StructDeclaration:ID]
+;
+
+// ======================================================
+// Precedence ladder
+// ======================================================
+
+interface Or extends Expr { left: Expr right: Expr[] }
+interface And extends Expr { left: Expr right: Expr[] }
+
+interface Equality extends Expr { left: Expr op: string[] right: Expr[] }
+interface Comparison extends Expr { left: Expr op: string[] right: Expr[] }
+interface Addition extends Expr { left: Expr op: string[] right: Expr[] }
+interface Multiplication extends Expr { left: Expr op: string[] right: Expr[] }
+
+interface Not extends Expr { value: Expr }
+interface Neg extends Expr { value: Expr }
 
 Expression returns Expr:
   Or
@@ -244,11 +344,11 @@ Unary returns Expr:
 ;
 
 NotRule returns Not:
-  '!' value=Unary
+  {Not} '!' value=Unary
 ;
 
 NegRule returns Neg:
-  '-' value=Unary
+  {Neg} '-' value=Unary
 ;
 
 Primary returns Expr:
@@ -256,28 +356,10 @@ Primary returns Expr:
   | IntLit
   | BoolLit
   | StringLit
-  | VarRefRule
+  | NullLit
+  | NewRule
+  | Selection
   | FunctionCall
-;
-
-GroupingRule returns Grouping:
-  '(' value=Expression ')'
-;
-
-IntLit returns IntLiteral:
-  value=INT
-;
-
-BoolLit returns BoolLiteral:
-  value=('true' | 'false')
-;
-
-StringLit returns StringLiteral:
-  value=STRING
-;
-
-VarRefRule returns VarRef:
-  ref=[Variable:ID]
 ;
 
 // ======================================================

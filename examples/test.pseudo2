@@ -1,14 +1,18 @@
-{
- { var x=5
-x=6
-    }
-}
+
+var x=5
+x=6  
+    
 
 
 if true 
     if 5>=4
     {
-     var x=4
+        var x = 4
     }
     else
         var y = 7
+
+print("hallo")
+
+print x
+throw "err"

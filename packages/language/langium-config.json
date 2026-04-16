@@ -5,7 +5,7 @@
             "id": "pseudo2",
             "grammar": "src/pseudo2.langium",
             "fileExtensions": [
-                "hello"
+                "pseudo2"
             ],
             "textMate": {
                 "out": "syntaxes/pseudo2.tmLanguage.json"

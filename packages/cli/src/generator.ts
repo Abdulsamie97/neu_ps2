@@ -16,10 +16,12 @@ import type {
   StructDeclaration,
   ExprStatement,
   VarRef,
- // AttSelection,
-  //MethSelection,
   AttRef,
-  MethRef
+  MethRef,
+  ArrayLiteral,
+  PrintCommand,
+  ThrowCommand,
+  CallCommand
 } from 'pseudo2-language';
 
 import {
@@ -36,6 +38,9 @@ import {
   isAssignment,
   isStructDeclaration,
   isExprStatement,
+  isPrintCommand,
+  isThrowCommand,
+  isCallCommand,
 
   isOr,
   isAnd,
@@ -56,7 +61,8 @@ import {
   isMethSelection,
   isNullLiteral,
   isNewExpr,
-  isStructAttDeclaration
+  isStructAttDeclaration,
+  isArrayLiteral
 } from 'pseudo2-language';
 
 import { expandToNode, toString } from 'langium/generate';
@@ -96,6 +102,10 @@ function genInstruction(i: Instruction, indent = ''): string {
   if (isFunctionCall(i)) return genFunctionCall(i, indent);
   if (isReturnStmt(i)) return genReturnStmt(i, indent);
   if (isExprStatement(i)) return genExprStatement(i, indent);
+
+  if (isPrintCommand(i)) return genPrintCommand(i, indent);
+  if (isThrowCommand(i)) return genThrowCommand(i, indent);
+  if (isCallCommand(i)) return genCallCommand(i, indent);
 
   if (isVarDecl(i)) return genVarDecl(i, indent);
   if (isAssignment(i)) return genAssignment(i, indent);
@@ -217,6 +227,18 @@ function genExprStatement(stmt: ExprStatement, indent = ''): string {
   return `${indent}${genExpr(stmt.expr)}\n`;
 }
 
+function genPrintCommand(cmd: PrintCommand, indent = ''): string {
+  return `${indent}console.log(${genExpr(cmd.param)})\n`;
+}
+
+function genThrowCommand(cmd: ThrowCommand, indent = ''): string {
+  return `${indent}throw ${genExpr(cmd.param)}\n`;
+}
+
+function genCallCommand(cmd: CallCommand, indent = ''): string {
+  return `${indent}${genExpr(cmd.param)}\n`;
+}
+
 function genVarDecl(n: VarDecl, indent = ''): string {
   if (n.initializer) {
     return `${indent}let ${n.name} = ${genExpr(n.initializer)}\n`;
@@ -236,9 +258,13 @@ function genAssignment(n: Assignment, indent = ''): string {
 function genExpr(e: Expr): string {
   if (isIntLiteral(e)) return String(e.value);
   if (isBoolLiteral(e)) return String(e.value);
-  if (isStringLiteral(e)) return String(e.value);
-
+  if (isStringLiteral(e)) return JSON.stringify(e.value);
+  
   if (isNullLiteral(e)) return 'null';
+
+  if (isArrayLiteral(e)) {
+    return genArrayLiteral(e);
+  }
 
   if (isNewExpr(e)) {
     const typeName = e.type?.ref?.name ?? '/*unresolved*/';
@@ -294,11 +320,15 @@ function genExpr(e: Expr): string {
   return '/*expr*/';
 }
 
+function genArrayLiteral(e: ArrayLiteral): string {
+  const elems = (e.elems ?? []).map(elem => genExpr(elem)).join(', ');
+  return `[${elems}]`;
+}
+
 function genVarRef(e: VarRef): string {
   const target = e.ref.ref;
   const name = target?.name ?? '/*unresolved*/';
 
-  // Inside struct methods, plain attribute access becomes this.attr
   if (target && isStructAttDeclaration(target)) {
     if (e.index) return `this.${name}[${genExpr(e.index)}]`;
     return `this.${name}`;

@@ -28,11 +28,13 @@ SimpleStatement:
   | FunctionCall
   | ReturnStatement
   | ExprStatement
+  | GlobalCommand
 ;
 
 ExprStatement:
   expr=Expression
 ;
+
 
 // ======================================================
 // Blocks
@@ -51,6 +53,7 @@ IndentedBlock:
   INDENT instructions+=Instruction+ DEDENT
 ;
 
+
 // ======================================================
 // Variable base type (VarDecl + Parameters + StructAtt are Variables)
 // ======================================================
@@ -65,20 +68,18 @@ interface VarDecl extends Variable {
 
 interface ParameterDecl extends Variable {}
 
-
 interface StructAttDeclaration extends Variable {
   type: TypeRef
 }
 
-// ======================================================
+// =====================================================
 // Variables: declaration & assignment
-// ======================================================
+// =====================================================
 
 VarDeclaration returns VarDecl:
   'var' name=ID ('=' initializer=Expression)?
 ;
 
-// Assignment uses Selection (VarRef/This + .chain)
 Assignment:
   sel=Selection '=' value=Expression
 ;
@@ -99,6 +100,7 @@ IfStatement:
 WhileLoop:
   'while' condition=Expression body=Block
 ;
+
 
 // ======================================================
 // For / DoWhile
@@ -122,6 +124,7 @@ DoWhileLoop:
   'do' body=Block 'while' condition=Expression
 ;
 
+
 // ======================================================
 // Structs
 // ======================================================
@@ -137,7 +140,6 @@ StructDeclarationChild:
     StructAttDeclarationRule
   | FunctionDeclaration
 ;
-
 
 StructAttDeclarationRule returns StructAttDeclaration:
   type=TypeRef name=ID
@@ -187,6 +189,7 @@ StructTypeRule returns StructType:
   {StructType} struct=[StructDeclaration:ID]
 ;
 
+
 // ======================================================
 // Functions
 // ======================================================
@@ -213,6 +216,40 @@ ReturnStatement returns ReturnStmt:
 interface ReturnStmt {
   retExpr?: Expr
 }
+
+// ======================================================
+// print, throw and call
+// ======================================================
+
+interface PrintCommand {
+  param: Expr
+}
+
+interface ThrowCommand {
+  param: Expr
+}
+
+interface CallCommand {
+  param: Expr
+}
+
+GlobalCommand:
+    PrintCommandRule
+  | ThrowCommandRule
+  | CallCommandRule
+;
+
+PrintCommandRule returns PrintCommand:
+  'print' param=Expression
+;
+
+ThrowCommandRule returns ThrowCommand:
+  'throw' param=Expression
+;
+
+CallCommandRule returns CallCommand:
+  'call' param=Expression
+;
 
 // ======================================================
 // Expressions
@@ -269,6 +306,7 @@ interface StringLiteral extends Expr { value: string }
 
 interface NullLiteral extends Expr {}
 interface NewExpr extends Expr { type: @StructDeclaration }
+interface ArrayLiteral extends Expr { elems: Expr[] }
 
 GroupingRule returns Grouping:
   '(' value=Expression ')'
@@ -292,6 +330,10 @@ NullLit returns NullLiteral:
 
 NewRule returns NewExpr:
   {NewExpr} 'new' type=[StructDeclaration:ID]
+;
+
+ArrayLiteralRule returns ArrayLiteral:
+  {ArrayLiteral} '[' (elems+=Expression (',' elems+=Expression)*)? ']'
 ;
 
 // ======================================================
@@ -358,9 +400,11 @@ Primary returns Expr:
   | StringLit
   | NullLit
   | NewRule
+  | ArrayLiteralRule
   | Selection
   | FunctionCall
 ;
+
 
 // ======================================================
 // Terminals

@@ -17,7 +17,11 @@ export class Pseudo2Type {
   }
 
   clone(): Pseudo2Type {
-    return Pseudo2Type.create({ name: this.name, isArray: this.isArray, isStruct: this.isStruct });
+    return Pseudo2Type.create({
+      name: this.name,
+      isArray: this.isArray,
+      isStruct: this.isStruct
+    });
   }
 
   /** Returns array-type for this (no nested arrays prevented here; validator may do it) */
@@ -67,6 +71,17 @@ export class Pseudo2Type {
     return this.name === '' && (this.isArray || this.isStruct);
   }
 
+  isConformingTo(t: Pseudo2Type): boolean {
+    return (
+      this.isUnknown() ||
+      t.isUnknown() ||
+      this.isSameAs(t) ||
+      (this.isPartiallyUnknown() &&
+        this.isArray === t.isArray &&
+        this.isStruct === t.isStruct)
+    );
+  }
+
   /**
    * Returns the name of the type or UNKNOWN; NULL (unknown Struct-type); Array(UNKNOWN)
    */
@@ -96,10 +111,5 @@ export function TYPE_STRUCT(aname: string): Pseudo2Type {
 }
 
 export function isConformingTo(t1: Pseudo2Type, t2: Pseudo2Type): boolean {
-  return (
-    t1.isUnknown() ||
-    t2.isUnknown() ||
-    t1.isSameAs(t2) ||
-    (t1.isPartiallyUnknown() && t1.isArray === t2.isArray && t1.isStruct === t2.isStruct)
-  );
+  return t1.isConformingTo(t2);
 }

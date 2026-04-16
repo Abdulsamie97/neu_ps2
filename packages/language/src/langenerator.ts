@@ -19,7 +19,11 @@ import type {
   ExprStatement,
   VarRef,
   AttSelection,
-  MethSelection
+  MethSelection,
+  ArrayLiteral,
+  PrintCommand,
+  ThrowCommand,
+  CallCommand
 } from './generated/ast.js';
 
 import {
@@ -36,6 +40,9 @@ import {
   isAssignment,
   isStructDeclaration,
   isExprStatement,
+  isPrintCommand,
+  isThrowCommand,
+  isCallCommand,
 
   isOr,
   isAnd,
@@ -55,7 +62,8 @@ import {
   isVarRef,
   isAttSelection,
   isMethSelection,
-  isStructAttDeclaration
+  isStructAttDeclaration,
+  isArrayLiteral
 } from './generated/ast.js';
 
 export function generateProgram(program: Program): string {
@@ -109,6 +117,18 @@ function generateInstruction(instruction: Instruction, indent = 0): string {
 
   if (isExprStatement(instruction)) {
     return generateExprStatement(instruction, indent);
+  }
+
+  if (isPrintCommand(instruction)) {
+    return generatePrintCommand(instruction, indent);
+  }
+
+  if (isThrowCommand(instruction)) {
+    return generateThrowCommand(instruction, indent);
+  }
+
+  if (isCallCommand(instruction)) {
+    return generateCallCommand(instruction, indent);
   }
 
   return '';
@@ -243,6 +263,21 @@ function generateExprStatement(stmt: ExprStatement, indent = 0): string {
   return `${padding}${genExpr(stmt.expr)}`;
 }
 
+function generatePrintCommand(cmd: PrintCommand, indent = 0): string {
+  const padding = ' '.repeat(indent);
+  return `${padding}console.log(${genExpr(cmd.param)})`;
+}
+
+function generateThrowCommand(cmd: ThrowCommand, indent = 0): string {
+  const padding = ' '.repeat(indent);
+  return `${padding}throw ${genExpr(cmd.param)}`;
+}
+
+function generateCallCommand(cmd: CallCommand, indent = 0): string {
+  const padding = ' '.repeat(indent);
+  return `${padding}${genExpr(cmd.param)}`;
+}
+
 // --------------------
 // Simple statements
 // --------------------
@@ -270,6 +305,10 @@ function genExpr(e: Expr): string {
   if (isBoolLiteral(e)) return String(e.value);
   if (isStringLiteral(e)) return String(e.value);
   if (isNullLiteral(e)) return 'null';
+
+  if (isArrayLiteral(e)) {
+    return genArrayLiteral(e);
+  }
 
   if (isNewExpr(e)) {
     const typeName = e.type?.ref?.name ?? '/*unresolved*/';
@@ -321,12 +360,19 @@ function genExpr(e: Expr): string {
   return '/*expr*/';
 }
 
+function genArrayLiteral(e: ArrayLiteral): string {
+  const elems = (e.elems ?? []).map(elem => genExpr(elem)).join(', ');
+  return `[${elems}]`;
+}
+
 function genVarRef(e: VarRef): string {
   const target = e.ref?.ref;
   const name = target?.name ?? '/*unresolved*/';
 
-  // Inside struct methods, plain attribute access becomes this.attr
   if (target && isStructAttDeclaration(target)) {
+    if (e.index) {
+      return `this.${name}[${genExpr(e.index)}]`;
+    }
     return `this.${name}`;
   }
 

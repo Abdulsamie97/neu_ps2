@@ -347,6 +347,7 @@ interface Equality extends Expr { left: Expr op: string[] right: Expr[] }
 interface Comparison extends Expr { left: Expr op: string[] right: Expr[] }
 interface Addition extends Expr { left: Expr op: string[] right: Expr[] }
 interface Multiplication extends Expr { left: Expr op: string[] right: Expr[] }
+interface Exponentiation extends Expr { left: Expr op: string[] right: Expr[] }
 
 interface Not extends Expr { value: Expr }
 interface Neg extends Expr { value: Expr }
@@ -376,7 +377,11 @@ Addition returns Addition:
 ;
 
 Multiplication returns Multiplication:
-  left=Unary ( op+=('*' | '/' | '%') right+=Unary )*
+  left=Exponentiation ( op+=('*' | '/' | '%' | 'mod') right+=Exponentiation )*
+;
+
+Exponentiation returns Exponentiation:
+  left=Unary ( op+=('^') right+=Unary )*
 ;
 
 Unary returns Expr:

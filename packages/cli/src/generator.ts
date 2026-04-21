@@ -19,6 +19,7 @@ import type {
   AttRef,
   MethRef,
   ArrayLiteral,
+ // Exponentiation,
   PrintCommand,
   ThrowCommand,
   CallCommand
@@ -38,6 +39,7 @@ import {
   isAssignment,
   isStructDeclaration,
   isExprStatement,
+  isExponentiation,
   isPrintCommand,
   isThrowCommand,
   isCallCommand,
@@ -305,7 +307,7 @@ function genExpr(e: Expr): string {
       : genChain(genExpr(e.left), '&&', e.right);
   }
 
-  if (isEquality(e) || isComparison(e) || isAddition(e) || isMultiplication(e)) {
+  if (isEquality(e) || isComparison(e) || isAddition(e) || isMultiplication(e) || isExponentiation(e)) {
     return (e.right?.length ?? 0) === 0
       ? genExpr(e.left)
       : genOpChain(genExpr(e.left), e.op ?? [], e.right ?? []);
@@ -359,7 +361,9 @@ function genChain(left: string, op: string, rights: Expr[]): string {
 function genOpChain(left: string, ops: string[], rights: Expr[]): string {
   let out = `(${left}`;
   for (let i = 0; i < rights.length; i++) {
-    out += ` ${ops[i] ?? '?'} ${genExpr(rights[i])}`;
+    const rawOp = ops[i] ?? '?';
+    const op = rawOp === 'mod' ? '%' : rawOp === '^' ? '**' : rawOp;
+    out += ` ${op} ${genExpr(rights[i])}`;
   }
   return out + ')';
 }

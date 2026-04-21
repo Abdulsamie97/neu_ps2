@@ -33,7 +33,7 @@ import type {
   ParameterDecl,
   PrintCommand,
   ThrowCommand,
-  CallCommand
+  CallCommand,
 } from './generated/ast.js';
 import type { Pseudo2Services } from './pseudo2-module.js';
 
@@ -60,7 +60,9 @@ import {
   isComparison,
   isAddition,
   isMultiplication,
-  isGrouping
+  isGrouping,
+  isExponentiation
+
 } from './generated/ast.js';
 
 import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
@@ -557,6 +559,11 @@ export class Pseudo2Validator {
       }
 
       if (isMultiplication(current) && (current.right?.length ?? 0) === 0) {
+        current = current.left;
+        continue;
+      }
+
+      if (isExponentiation(current) && (current.right?.length ?? 0) === 0) {
         current = current.left;
         continue;
       }

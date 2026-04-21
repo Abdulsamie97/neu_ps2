@@ -21,7 +21,8 @@ import type {
   AttSelection,
   MethSelection,
   StructAttDeclaration,
-  ArrayLiteral
+  ArrayLiteral,
+ // Exponentiation
 } from '../generated/ast.js';
 
 import {
@@ -53,7 +54,8 @@ import {
   isArrayType,
   isStructType,
   isStructAttDeclaration,
-  isArrayLiteral
+  isArrayLiteral,
+  isExponentiation
 } from '../generated/ast.js';
 
 import {
@@ -134,6 +136,10 @@ export class Pseudo2TypeComputer {
     }
 
     if (isMultiplication(e)) {
+      return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_NUM;
+    }
+
+    if (isExponentiation(e)) {
       return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_NUM;
     }
 

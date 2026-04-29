@@ -35,7 +35,14 @@ import type {
   ThrowCommand,
   CallCommand,
   Addition,
-  Equality
+  Equality,
+  Comparison,
+  Multiplication,
+  Exponentiation,
+  And,
+  Or,
+  Not,
+  Neg
 } from './generated/ast.js';
 import type { Pseudo2Services } from './pseudo2-module.js';
 
@@ -64,7 +71,8 @@ import {
   isMultiplication,
   isGrouping,
   isExponentiation,
-  isNot
+  isNot//,
+  //isNeg
 } from './generated/ast.js';
 
 import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
@@ -110,7 +118,14 @@ export function registerValidationChecks(services: Pseudo2Services) {
     CallCommand: validator.checkCallCommand,
     
     Equality: validator.checkEquality,
-    Addition: validator.checkAddition
+    Comparison: validator.checkComparison,
+    Addition: validator.checkAddition,
+    Multiplication: validator.checkMultiplication,
+    Exponentiation: validator.checkExponentiation,
+    And: validator.checkAnd,
+    Or: validator.checkOr,
+    Not: validator.checkNot,
+    Neg: validator.checkNeg
   };
 
   registry.register(checks, validator);
@@ -505,9 +520,68 @@ export class Pseudo2Validator {
     this.checkArgumentTypes(node, target, node.params ?? [], accept);
   }
 
-  checkAttSelection(node: AttSelection, accept: ValidationAcceptor): void {}
+  checkAttSelection(node: AttSelection, accept: ValidationAcceptor): void {
+    const receiverType = this.types.typeFor(node.receiver);
 
-  checkMethSelection(node: MethSelection, accept: ValidationAcceptor): void {}
+    if (!receiverType.isStructType() && !receiverType.isUnknown()) {
+      accept('error', `Attributzugriff nur auf Struct-Typen erlaubt, erhalten '${receiverType.asString()}'.`, {
+        node,
+        property: 'receiver'
+      });
+    }
+
+    const structName = this.types.structNameOf(node.receiver);
+    if (!structName) return;
+
+    const program = this.getProgram(node);
+    const struct = program?.instructions
+      .filter(isStructDeclaration)
+      .find(s => s.name === structName);
+
+    if (!struct) return;
+
+    const exists = (struct.children ?? [])
+      .filter(isStructAttDeclaration)
+      .some(a => a.name === node.attref.ref?.ref?.name);
+
+    if (!exists) {
+      accept('error', `Attribut '${node.attref.ref?.ref?.name}' existiert nicht in Struct '${structName}'.`, {
+        node
+      });
+    }
+  }
+
+  checkMethSelection(node: MethSelection, accept: ValidationAcceptor): void {
+    const receiverType = this.types.typeFor(node.receiver);
+
+    if (!receiverType.isStructType() && !receiverType.isUnknown()) {
+      accept('error', `Methodenaufruf nur auf Struct-Typen erlaubt, erhalten '${receiverType.asString()}'.`, {
+        node,
+        property: 'receiver'
+      });
+    }
+
+    const structName = this.types.structNameOf(node.receiver);
+    if (!structName) return;
+
+    const program = this.getProgram(node);
+    const struct = program?.instructions
+      .filter(isStructDeclaration)
+      .find(s => s.name === structName);
+
+    if (!struct) return;
+
+    const exists = (struct.children ?? [])
+      .filter(isFunctionDeclaration)
+      .some(m => m.name === node.methref.f?.ref?.name);
+
+    if (!exists) {
+      accept('error', `Methode '${node.methref.f?.ref?.name}' existiert nicht in Struct '${structName}'.`, {
+        node
+      });
+    }
+
+  }
 
   checkThisExpr(node: ThisExpr, accept: ValidationAcceptor): void {
     const struct = AstUtils.getContainerOfType(node, isStructDeclaration);
@@ -670,7 +744,7 @@ export class Pseudo2Validator {
     return TYPE_UNKNOWN;
   }
 
-    checkAddition(node: Addition, accept: ValidationAcceptor): void {
+  checkAddition(node: Addition, accept: ValidationAcceptor): void {
     if ((node.right?.length ?? 0) === 0) {
       return;
     }
@@ -714,6 +788,55 @@ export class Pseudo2Validator {
       }
     }
   }
+
+  checkMultiplication(node: Multiplication, accept: ValidationAcceptor): void {
+    if ((node.right?.length ?? 0) === 0) return;
+
+    const operands = [node.left, ...(node.right ?? [])];
+    this.requireAllTypes(node, operands, TYPE_NUM, accept, `Operatoren '*', '/', '%' und 'mod' erwarten num.`);
+  }
+
+  checkExponentiation(node: Exponentiation, accept: ValidationAcceptor): void {
+    if ((node.right?.length ?? 0) === 0) return;
+
+    const operands = [node.left, ...(node.right ?? [])];
+    this.requireAllTypes(node, operands, TYPE_NUM, accept, `Potenzoperator '^' erwartet num.`);
+  }
+
+  checkAnd(node: And, accept: ValidationAcceptor): void {
+    if ((node.right?.length ?? 0) === 0) return;
+
+    const operands = [node.left, ...(node.right ?? [])];
+    this.requireAllTypes(node, operands, TYPE_BOOL, accept, `Operator '&&' erwartet bool.`);
+  }
+
+  checkOr(node: Or, accept: ValidationAcceptor): void {
+    if ((node.right?.length ?? 0) === 0) return;
+
+    const operands = [node.left, ...(node.right ?? [])];
+    this.requireAllTypes(node, operands, TYPE_BOOL, accept, `Operator '||' erwartet bool.`);
+  }
+
+  checkNot(node: Not, accept: ValidationAcceptor): void {
+    const t = this.types.typeFor(node.value);
+    if (!t.isSameAs(TYPE_BOOL) && !t.isUnknown()) {
+      accept('error', `Operator '!' erwartet bool, erhalten '${t.asString()}'.`, {
+        node,
+        property: 'value'
+      });
+    }
+  }
+
+  checkNeg(node: Neg, accept: ValidationAcceptor): void {
+    const t = this.types.typeFor(node.value);
+    if (!t.isSameAs(TYPE_NUM) && !t.isUnknown()) {
+      accept('error', `Vorzeichen '-' erwartet num, erhalten '${t.asString()}'.`, {
+        node,
+        property: 'value'
+      });
+    }
+  }
+
   checkEquality(node: Equality, accept: ValidationAcceptor): void {
     if ((node.right?.length ?? 0) === 0) {
       return;
@@ -749,6 +872,13 @@ export class Pseudo2Validator {
       }
     }
   }
+  checkComparison(node: Comparison, accept: ValidationAcceptor): void {
+    if ((node.right?.length ?? 0) === 0) return;
+
+    const operands = [node.left, ...(node.right ?? [])];
+    this.requireAllTypes(node, operands, TYPE_NUM, accept, `Vergleichsoperatoren '<', '<=', '>' und '>=' erwarten num.`);
+  }
+
 
   private isCallableExpr(expr: Expr): boolean {
     const core = this.unwrapExpr(expr);
@@ -800,6 +930,29 @@ export class Pseudo2Validator {
       }
 
       return current;
+    }
+  }
+
+  private requireAllTypes(
+    node: unknown,
+    operands: Expr[],
+    expected: ReturnType<Pseudo2TypeComputer['typeFor']>,
+    accept: ValidationAcceptor,
+    message: string
+  ): void {
+    for (const operand of operands) {
+      const actual = this.types.typeFor(operand);
+
+      if (actual.isUnknown()) {
+        continue;
+      }
+
+      if (!actual.isSameAs(expected)) {
+        accept('error', `${message} Erhalten: '${actual.asString()}'.`, {
+          node: node as any
+        });
+        return;
+      }
     }
   }
 

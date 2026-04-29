@@ -27,3 +27,35 @@ print(2 ^ 3)
 print((2 + 1) ^ 2)
 print(10 mod 3)
 print 10 % 3
+
+
+func sum(arr[0 .. n]) {
+  print(n)
+}
+
+
+func f(xs[0 .. len], ys[0 .. len2]) {
+  print(len)
+  print(len2)
+}
+
+struct Person {
+  num age
+
+  func setAge(x) {
+    age = x
+    return age
+  }
+}
+
+var p = new Person
+var a = p.setAge(25)
+
+
+  print(n-1)
+  print(n+true) //anpassen
+  print(n+"bla")
+  //struct rekursiv?
+  //key von c
+  //Annotation sprache, wie definiert man vor-und nachbedinungen, sie erfinden und c file generieren
+  //kann verifast ohne gui betrieben werden???, ob die 

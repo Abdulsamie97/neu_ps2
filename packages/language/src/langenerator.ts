@@ -229,7 +229,7 @@ function generateStructDeclaration(structDecl: StructDeclaration, indent = 0): s
 
 function generateMethodDeclaration(fn: FunctionDeclaration, indent = 0): string {
   const padding = ' '.repeat(indent);
-  const params = (fn.params ?? []).map(p => p.name).join(', ');
+  const params = collectJsParams(fn).join(', ');
   const body = generateBlock(fn.body, indent);
   return `${padding}${fn.name}(${params}) ${body}`;
 }
@@ -240,9 +240,22 @@ function generateMethodDeclaration(fn: FunctionDeclaration, indent = 0): string 
 
 function generateFunctionDeclaration(fn: FunctionDeclaration, indent = 0): string {
   const padding = ' '.repeat(indent);
-  const params = (fn.params ?? []).map(p => p.name).join(', ');
+  const params = collectJsParams(fn).join(', ');
   const body = generateBlock(fn.body, indent);
   return `${padding}function ${fn.name}(${params}) ${body}`;
+}
+
+function collectJsParams(fn: FunctionDeclaration): string[] {
+  const out: string[] = [];
+
+  for (const p of fn.params ?? []) {
+    out.push(p.name);
+    if (p.isArray && p.len) {
+      out.push(p.len.name);
+    }
+  }
+
+  return out;
 }
 
 function generateFunctionCall(call: FunctionCall, indent = 0): string {

@@ -66,10 +66,15 @@ interface VarDecl extends Variable {
   initializer?: Expr
 }
 
-interface ParameterDecl extends Variable {}
+interface ParameterDecl extends Variable {
+  isArray: boolean
+  start?: number
+  len?: VarDecl
+}
 
 interface StructAttDeclaration extends Variable {
   type: TypeRef
+  
 }
 
 // =====================================================
@@ -202,6 +207,9 @@ FunctionDeclaration:
 
 Parameter returns ParameterDecl:
   name=ID
+  (
+    isArray?='[' start=INT '..' len=LengthParameter ']'
+  )?
 ;
 
 FunctionCall:

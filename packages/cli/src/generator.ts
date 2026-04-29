@@ -200,9 +200,22 @@ function genStructDeclaration(structDecl: StructDeclaration, indent = ''): strin
 }
 
 function genMethodDeclaration(fn: FunctionDeclaration, indent = ''): string {
-  const params = (fn.params ?? []).map(p => p.name).join(', ');
+  const params = collectJsParams(fn).join(', ');
   const body = genBlockAny(fn.body, indent);
   return `${indent}${fn.name}(${params}) ${body}`;
+}
+
+function collectJsParams(fn: FunctionDeclaration): string[] {
+  const out: string[] = [];
+
+  for (const p of fn.params ?? []) {
+    out.push(p.name);
+    if (p.isArray && p.len) {
+      out.push(p.len.name);
+    }
+  }
+
+  return out;
 }
 
 // --------------------
@@ -210,7 +223,7 @@ function genMethodDeclaration(fn: FunctionDeclaration, indent = ''): string {
 // --------------------
 
 function genFunctionDeclaration(fn: FunctionDeclaration, indent = ''): string {
-  const params = (fn.params ?? []).map(p => p.name).join(', ');
+  const params = collectJsParams(fn).join(', ');
   return `${indent}function ${fn.name}(${params}) ` + genBlockAny(fn.body, indent);
 }
 

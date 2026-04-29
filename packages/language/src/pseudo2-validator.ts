@@ -34,6 +34,8 @@ import type {
   PrintCommand,
   ThrowCommand,
   CallCommand,
+  Addition,
+  Equality
 } from './generated/ast.js';
 import type { Pseudo2Services } from './pseudo2-module.js';
 
@@ -61,12 +63,12 @@ import {
   isAddition,
   isMultiplication,
   isGrouping,
-  isExponentiation
-
+  isExponentiation,
+  isNot
 } from './generated/ast.js';
 
 import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
-import { TYPE_NUM, TYPE_BOOL, TYPE_STRING } from './typing/pseudo2-type.js';
+import { TYPE_NUM, TYPE_BOOL, TYPE_STRING, TYPE_ARRAY_UNKNOWN, TYPE_UNKNOWN } from './typing/pseudo2-type.js';
 
 export function registerValidationChecks(services: Pseudo2Services) {
   const registry = services.validation.ValidationRegistry;
@@ -105,7 +107,10 @@ export function registerValidationChecks(services: Pseudo2Services) {
 
     PrintCommand: validator.checkPrintCommand,
     ThrowCommand: validator.checkThrowCommand,
-    CallCommand: validator.checkCallCommand
+    CallCommand: validator.checkCallCommand,
+    
+    Equality: validator.checkEquality,
+    Addition: validator.checkAddition
   };
 
   registry.register(checks, validator);
@@ -182,11 +187,40 @@ export class Pseudo2Validator {
 
   checkFunctionDeclaration(node: FunctionDeclaration, accept: ValidationAcceptor): void {
     const seen = new Set<string>();
+
     for (const p of node.params ?? []) {
       if (seen.has(p.name)) {
-        accept('error', `Doppelter Parametername '${p.name}'.`, { node: p, property: 'name' });
+        accept('error', `Doppelter Parametername '${p.name}'.`, {
+          node: p,
+          property: 'name'
+        });
       } else {
         seen.add(p.name);
+      }
+
+      if (p.isArray) {
+        if (p.start !== undefined && p.start < 0) {
+          accept('error', `Array-Parameter '${p.name}' darf keinen negativen Startindex haben.`, {
+            node: p,
+            property: 'start'
+          });
+        }
+
+        if (!p.len) {
+          accept('error', `Array-Parameter '${p.name}' benötigt einen Längenparameter.`, {
+            node: p,
+            property: 'name'
+          });
+        } else {
+          if (seen.has(p.len.name)) {
+            accept('error', `Doppelter Parametername '${p.len.name}'.`, {
+              node: p.len,
+              property: 'name'
+            });
+          } else {
+            seen.add(p.len.name);
+          }
+        }
       }
     }
 
@@ -249,12 +283,16 @@ export class Pseudo2Validator {
         node,
         property: 'params'
       });
+      return;
     } else if (actual > expected) {
       accept('error', `Zu viele Argumente: erwartet ${expected}, erhalten ${actual}.`, {
         node,
         property: 'params'
       });
+      return;
     }
+
+    this.checkArgumentTypes(node, target, node.params ?? [], accept);
   }
 
   checkReturnStmt(node: ReturnStmt, accept: ValidationAcceptor): void {
@@ -377,16 +415,23 @@ export class Pseudo2Validator {
       const target = node.ref?.ref;
       if (!target) return;
 
-      let targetType;
-      if (isVarDecl(target) && target.initializer) {
-        targetType = this.types.typeFor(target.initializer);
+      let isArrayTarget = false;
+
+      if (isParameterDecl(target)) {
+        isArrayTarget = target.isArray === true;
       } else if (isStructAttDeclaration(target)) {
-        targetType = this.types.typeForTypeRef(target.type);
-      } else if (isParameterDecl(target)) {
-        targetType = this.types.typeFor(node);
+        const t = this.types.typeForTypeRef(target.type);
+        isArrayTarget = t.isArrayType();
+      } else if (isVarDecl(target)) {
+        if ((target as any).isArrayVariable === true) {
+          isArrayTarget = true;
+        } else if (target.initializer) {
+          const t = this.types.typeFor(target.initializer);
+          isArrayTarget = t.isArrayType();
+        }
       }
 
-      if (targetType && !targetType.isArrayType()) {
+      if (!isArrayTarget) {
         accept('error', 'Indexzugriff ist nur auf Array-Typen erlaubt.', {
           node,
           property: 'index'
@@ -448,12 +493,16 @@ export class Pseudo2Validator {
         node,
         property: 'params'
       });
+      return;
     } else if (actual > expected) {
       accept('error', `Zu viele Argumente: erwartet ${expected}, erhalten ${actual}.`, {
         node,
         property: 'params'
       });
+      return;
     }
+
+    this.checkArgumentTypes(node, target, node.params ?? [], accept);
   }
 
   checkAttSelection(node: AttSelection, accept: ValidationAcceptor): void {}
@@ -516,6 +565,188 @@ export class Pseudo2Validator {
         node,
         property: 'param'
       });
+    }
+  }
+
+  private checkArgumentTypes(
+    callNode: FunctionCall | MethRef,
+    target: FunctionDeclaration,
+    args: Expr[],
+    accept: ValidationAcceptor
+  ): void {
+    const params = target.params ?? [];
+    const count = Math.min(params.length, args.length);
+
+    for (let i = 0; i < count; i++) {
+      const param = params[i];
+      const arg = args[i];
+
+      const expectedType = this.expectedParameterType(param);
+      const actualType = this.types.typeFor(arg);
+
+      if (expectedType.isUnknown()) {
+        continue;
+      }
+
+      if (!this.isAssignable(actualType, expectedType)) {
+        accept(
+          'error',
+          `Argument ${i + 1} hat falschen Typ: erwartet '${expectedType.asString()}', erhalten '${actualType.asString()}'.`,
+          {
+            node: callNode,
+            property: 'params',
+            index: i
+          }
+        );
+      }
+    }
+  }
+
+  private expectedParameterType(param: ParameterDecl): ReturnType<Pseudo2TypeComputer['typeFor']> {
+    if (param.isArray) {
+      return TYPE_ARRAY_UNKNOWN;
+    }
+
+    return this.inferParameterTypeFromFunctionBody(param);
+  }
+
+  private inferParameterTypeFromFunctionBody(param: ParameterDecl): ReturnType<Pseudo2TypeComputer['typeFor']> {
+    const fn = AstUtils.getContainerOfType(param, isFunctionDeclaration);
+    if (!fn) {
+      return TYPE_UNKNOWN;
+    }
+
+    for (const n of AstUtils.streamAllContents(fn)) {
+      if (isVarRef(n) && n.ref?.ref === param) {
+        const inferred = this.inferTypeFromUsage(n);
+        if (!inferred.isUnknown()) {
+          return inferred;
+        }
+      }
+    }
+
+    return TYPE_UNKNOWN;
+  }
+
+  private inferTypeFromUsage(ref: VarRef): ReturnType<Pseudo2TypeComputer['typeFor']> {
+    let current: any = ref.$container;
+
+    while (current) {
+      if (isFunctionDeclaration(current)) {
+        return TYPE_UNKNOWN;
+      }
+
+      if (isMultiplication(current) && (current.right?.length ?? 0) > 0) {
+        return TYPE_NUM;
+      }
+
+      if (isExponentiation(current) && (current.right?.length ?? 0) > 0) {
+        return TYPE_NUM;
+      }
+
+      if (isComparison(current) && (current.right?.length ?? 0) > 0) {
+        return TYPE_NUM;
+      }
+
+      if (isAddition(current) && (current.right?.length ?? 0) > 0) {
+        return TYPE_NUM;
+      }
+
+      if (isNot(current)) {
+        return TYPE_BOOL;
+      }
+
+      if (isAnd(current) && (current.right?.length ?? 0) > 0) {
+        return TYPE_BOOL;
+      }
+
+      if (isOr(current) && (current.right?.length ?? 0) > 0) {
+        return TYPE_BOOL;
+      }
+
+      current = current.$container;
+    }
+
+    return TYPE_UNKNOWN;
+  }
+
+    checkAddition(node: Addition, accept: ValidationAcceptor): void {
+    if ((node.right?.length ?? 0) === 0) {
+      return;
+    }
+
+    const operands = [node.left, ...(node.right ?? [])];
+    const types = operands.map(e => this.types.typeFor(e));
+
+    const hasString = types.some(t => t.isSameAs(TYPE_STRING));
+    const hasBool = types.some(t => t.isSameAs(TYPE_BOOL));
+    const hasStruct = types.some(t => t.isStructType());
+    const hasArray = types.some(t => t.isArrayType());
+
+    // Komplett verbotene Typen
+    if (hasBool || hasStruct || hasArray) {
+      accept(
+        'error',
+        `Ungültige Addition: '+' erlaubt nur num + num oder String-Verkettung.`,
+        { node }
+      );
+      return;
+    }
+
+    // String → alles okay
+    if (hasString) {
+      return;
+    }
+
+    // Prüfe num
+    for (let i = 0; i < types.length; i++) {
+      const t = types[i];
+      if (!t.isSameAs(TYPE_NUM) && !t.isUnknown()) {
+        accept(
+          'error',
+          `Ungültiger Operand für '+': erwartet num oder string, erhalten '${t.asString()}'.`,
+          {
+            node,
+            property: i === 0 ? 'left' : 'right',
+            index: i === 0 ? undefined : i - 1
+          } as any
+        );
+      }
+    }
+  }
+  checkEquality(node: Equality, accept: ValidationAcceptor): void {
+    if ((node.right?.length ?? 0) === 0) {
+      return;
+    }
+
+    const operands = [node.left, ...(node.right ?? [])];
+    const types = operands.map(e => this.types.typeFor(e));
+
+    const first = types[0];
+
+    for (let i = 1; i < types.length; i++) {
+      const current = types[i];
+
+      if (first.isUnknown() || current.isUnknown()) {
+        continue;
+      }
+
+      if (
+        first.isArrayType() || current.isArrayType() ||
+        first.isStructType() || current.isStructType()
+      ) {
+        accept('error', `Vergleich nicht erlaubt: Arrays und Structs können nicht mit '==' oder '!=' verglichen werden.`, {
+          node
+        });
+        return;
+      }
+
+      if (!first.isSameAs(current)) {
+        accept('error', `Typfehler im Vergleich: '${first.asString()}' kann nicht mit '${current.asString()}' verglichen werden.`, {
+          node
+        });
+        return;
+      }
     }
   }
 

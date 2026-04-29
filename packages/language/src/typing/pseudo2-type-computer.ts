@@ -196,19 +196,28 @@ export class Pseudo2TypeComputer {
   private handlePlus(e: Addition, ctx: TypeComputationContext): Pseudo2Type {
     const parts: Expr[] = [e.left, ...(e.right ?? [])];
 
-    for (const p of parts) {
-      if (this.typeFor(p, ctx.copy()).isUnknown()) {
-        return TYPE_UNKNOWN;
-      }
+    const types = parts.map(p => this.typeFor(p, ctx.copy()));
+
+    // Wenn irgendwas unbekannt → UNKNOWN
+    if (types.some(t => t.isUnknown())) {
+      return TYPE_UNKNOWN;
     }
 
-    for (const p of parts) {
-      const t = this.typeFor(p, ctx.copy());
-      if (t.isSameAsIgnoringUnknown(TYPE_STRING)) {
-        return TYPE_STRING;
-      }
+    // Ungültige Typen → UNKNOWN
+    if (types.some(t =>
+      t.isSameAs(TYPE_BOOL) ||
+      t.isArrayType() ||
+      t.isStructType()
+    )) {
+      return TYPE_UNKNOWN;
     }
 
+    // String Addition
+    if (types.some(t => t.isSameAs(TYPE_STRING))) {
+      return TYPE_STRING;
+    }
+
+    // Normale Addition
     return TYPE_NUM;
   }
 
@@ -217,6 +226,10 @@ export class Pseudo2TypeComputer {
     if (!target) return TYPE_UNKNOWN;
 
     if (isVarDecl(target)) {
+      if (this.isLengthParameterDecl(target)) {
+        return TYPE_NUM;
+      }
+
       if (!target.initializer) return TYPE_UNKNOWN;
       if (ctx.hasVar(target)) return TYPE_UNKNOWN;
 
@@ -224,13 +237,17 @@ export class Pseudo2TypeComputer {
       c2.addVar(target);
 
       let t = this.typeFor(target.initializer, c2);
-      if (v.index) t = t.asBaseType();
+      if (v.index) {
+        t = t.asBaseType();
+      }
       return t;
     }
 
     if (isParameterDecl(target)) {
       let t = this.handleParameter(target, ctx);
-      if (v.index) t = t.asBaseType();
+      if (v.index) {
+        t = t.asBaseType();
+      }
       return t;
     }
 
@@ -242,7 +259,9 @@ export class Pseudo2TypeComputer {
       c2.addVar(target);
 
       let t = this.typeForTypeRef(target.type);
-      if (v.index) t = t.asBaseType();
+      if (v.index) {
+        t = t.asBaseType();
+      }
       return t;
     }
 
@@ -250,7 +269,9 @@ export class Pseudo2TypeComputer {
   }
 
   private handleParameter(p: ParameterDecl, ctx: TypeComputationContext): Pseudo2Type {
-    const defaultUnknown = TYPE_UNKNOWN;
+    const defaultUnknown = p.isArray
+      ? TYPE_ARRAY_UNKNOWN
+      : TYPE_UNKNOWN;
 
     if (ctx.hasVar(p)) return defaultUnknown;
 
@@ -267,28 +288,31 @@ export class Pseudo2TypeComputer {
 
     if (!owningStruct) {
       const calls = this.allReferencingFunctionCalls(parentFn);
-      const outerCalls = this.excludeInner(parentFn, calls);
-      return this.firstConcreteArgumentType(outerCalls.map(call => (call.params ?? [])[idx]), c2, defaultUnknown);
+      const outer = this.excludeInner(parentFn, calls);
+
+      for (const call of outer) {
+        const arg = (call.params ?? [])[idx];
+        if (!arg) continue;
+
+        const t = this.typeFor(arg, c2.copy());
+        if (!t.isUnknown()) return t;
+      }
+
+      return defaultUnknown;
     } else {
       const refs = this.allReferencingMethRefs(parentFn);
-      const outerRefs = this.excludeInner(parentFn, refs);
-      return this.firstConcreteArgumentType(outerRefs.map(ref => (ref.params ?? [])[idx]), c2, defaultUnknown);
-    }
-  }
+      const outer = this.excludeInner(parentFn, refs);
 
-  private firstConcreteArgumentType(
-    args: Array<Expr | undefined>,
-    ctx: TypeComputationContext,
-    fallback: Pseudo2Type
-  ): Pseudo2Type {
-    for (const arg of args) {
-      if (!arg) continue;
-      const t = this.typeFor(arg, ctx.copy());
-      if (!t.isUnknown()) {
-        return t;
+      for (const mr of outer) {
+        const arg = (mr.params ?? [])[idx];
+        if (!arg) continue;
+
+        const t = this.typeFor(arg, c2.copy());
+        if (!t.isUnknown()) return t;
       }
+
+      return defaultUnknown;
     }
-    return fallback;
   }
 
   private handleFunctionCall(fc: FunctionCall, ctx: TypeComputationContext): Pseudo2Type {
@@ -378,6 +402,19 @@ export class Pseudo2TypeComputer {
     }
 
     return out;
+  }
+
+  private isLengthParameterDecl(v: VarDecl): boolean {
+    const parent: any = v.$container;
+    if (!parent) {
+      return false;
+    }
+
+    if (!isFunctionDeclaration(parent)) {
+      return false;
+    }
+
+    return (parent.params ?? []).some((p: any) => p.len === v);
   }
 
   private allReferencingMethRefs(fd: FunctionDeclaration): MethRef[] {

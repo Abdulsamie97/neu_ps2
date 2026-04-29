@@ -186,7 +186,7 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
       }
 
       if (isFunctionDeclaration(container)) {
-        const params = container.params ?? [];
+        const params = this.collectFunctionParameters(container);
         const globals = this.collectGlobalVars(container);
         const structAtts = this.collectEnclosingStructAttributes(container);
     //    console.log('[VAR SCOPE] fn params =', params.map(v => v.name));
@@ -225,7 +225,7 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     if (!container) return [];
 
     const enclosingFn = AstUtils.getContainerOfType(container, isFunctionDeclaration);
-    const params = enclosingFn?.params ?? [];
+    const params = enclosingFn ? this.collectFunctionParameters(enclosingFn) : [];
     const globals = this.collectGlobalVars(container);
     const structAtts = this.collectEnclosingStructAttributes(container);
 
@@ -301,6 +301,19 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     const program = this.getProgram(from);
     return program ? program.instructions.filter(isFunctionDeclaration) : [];
   }
+
+  private collectFunctionParameters(fn: FunctionDeclaration): Named[] {
+  const out: Named[] = [];
+
+  for (const p of fn.params ?? []) {
+    out.push(p);
+    if (p.isArray && p.len) {
+      out.push(p.len);
+    }
+  }
+
+  return out;
+}
 
   private collectStructs(from: AstNode): StructDeclaration[] {
     const program = this.getProgram(from);

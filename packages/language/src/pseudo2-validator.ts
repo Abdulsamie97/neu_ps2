@@ -125,7 +125,7 @@ export function registerValidationChecks(services: Pseudo2Services) {
     And: validator.checkAnd,
     Or: validator.checkOr,
     Not: validator.checkNot,
-    Neg: validator.checkNeg
+    Neg: validator.checkNeg,
   };
 
   registry.register(checks, validator);
@@ -134,9 +134,13 @@ export function registerValidationChecks(services: Pseudo2Services) {
 export class Pseudo2Validator {
   private readonly types = new Pseudo2TypeComputer();
 
-  checkBracedBlock(node: BracedBlock, accept: ValidationAcceptor): void {}
+  checkBracedBlock(node: BracedBlock, accept: ValidationAcceptor): void {
+    this.checkNoInstructionsAfterReturn(node.instructions ?? [], accept);
+  }
 
-  checkIndentedBlock(node: IndentedBlock, accept: ValidationAcceptor): void {}
+  checkIndentedBlock(node: IndentedBlock, accept: ValidationAcceptor): void {
+    this.checkNoInstructionsAfterReturn(node.instructions ?? [], accept);
+  }
 
   checkIfStatement(node: IfStatement, accept: ValidationAcceptor): void {
     const conditionType = this.types.typeFor(node.condition);
@@ -203,6 +207,7 @@ export class Pseudo2Validator {
   checkFunctionDeclaration(node: FunctionDeclaration, accept: ValidationAcceptor): void {
     const seen = new Set<string>();
 
+    // 1. Parameter prüfen
     for (const p of node.params ?? []) {
       if (seen.has(p.name)) {
         accept('error', `Doppelter Parametername '${p.name}'.`, {
@@ -226,19 +231,18 @@ export class Pseudo2Validator {
             node: p,
             property: 'name'
           });
+        } else if (seen.has(p.len.name)) {
+          accept('error', `Doppelter Parametername '${p.len.name}'.`, {
+            node: p.len,
+            property: 'name'
+          });
         } else {
-          if (seen.has(p.len.name)) {
-            accept('error', `Doppelter Parametername '${p.len.name}'.`, {
-              node: p.len,
-              property: 'name'
-            });
-          } else {
-            seen.add(p.len.name);
-          }
+          seen.add(p.len.name);
         }
       }
     }
 
+    // 2. Doppelte globale Funktionen prüfen
     const parentStruct = AstUtils.getContainerOfType(node.$container, isStructDeclaration);
     if (!parentStruct) {
       const program = this.getProgram(node);
@@ -256,14 +260,28 @@ export class Pseudo2Validator {
       }
     }
 
-    const returns = this.allReturnsWithValue(node);
-    if (returns.length <= 1) {
+    // 3. return mit und ohne Wert nicht mischen
+    const allReturns = this.allReturns(node);
+    const returnsWithValue = allReturns.filter(r => r.retExpr);
+    const returnsWithoutValue = allReturns.filter(r => !r.retExpr);
+
+    if (returnsWithValue.length > 0 && returnsWithoutValue.length > 0) {
+      for (const r of allReturns) {
+        accept('error', `Funktion '${node.name}' mischt return mit und ohne Wert.`, {
+          node: r
+        });
+      }
+    }
+
+    // 4. Rückgabetypen prüfen
+    if (returnsWithValue.length <= 1) {
       return;
     }
 
-    const firstType = this.types.typeFor(returns[0].retExpr);
-    for (let i = 1; i < returns.length; i++) {
-      const currentType = this.types.typeFor(returns[i].retExpr);
+    const firstType = this.types.typeFor(returnsWithValue[0].retExpr);
+    for (let i = 1; i < returnsWithValue.length; i++) {
+      const currentType = this.types.typeFor(returnsWithValue[i].retExpr);
+
       if (
         !currentType.isSameAsIgnoringUnknown(firstType) &&
         !firstType.isUnknown() &&
@@ -273,7 +291,7 @@ export class Pseudo2Validator {
           'error',
           `Inkonsistente Rückgabetypen in Funktion '${node.name}': '${firstType.asString()}' und '${currentType.asString()}'.`,
           {
-            node: returns[i],
+            node: returnsWithValue[i],
             property: 'retExpr'
           }
         );
@@ -281,6 +299,16 @@ export class Pseudo2Validator {
     }
   }
 
+  private allReturns(fn: FunctionDeclaration): ReturnStmt[] {
+    const out: ReturnStmt[] = [];
+    for (const n of AstUtils.streamAllContents(fn)) {
+      if (isReturnStmt(n)) {
+        out.push(n);
+      }
+    }
+    return out;
+  }
+  
   checkFunctionCall(node: FunctionCall, accept: ValidationAcceptor): void {
     if (node.f && !node.f.ref) {
       accept('error', 'Unbekannte Funktion.', { node, property: 'f' });
@@ -289,6 +317,13 @@ export class Pseudo2Validator {
 
     const target = node.f?.ref;
     if (!target) return;
+
+    if (!this.isStatementFunctionCall(node) && !this.hasReturnValue(target)) {
+      accept('error', `Funktion '${target.name}' gibt keinen Wert zurück und kann nicht als Ausdruck verwendet werden.`, {
+        node,
+        property: 'f'
+      });
+    }
 
     const expected = target.params?.length ?? 0;
     const actual = node.params?.length ?? 0;
@@ -308,6 +343,20 @@ export class Pseudo2Validator {
     }
 
     this.checkArgumentTypes(node, target, node.params ?? [], accept);
+  }
+
+  private hasReturnValue(fn: FunctionDeclaration): boolean {
+    return this.allReturns(fn).some(r => r.retExpr);
+  }
+
+  private isStatementFunctionCall(node: FunctionCall): boolean {
+    const container: any = node.$container;
+
+    return (
+      container?.$type === 'Program' ||
+      isBracedBlock(container) ||
+      isIndentedBlock(container)
+    );
   }
 
   checkReturnStmt(node: ReturnStmt, accept: ValidationAcceptor): void {
@@ -528,25 +577,26 @@ export class Pseudo2Validator {
         node,
         property: 'receiver'
       });
+      return;
     }
 
     const structName = this.types.structNameOf(node.receiver);
     if (!structName) return;
 
-    const program = this.getProgram(node);
-    const struct = program?.instructions
-      .filter(isStructDeclaration)
-      .find(s => s.name === structName);
-
+    const struct = this.findStructByName(node, structName);
     if (!struct) return;
+
+    const attName = node.attref.ref?.ref?.name;
+    if (!attName) return;
 
     const exists = (struct.children ?? [])
       .filter(isStructAttDeclaration)
-      .some(a => a.name === node.attref.ref?.ref?.name);
+      .some(a => a.name === attName);
 
     if (!exists) {
-      accept('error', `Attribut '${node.attref.ref?.ref?.name}' existiert nicht in Struct '${structName}'.`, {
-        node
+      accept('error', `Attribut '${attName}' existiert nicht in Struct '${structName}'.`, {
+        node,
+        property: 'attref'
       });
     }
   }
@@ -559,28 +609,70 @@ export class Pseudo2Validator {
         node,
         property: 'receiver'
       });
+      return;
     }
 
     const structName = this.types.structNameOf(node.receiver);
     if (!structName) return;
 
-    const program = this.getProgram(node);
-    const struct = program?.instructions
-      .filter(isStructDeclaration)
-      .find(s => s.name === structName);
-
+    const struct = this.findStructByName(node, structName);
     if (!struct) return;
 
-    const exists = (struct.children ?? [])
-      .filter(isFunctionDeclaration)
-      .some(m => m.name === node.methref.f?.ref?.name);
+    const methodName = node.methref.f?.ref?.name;
+    if (!methodName) return;
 
-    if (!exists) {
-      accept('error', `Methode '${node.methref.f?.ref?.name}' existiert nicht in Struct '${structName}'.`, {
-        node
+    const target = node.methref.f?.ref;
+    if (!target) return;
+
+    if (!this.isStatementMethodCall(node) && !this.hasReturnValue(target)) {
+      accept('error', `Methode '${target.name}' gibt keinen Wert zurück und kann nicht als Ausdruck verwendet werden.`, {
+        node,
+        property: 'methref'
       });
     }
 
+    const exists = (struct.children ?? [])
+      .filter(isFunctionDeclaration)
+      .some(m => m.name === methodName);
+
+    if (!exists) {
+      accept('error', `Methode '${methodName}' existiert nicht in Struct '${structName}'.`, {
+        node,
+        property: 'methref'
+      });
+    }
+  }
+
+  private isStatementMethodCall(node: MethSelection): boolean {
+    let current: any = node.$container;
+
+    while (current) {
+      if (current.$type === 'ExprStatement') {
+        return true;
+      }
+
+      if (
+        current.$type === 'VarDecl' ||
+        current.$type === 'Assignment' ||
+        current.$type === 'ReturnStmt' ||
+        current.$type === 'PrintCommand' ||
+        current.$type === 'ThrowCommand' ||
+        current.$type === 'CallCommand'
+      ) {
+        return false;
+      }
+
+      current = current.$container;
+    }
+
+    return false;
+  }
+
+  private findStructByName(node: { $container?: unknown }, name: string): StructDeclaration | undefined {
+    const program = this.getProgram(node);
+    return program?.instructions
+      .filter(isStructDeclaration)
+      .find(s => s.name === name);
   }
 
   checkThisExpr(node: ThisExpr, accept: ValidationAcceptor): void {
@@ -884,6 +976,22 @@ export class Pseudo2Validator {
     const core = this.unwrapExpr(expr);
     return isFunctionCall(core) || isMethSelection(core);
   }
+ 
+  private checkNoInstructionsAfterReturn(instructions: Instruction[], accept: ValidationAcceptor): void {
+    let foundReturn = false;
+
+    for (const instr of instructions) {
+      if (foundReturn) {
+        accept('warning', 'Diese Anweisung ist nicht erreichbar, weil davor bereits return steht.', {
+          node: instr
+        });
+      }
+
+      if (isReturnStmt(instr)) {
+        foundReturn = true;
+      }
+    }
+  }
 
   private unwrapExpr(expr: Expr): Expr {
     let current: Expr = expr;
@@ -1035,7 +1143,9 @@ export class Pseudo2Validator {
     }
 
     const program = this.getProgram(node);
-    return program?.instructions.filter(isVarDecl).find(v => v.name === name);
+    return program?.instructions
+      .filter(isVarDecl)
+      .find(v => v !== node && v.name === name);
   }
 
   private getEnclosingInstruction(node: VarDecl): Instruction | undefined {
@@ -1061,16 +1171,6 @@ export class Pseudo2Validator {
       isStructDeclaration(n as any) ||
       isVarDecl(n as any)
     );
-  }
-
-  private allReturnsWithValue(fn: FunctionDeclaration): ReturnStmt[] {
-    const out: ReturnStmt[] = [];
-    for (const n of AstUtils.streamAllContents(fn)) {
-      if (isReturnStmt(n) && n.retExpr) {
-        out.push(n);
-      }
-    }
-    return out;
   }
 
   private isAssignable(

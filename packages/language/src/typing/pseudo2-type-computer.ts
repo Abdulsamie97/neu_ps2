@@ -22,7 +22,7 @@ import type {
   MethSelection,
   StructAttDeclaration,
   ArrayLiteral,
- // Exponentiation
+  Exponentiation
 } from '../generated/ast.js';
 
 import {
@@ -32,6 +32,7 @@ import {
   isComparison,
   isAddition,
   isMultiplication,
+  isExponentiation,
   isNot,
   isNeg,
   isGrouping,
@@ -54,8 +55,7 @@ import {
   isArrayType,
   isStructType,
   isStructAttDeclaration,
-  isArrayLiteral,
-  isExponentiation
+  isArrayLiteral
 } from '../generated/ast.js';
 
 import {
@@ -75,29 +75,14 @@ export class TypeComputationContext {
   readonly fns = new Set<FunctionDeclaration>();
   readonly exps = new Set<Expr>();
 
-  addVar(v: VarDecl | ParameterDecl | StructAttDeclaration): void {
-    this.vars.add(v);
-  }
+  addVar(v: VarDecl | ParameterDecl | StructAttDeclaration): void { this.vars.add(v); }
+  hasVar(v: VarDecl | ParameterDecl | StructAttDeclaration): boolean { return this.vars.has(v); }
 
-  hasVar(v: VarDecl | ParameterDecl | StructAttDeclaration): boolean {
-    return this.vars.has(v);
-  }
+  addFn(f: FunctionDeclaration): void { this.fns.add(f); }
+  hasFn(f: FunctionDeclaration): boolean { return this.fns.has(f); }
 
-  addFn(f: FunctionDeclaration): void {
-    this.fns.add(f);
-  }
-
-  hasFn(f: FunctionDeclaration): boolean {
-    return this.fns.has(f);
-  }
-
-  addExp(e: Expr): void {
-    this.exps.add(e);
-  }
-
-  hasExp(e: Expr): boolean {
-    return this.exps.has(e);
-  }
+  addExp(e: Expr): void { this.exps.add(e); }
+  hasExp(e: Expr): boolean { return this.exps.has(e); }
 
   copy(): TypeComputationContext {
     const c = new TypeComputationContext();
@@ -112,40 +97,26 @@ export class Pseudo2TypeComputer {
   typeFor(e: Expr | undefined | null, ctx = new TypeComputationContext()): Pseudo2Type {
     if (!e) return TYPE_UNKNOWN;
 
-    if (ctx.hasExp(e)) return TYPE_UNKNOWN;
+    if (ctx.hasExp(e)) return TYPE_UNKNOWN; // cycle protection
     ctx.addExp(e);
 
-    if (isOr(e)) {
-      return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_BOOL;
-    }
+    // ---- boolean operators ----
+    if (isOr(e)) return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_BOOL;
+    if (isAnd(e)) return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_BOOL;
 
-    if (isAnd(e)) {
-      return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_BOOL;
-    }
+    if (isEquality(e)) return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_BOOL;
+    if (isComparison(e)) return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_BOOL;
 
-    if (isEquality(e)) {
-      return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_BOOL;
-    }
+    // ---- arithmetic ----
+    if (isAddition(e)) return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : this.handlePlus(e, ctx);
+    if (isMultiplication(e)) return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_NUM;
+    if (isExponentiation(e)) return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_NUM;
 
-    if (isComparison(e)) {
-      return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_BOOL;
-    }
-
-    if (isAddition(e)) {
-      return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : this.handlePlus(e, ctx);
-    }
-
-    if (isMultiplication(e)) {
-      return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_NUM;
-    }
-
-    if (isExponentiation(e)) {
-      return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_NUM;
-    }
-
+    // ---- unary ----
     if (isNot(e)) return TYPE_BOOL;
     if (isNeg(e)) return TYPE_NUM;
 
+    // ---- literals / grouping ----
     if (isGrouping(e)) return this.typeFor(e.value, ctx);
     if (isIntLiteral(e)) return TYPE_NUM;
     if (isBoolLiteral(e)) return TYPE_BOOL;
@@ -153,9 +124,11 @@ export class Pseudo2TypeComputer {
     if (isNullLiteral(e)) return TYPE_STRUCT_UNKNOWN;
     if (isArrayLiteral(e)) return this.handleArrayLiteral(e, ctx);
 
+    // ---- object / struct ----
     if (isNewExpr(e)) return this.handleNew(e);
     if (isThisExpr(e)) return this.handleThis(e);
 
+    // ---- references / selection ----
     if (isVarRef(e)) return this.handleVarRef(e, ctx);
     if (isAttSelection(e)) return this.handleAttSelection(e, ctx);
     if (isMethSelection(e)) return this.handleMethSelection(e, ctx);
@@ -169,6 +142,7 @@ export class Pseudo2TypeComputer {
     return t.isStruct && t.name ? t.name : undefined;
   }
 
+  // ---- handlers ----
   private handleThis(e: ThisExpr): Pseudo2Type {
     const sd = AstUtils.getContainerOfType(e, isStructDeclaration);
     return sd ? TYPE_STRUCT(sd.name) : TYPE_UNKNOWN;
@@ -181,10 +155,7 @@ export class Pseudo2TypeComputer {
 
   private handleArrayLiteral(e: ArrayLiteral, ctx: TypeComputationContext): Pseudo2Type {
     const elems = e.elems ?? [];
-    if (elems.length === 0) {
-      return TYPE_ARRAY_UNKNOWN;
-    }
-
+    if (elems.length === 0) return TYPE_ARRAY_UNKNOWN;
     const firstType = this.typeFor(elems[0], ctx.copy());
     return Pseudo2Type.create({
       name: firstType.name,
@@ -195,29 +166,17 @@ export class Pseudo2TypeComputer {
 
   private handlePlus(e: Addition, ctx: TypeComputationContext): Pseudo2Type {
     const parts: Expr[] = [e.left, ...(e.right ?? [])];
-
     const types = parts.map(p => this.typeFor(p, ctx.copy()));
 
-    // Wenn irgendwas unbekannt → UNKNOWN
-    if (types.some(t => t.isUnknown())) {
-      return TYPE_UNKNOWN;
-    }
+    // any unknown → unknown
+    if (types.some(t => t.isUnknown())) return TYPE_UNKNOWN;
 
-    // Ungültige Typen → UNKNOWN
-    if (types.some(t =>
-      t.isSameAs(TYPE_BOOL) ||
-      t.isArrayType() ||
-      t.isStructType()
-    )) {
-      return TYPE_UNKNOWN;
-    }
+    // invalid types → unknown
+    if (types.some(t => t.isSameAs(TYPE_BOOL) || t.isArrayType() || t.isStructType())) return TYPE_UNKNOWN;
 
-    // String Addition
-    if (types.some(t => t.isSameAs(TYPE_STRING))) {
-      return TYPE_STRING;
-    }
+    // if any string → string
+    if (types.some(t => t.isSameAs(TYPE_STRING))) return TYPE_STRING;
 
-    // Normale Addition
     return TYPE_NUM;
   }
 
@@ -226,10 +185,7 @@ export class Pseudo2TypeComputer {
     if (!target) return TYPE_UNKNOWN;
 
     if (isVarDecl(target)) {
-      if (this.isLengthParameterDecl(target)) {
-        return TYPE_NUM;
-      }
-
+      if (this.isLengthParameterDecl(target)) return TYPE_NUM;
       if (!target.initializer) return TYPE_UNKNOWN;
       if (ctx.hasVar(target)) return TYPE_UNKNOWN;
 
@@ -237,17 +193,13 @@ export class Pseudo2TypeComputer {
       c2.addVar(target);
 
       let t = this.typeFor(target.initializer, c2);
-      if (v.index) {
-        t = t.asBaseType();
-      }
+      if (v.index) t = t.asBaseType();
       return t;
     }
 
     if (isParameterDecl(target)) {
       let t = this.handleParameter(target, ctx);
-      if (v.index) {
-        t = t.asBaseType();
-      }
+      if (v.index) t = t.asBaseType();
       return t;
     }
 
@@ -259,9 +211,7 @@ export class Pseudo2TypeComputer {
       c2.addVar(target);
 
       let t = this.typeForTypeRef(target.type);
-      if (v.index) {
-        t = t.asBaseType();
-      }
+      if (v.index) t = t.asBaseType();
       return t;
     }
 
@@ -269,10 +219,7 @@ export class Pseudo2TypeComputer {
   }
 
   private handleParameter(p: ParameterDecl, ctx: TypeComputationContext): Pseudo2Type {
-    const defaultUnknown = p.isArray
-      ? TYPE_ARRAY_UNKNOWN
-      : TYPE_UNKNOWN;
-
+    const defaultUnknown = p.isArray ? TYPE_ARRAY_UNKNOWN : TYPE_UNKNOWN;
     if (ctx.hasVar(p)) return defaultUnknown;
 
     const parentFn = AstUtils.getContainerOfType(p, isFunctionDeclaration);
@@ -293,7 +240,6 @@ export class Pseudo2TypeComputer {
       for (const call of outer) {
         const arg = (call.params ?? [])[idx];
         if (!arg) continue;
-
         const t = this.typeFor(arg, c2.copy());
         if (!t.isUnknown()) return t;
       }
@@ -306,7 +252,6 @@ export class Pseudo2TypeComputer {
       for (const mr of outer) {
         const arg = (mr.params ?? [])[idx];
         if (!arg) continue;
-
         const t = this.typeFor(arg, c2.copy());
         if (!t.isUnknown()) return t;
       }
@@ -329,31 +274,20 @@ export class Pseudo2TypeComputer {
 
   private typeForFunctionDeclaration(fd: FunctionDeclaration, ctx: TypeComputationContext): Pseudo2Type {
     if (ctx.hasFn(fd)) return TYPE_UNKNOWN;
-
     const c2 = ctx.copy();
     c2.addFn(fd);
-
     const returnTypes = this.allReturnTypes(fd, c2);
     return this.firstConcreteReturnType(returnTypes);
   }
 
   private allReturnTypes(fd: FunctionDeclaration, ctx: TypeComputationContext): Pseudo2Type[] {
     const returns = this.allReturnsWithValue(fd);
-    const out: Pseudo2Type[] = [];
-
-    for (const ret of returns) {
-      if (!ret.retExpr) continue;
-      out.push(this.typeFor(ret.retExpr, ctx.copy()));
-    }
-
-    return out;
+    return returns.map(r => this.typeFor(r.retExpr!, ctx.copy()));
   }
 
   private firstConcreteReturnType(types: Pseudo2Type[]): Pseudo2Type {
     for (const t of types) {
-      if (!t.isUnknown() && !t.isPartiallyUnknown()) {
-        return t;
-      }
+      if (!t.isUnknown() && !t.isPartiallyUnknown()) return t;
     }
     return TYPE_UNKNOWN;
   }
@@ -376,11 +310,7 @@ export class Pseudo2TypeComputer {
     if (isArrayType(tr as unknown as ArrayType)) {
       const base = (tr as unknown as ArrayType).base;
       const bt = this.typeForTypeRef(base as unknown as TypeRef);
-      return Pseudo2Type.create({
-        name: bt.name,
-        isStruct: bt.isStruct,
-        isArray: true
-      });
+      return Pseudo2Type.create({ name: bt.name, isStruct: bt.isStruct, isArray: true });
     }
 
     const k = (tr as any).$type as string;
@@ -394,56 +324,37 @@ export class Pseudo2TypeComputer {
   private allReferencingFunctionCalls(fd: FunctionDeclaration): FunctionCall[] {
     const root = AstUtils.getDocument(fd).parseResult.value;
     const out: FunctionCall[] = [];
-
     for (const n of AstUtils.streamAllContents(root)) {
-      if (isFunctionCall(n) && n.f?.ref === fd) {
-        out.push(n);
-      }
+      if (isFunctionCall(n) && n.f?.ref === fd) out.push(n);
     }
-
     return out;
   }
 
   private isLengthParameterDecl(v: VarDecl): boolean {
     const parent: any = v.$container;
-    if (!parent) {
-      return false;
-    }
-
-    if (!isFunctionDeclaration(parent)) {
-      return false;
-    }
-
+    if (!parent || !isFunctionDeclaration(parent)) return false;
     return (parent.params ?? []).some((p: any) => p.len === v);
   }
 
   private allReferencingMethRefs(fd: FunctionDeclaration): MethRef[] {
     const root = AstUtils.getDocument(fd).parseResult.value;
     const out: MethRef[] = [];
-
     for (const n of AstUtils.streamAllContents(root)) {
-      if (isMethRef(n) && n.f?.ref === fd) {
-        out.push(n);
-      }
+      if (isMethRef(n) && n.f?.ref === fd) out.push(n);
     }
-
     return out;
   }
 
   private excludeInner<T extends AstNode>(fd: FunctionDeclaration, items: T[]): T[] {
     const inner = new Set<AstNode>();
-    for (const n of AstUtils.streamAllContents(fd)) {
-      inner.add(n);
-    }
+    for (const n of AstUtils.streamAllContents(fd)) inner.add(n);
     return items.filter(i => !inner.has(i));
   }
 
   private allReturnsWithValue(fd: FunctionDeclaration): ReturnStmt[] {
     const out: ReturnStmt[] = [];
     for (const n of AstUtils.streamAllContents(fd)) {
-      if (isReturnStmt(n) && n.retExpr) {
-        out.push(n);
-      }
+      if (isReturnStmt(n) && n.retExpr) out.push(n);
     }
     return out;
   }

@@ -168,14 +168,28 @@ export class Pseudo2TypeComputer {
     const parts: Expr[] = [e.left, ...(e.right ?? [])];
     const types = parts.map(p => this.typeFor(p, ctx.copy()));
 
-    // any unknown → unknown
-    if (types.some(t => t.isUnknown())) return TYPE_UNKNOWN;
+    // unbekannt bleibt unbekannt
+    if (types.some(t => t.isUnknown())) {
+      return TYPE_UNKNOWN;
+    }
 
-    // invalid types → unknown
-    if (types.some(t => t.isSameAs(TYPE_BOOL) || t.isArrayType() || t.isStructType())) return TYPE_UNKNOWN;
+    // Arrays/Structs sind bei + verboten
+    if (types.some(t => t.isArrayType() || t.isStructType())) {
+      return TYPE_UNKNOWN;
+    }
 
-    // if any string → string
-    if (types.some(t => t.isSameAs(TYPE_STRING))) return TYPE_STRING;
+    const hasString = types.some(t => t.isSameAs(TYPE_STRING));
+    const hasBool = types.some(t => t.isSameAs(TYPE_BOOL));
+
+    // Sobald string beteiligt ist, wird verkettet
+    if (hasString) {
+      return TYPE_STRING;
+    }
+
+    // bool ohne string bleibt ungültig
+    if (hasBool) {
+      return TYPE_UNKNOWN;
+    }
 
     return TYPE_NUM;
   }

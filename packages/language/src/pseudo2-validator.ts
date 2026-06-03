@@ -939,24 +939,22 @@ export class Pseudo2Validator {
       }
 
       // lockere Addition:
-      // string beteiligt -> string
-      // bool/array/struct beteiligt -> unknown
-      // num + num möglich, aber x + 1 erzwingt nicht automatisch x:num,
-      // weil auch string + num erlaubt ist
+      // string + string, string + num, num + string, string + bool, bool + string sind erlaubt
+      // deshalb darf aus x + ... KEIN harter Parametertyp abgeleitet werden
       if (isAddition(current) && (current.right?.length ?? 0) > 0) {
         const operands = [current.left, ...(current.right ?? [])];
 
         const otherOperands = operands.filter((e: Expr) => !this.exprContainsNode(e, ref));
         const otherOperandTypes = otherOperands.map((e: Expr) => this.types.typeFor(e));
 
-        if (otherOperandTypes.some(t => t.isSameAs(TYPE_STRING))) {
-          return TYPE_STRING;
-        }
-
-        if (otherOperandTypes.some(t => t.isSameAs(TYPE_BOOL) || t.isArrayType() || t.isStructType())) {
+        // Array/Struct bei + sind ungültig -> daraus keine sinnvolle Typinferenz ableiten
+        if (otherOperandTypes.some(t => t.isArrayType() || t.isStructType())) {
           return TYPE_UNKNOWN;
         }
 
+        // Auch bei string oder bool nicht festlegen:
+        // "text" + x  => x könnte string/num/bool sein
+        // x + 1       => x könnte num oder string sein
         return TYPE_UNKNOWN;
       }
 
@@ -997,22 +995,32 @@ export class Pseudo2Validator {
     const hasStruct = types.some(t => t.isStructType());
     const hasArray = types.some(t => t.isArrayType());
 
-    // Komplett verbotene Typen
-    if (hasBool || hasStruct || hasArray) {
+    // Array/Struct bei + bleiben verboten
+    if (hasStruct || hasArray) {
       accept(
         'error',
-        `Ungültige Addition: '+' erlaubt nur num + num oder String-Verkettung.`,
+        `Ungültige Addition: '+' erlaubt keine Arrays oder Structs.`,
         { node }
       );
       return;
     }
 
-    // String → alles okay
+    // Sobald string beteiligt ist, ist string-Verkettung erlaubt
+    // -> string+string, string+num, num+string, string+bool, bool+string
     if (hasString) {
       return;
     }
 
-    // Prüfe num
+    // Ohne string bleibt nur num+num erlaubt
+    if (hasBool) {
+      accept(
+        'error',
+        `Ungültige Addition: bool ist nur in String-Verkettung mit '+' erlaubt.`,
+        { node }
+      );
+      return;
+    }
+
     for (let i = 0; i < types.length; i++) {
       const t = types[i];
       if (!t.isSameAs(TYPE_NUM) && !t.isUnknown()) {
@@ -1025,6 +1033,7 @@ export class Pseudo2Validator {
             index: i === 0 ? undefined : i - 1
           } as any
         );
+        return;
       }
     }
   }
@@ -1094,24 +1103,41 @@ export class Pseudo2Validator {
         continue;
       }
 
-      if (
-        first.isArrayType() || current.isArrayType() ||
-        first.isStructType() || current.isStructType()
-      ) {
-        accept('error', `Vergleich nicht erlaubt: Arrays und Structs können nicht mit '==' oder '!=' verglichen werden.`, {
-          node
-        });
+      // Arrays bleiben verboten
+      if (first.isArrayType() || current.isArrayType()) {
+        accept(
+          'error',
+          `Vergleich nicht erlaubt: Arrays können nicht mit '==' oder '!=' verglichen werden.`,
+          { node }
+        );
+        return;
+      }
+
+      // Struct-Vergleiche sind erlaubt, z. B. head.ptr == null
+      if (first.isStructType() || current.isStructType()) {
+        if (first.isStructType() && current.isStructType()) {
+          continue;
+        }
+
+        accept(
+          'error',
+          `Typfehler im Vergleich: '${first.asString()}' kann nicht mit '${current.asString()}' verglichen werden.`,
+          { node }
+        );
         return;
       }
 
       if (!first.isSameAs(current)) {
-        accept('error', `Typfehler im Vergleich: '${first.asString()}' kann nicht mit '${current.asString()}' verglichen werden.`, {
-          node
-        });
+        accept(
+          'error',
+          `Typfehler im Vergleich: '${first.asString()}' kann nicht mit '${current.asString()}' verglichen werden.`,
+          { node }
+        );
         return;
       }
     }
   }
+
   checkComparison(node: Comparison, accept: ValidationAcceptor): void {
     if ((node.right?.length ?? 0) === 0) return;
 

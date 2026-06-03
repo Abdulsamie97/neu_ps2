@@ -1,0 +1,53 @@
+//
+// Euclidian algorithm for computing the greatest common divisor 
+// of two positive integers
+//
+
+ 
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+var aOrig = 44  // set the first value
+var bOrig = 12  // set the second value
+  
+
+if !(isInt(aOrig) && isInt(bOrig) && aOrig > 0 && bOrig>0)
+    throw "aOrig and bOrig must be positive integers"
+
+// create vars to work with
+var a = aOrig
+var b = bOrig
+
+// start the algorithm
+while a != b
+    if a>b
+        a = a-b
+    else
+        b = b-a
+
+        
+print "Greatest common divisor of " + aOrig + " and " + bOrig + " is " + a
+
+print "finished"
+
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+
+
+func isInt(x)
+    if x mod 1 == 0
+        return true
+    else 
+        return false
+
+
+
+ 

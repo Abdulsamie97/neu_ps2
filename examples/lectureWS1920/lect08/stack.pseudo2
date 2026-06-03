@@ -1,0 +1,42 @@
+
+
+struct evlElem 
+	num key
+	evlElem next
+
+
+var L = new evlElem  // this determines the type of variable L
+
+L = null
+
+func push(x)
+	var p = new evlElem
+	p.key=x
+	p.next=L
+	L=p
+	
+func pop()
+	if (empty()) 
+		throw "ERROR: pop() invoked on empty stack"	
+	var x = L.key
+	L=L.next
+	return x	
+	 
+func empty()
+	return L==null	
+
+
+
+// Usage
+
+print empty()
+push(1)
+push(2)
+push(3)
+
+print empty()
+print pop()  // 3
+print pop()  // 2
+print pop()  // 1
+print empty()
+

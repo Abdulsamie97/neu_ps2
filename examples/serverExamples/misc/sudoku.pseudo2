@@ -1,0 +1,229 @@
+//
+//  SOLVER for Sudoku
+//
+// Original version in C: Frank Bauernöppel
+//
+// Adaptation to Pseudo2: Thomas Baar
+
+
+ 
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+var N = 3
+var NN = N*N
+
+
+var S1 = [
+0, 0, 3,  0, 0, 6,  0, 0, 0,
+1, 4, 0,  8, 0, 0,  0, 0, 0,
+0, 2, 0,  9, 0, 0,  0, 0, 0,
+
+0, 8, 4,  0, 0, 0,  7, 0, 0,
+9, 6, 0,  0, 0, 7,  0, 8, 0,
+0, 0, 0,  4, 0, 0,  2, 0, 9,
+
+0, 3, 0,  0, 0, 9,  8, 1, 0,
+0, 0, 0,  0, 7, 3,  9, 0, 6,
+0, 0, 0,  0, 0, 0,  4, 7, 0
+]
+
+
+// very simple (just one open position)
+var S2 = [
+1, 6, 3,  2, 5, 4,  8, 7, 9,
+5, 2, 4,  9, 7, 8,  1, 6, 3, 
+9, 8, 7,  1, 6, 3,  4, 2, 5, 
+
+6, 5, 9,  4, 1, 7,  3, 8, 2, 
+8, 4, 2,  6, 3, 5,  7, 9, 1, 
+7, 3, 1,  8, 2, 9,  5, 4, 6, 
+
+3, 9, 5,  7, 8, 2,  6, 1, 4, 
+4, 1, 8,  3, 9, 6,  2, 5, 7, 
+2, 7, 6,  5, 4, 1,  9, 3, 0
+]
+
+
+// very simple but already 3 open positions
+var S21 = [
+1, 6, 3,  2, 5, 4,  8, 7, 9,
+5, 2, 4,  9, 7, 8,  1, 6, 3, 
+9, 8, 7,  1, 6, 3,  4, 2, 5, 
+
+6, 5, 9,  4, 1, 7,  3, 8, 2, 
+8, 4, 2,  6, 3, 5,  7, 9, 1, 
+7, 3, 1,  8, 2, 9,  5, 4, 6, 
+
+3, 9, 5,  0, 8, 2,  6, 1, 4, 
+4, 1, 8,  3, 9, 6,  0, 5, 7, 
+2, 7, 6,  5, 4, 1,  9, 3, 0
+]
+
+// real life example
+var S3 = [
+0, 0, 3,  0, 0, 0,  8, 0, 0, 
+0, 0, 0,  0, 7, 0,  1, 0, 0, 
+9, 0, 0,  0, 6, 3,  0, 2, 5, 
+
+0, 0, 0,  0, 0, 0,  3, 0, 0, 
+0, 4, 2,  0, 0, 0,  7, 9, 0, 
+0, 0, 1,  0, 0, 0,  0, 0, 0, 
+
+3, 9, 0,  7, 8, 0,  0, 0, 4, 
+0, 0, 8,  0, 9, 0,  0, 0, 0, 
+0, 0, 6,  0, 0, 0,  9, 0, 0	
+]
+
+// hard real life example
+var S4 = [
+0, 0, 4,  9, 0, 5,  6, 0, 0, 
+0, 7, 0,  0, 0, 0,  0, 8, 0, 
+8, 0, 0,  0, 0, 0,  0, 0, 5, 
+
+9, 4, 0,  1, 0, 6,  0, 2, 8, 
+0, 0, 0,  0, 2, 0,  0, 0, 0, 
+2, 5, 0,  7, 0, 8,  0, 9, 1, 
+
+7, 0, 0,  0, 0, 0,  0, 0, 4, 
+0, 1, 0,  0, 0, 0,  0, 5, 0, 
+0, 0, 3,  8, 0, 1,  2, 0, 0	
+]
+
+
+//
+// main
+//
+
+var b1 = new Board
+//b1.c = S2  // OK 
+//b1.c = S21  // OK
+//b1.c = S1  // also OK (very short time)
+b1.c = S3   // solved, but different solution than S2  ?!
+b1.c = S4
+
+b1.rowLength = NN
+
+var count = 0 
+
+print "##########   Problem ############### "
+printB(b1)
+
+//print "There is a conflict: " + conflictAny(s1)
+
+solve(b1,1,1)
+
+print "##########   Solution ############### "
+printB(b1)
+
+print "finished"
+
+
+
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+
+
+// simulation of 2-dimensional array
+// Note that Board does not have any dependency 
+struct Board 
+	num rowLength
+	num[] c  // content 
+	g(row, col) 
+		return this.c[this.rowLength*(row-1)+col]
+		
+	s(row, col, val)	
+		this.c[this.rowLength*(row-1)+col] = val
+
+
+// printing out a Board
+func printB(b)
+	var output = "\\n"
+	var h = ""
+	var lineSep="+----------------------+"
+	for r=1 to b.rowLength
+		if (r-1) mod N == 0
+			output = output + lineSep + "\\n"
+			
+		var row = ""
+		for c=1 to b.rowLength
+			if (c-1) mod N == 0
+				row = row+"|  "
+			h = b.g(r,c)+""	
+			if 	h == "0"
+				h = "."
+			row=row + h + "  "
+		output = output +  row + "|" + "\\n"
+	output = output +   lineSep
+	print output
+
+		
+
+// check for conflict in row/column/sub-square				
+func conflictOne(b, r0, c0, h, w)
+	var histogram[NN]=0
+	for rr = r0 to r0 + h
+		for cc=c0 to c0+w
+			var x = b.g(rr,cc) 
+			if x>0
+				if histogram[x] > 0
+					return true
+				histogram[x]=1
+
+	return false 
+
+
+
+func conflictAny(b)
+	// check each row
+	for r=1 to NN
+		if conflictOne(b, r, 1, 0, NN-1)
+			return true
+
+	// check each column
+	for c=1 to NN
+		if conflictOne(b, 1, c, NN-1, 0)
+			return true
+
+	// check each sub-square
+	for r=1 to NN-1 by N
+		for c=1 to NN-1 by N
+			if conflictOne(b, r, c, N-1, N-1)
+				return true
+				
+	return false
+	
+
+func solve(b, r, c)			
+	count = count +1
+	if r == NN+1
+		return true  // entire sudoku filled
+		
+	var rr = r
+	var cc = c + 1
+	if cc>NN
+		cc=1
+		rr = r+1
+		
+	if b.g(r,c)!=0
+		return solve(b, rr, cc)
+	else
+		for x=1 to NN
+			call b.s(r,c,x) // try x
+			if !conflictAny(b)
+				if solve(b, rr, cc)
+					return true
+		
+		// for no x we found a solution; backtracking
+		call b.s(r,c,0)
+		return false	
+		
+

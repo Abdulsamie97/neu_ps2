@@ -1,0 +1,37 @@
+struct evlElem
+    num key
+    evlElem next
+
+func arrToEvl(A[1..n])
+    var last = new evlElem
+    last = null
+    for i=0 to n-1
+        var e = new evlElem
+        e.key = A[n-i]
+        e.next = last
+        last = e
+    return last
+
+ 
+var first = arrToEvl([1,1,2,3,5,8,11])
+
+func printList1(f)
+    var help = f
+    while help != null
+        print help.key
+        help=help.next
+    print "printList1 finished"
+
+
+printList1(first)    // BUG: finishes with GET-exception
+
+// manual list
+var e2 = new evlElem
+e2.key = 11
+e2.next = null
+
+var e1 = new evlElem
+e1.key = 8
+e1.next = e2
+
+printList1(e1)     // OK

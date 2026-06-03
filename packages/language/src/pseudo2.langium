@@ -64,6 +64,8 @@ interface Variable {
 
 interface VarDecl extends Variable {
   initializer?: Expr
+  isArrayVariable: boolean
+  size?: Expr
 }
 
 interface ParameterDecl extends Variable {
@@ -82,7 +84,9 @@ interface StructAttDeclaration extends Variable {
 // =====================================================
 
 VarDeclaration returns VarDecl:
-  'var' name=ID ('=' initializer=Expression)?
+  'var' name=ID
+  (isArrayVariable?='[' size=Expression ']')?
+  ('=' initializer=Expression)?
 ;
 
 Assignment:
@@ -136,20 +140,28 @@ DoWhileLoop:
 
 StructDeclaration:
   'struct' name=ID
-  '{'
-    children+=StructDeclarationChild*
-  '}'
+  (
+    '{' children+=StructDeclarationChild* '}'
+    |
+    INDENT children+=StructDeclarationChild+ DEDENT
+  )
 ;
 
 StructDeclarationChild:
     StructAttDeclarationRule
-  | FunctionDeclaration
+  | MethodDeclaration
 ;
 
 StructAttDeclarationRule returns StructAttDeclaration:
   type=TypeRef name=ID
 ;
 
+MethodDeclaration returns FunctionDeclaration:
+  {FunctionDeclaration}
+  name=ID
+  '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+  body=Block
+;
 // -------------------- Types --------------------
 
 interface TypeRef {}
@@ -198,12 +210,18 @@ StructTypeRule returns StructType:
 // ======================================================
 // Functions
 // ======================================================
+interface FunctionDeclaration {
+  name: string
+  params: ParameterDecl[]
+  body: Block
+}
 
-FunctionDeclaration:
-  (keyword?='func')? name=ID
+FunctionDeclaration returns FunctionDeclaration:
+  'func' name=ID
   '(' (params+=Parameter (',' params+=Parameter)*)? ')'
   body=Block
 ;
+
 
 Parameter returns ParameterDecl:
   name=ID

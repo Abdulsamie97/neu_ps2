@@ -1,0 +1,136 @@
+//
+//  APPLICATION OF STACK TO RECOGNIZE BALANCED
+//  OCCURRENCE OF OPENING/CLOSING HTML-TAGS
+//
+// Note that the elements of the stack array are initialized with 
+// a string.
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+var len = 10
+
+
+processExample()
+
+print "finished"
+
+ 
+
+//
+//       ######  ########    ###     ######  ##    ##    
+//      ##    ##    ##      ## ##   ##    ## ##   ##     
+//      ##          ##     ##   ##  ##       ##  ##      
+//       ######     ##    ##     ## ##       #####       
+//            ##    ##    ######### ##       ##  ##      
+//      ##    ##    ##    ##     ## ##    ## ##   ##     
+//       ######     ##    ##     ##  ######  ##    ##    
+//
+
+
+// not that we need a stack for string elements
+struct Stack
+	string[] S
+	num top
+	
+	init()
+		// this.S[len]=0  // this does NOT initializes S as array of length len
+		                  // since it is read as assignment to cell S[len]
+		// workaroung to initialize this.S
+		var help[len] = 'x'
+		this.S = help
+		                  
+		this.top=1
+
+	isEmpty()
+    	if this.top == 1
+        	return true
+    	else
+        	return false
+
+	isFull()
+		if this.top > len
+			return true
+		return false
+  
+	/*
+	 * Pushing a new element on the stack.
+	 * 
+	 * NOTE: It is the responsibility of the caller
+	 * to check before, that the stack is not full yet.
+	 * 
+	 * If the stack is full, an exception is thrown and
+	 * the program execution stops.
+	 * 
+	 */       
+	push(x)
+		if this.isFull()
+			throw "ERROR: stack is already full"
+		this.S[this.top] = x
+		this.top = this.top + 1
+
+
+
+	/*
+	 * Returning the youngest element from the stack.
+	 * (note that stack is a LIFO (last-in first-out) memory)
+	 * 
+	 * NOTE: It is the responsibility of the caller
+	 * to check before, that the stack is not empty yet.
+	 * 
+	 * If the stack is empty, an exception is thrown and
+	 * the program execution stops.
+	 * 
+	 */       
+	pop()
+	    if this.isEmpty()
+	        throw "ERROR: stack is empty"  
+	    this.top = this.top - 1
+	    return this.S[this.top]
+
+
+
+
+
+//
+//         ###    ########  ########  ##       ####  ######     ###    ######## ####  #######  ##    ## 
+//        ## ##   ##     ## ##     ## ##        ##  ##    ##   ## ##      ##     ##  ##     ## ###   ## 
+//       ##   ##  ##     ## ##     ## ##        ##  ##        ##   ##     ##     ##  ##     ## ####  ## 
+//      ##     ## ########  ########  ##        ##  ##       ##     ##    ##     ##  ##     ## ## ## ## 
+//      ######### ##        ##        ##        ##  ##       #########    ##     ##  ##     ## ##  #### 
+//      ##     ## ##        ##        ##        ##  ##    ## ##     ##    ##     ##  ##     ## ##   ### 
+//      ##     ## ##        ##        ######## ####  ######  ##     ##    ##    ####  #######  ##    ## 
+//
+
+func processExample()
+	var s = new Stack
+	call s.init()
+	
+	addOpenTag("html", s)
+	addOpenTag("head", s)
+	addOpenTag("title", s)
+	addContent("Mein Lieblingsfach", s)
+	addCloseTag("title", s)
+	addCloseTag("html", s) // generates a warning
+    
+
+
+
+func addOpenTag(tag, s)
+	call s.push(tag)
+    
+func addCloseTag(tag, s)
+	var expected = s.pop()
+	if tag!=expected
+		var msg = "Expected closing tag '" + expected + "' but was '" + tag + "'"
+		print "WARNING: Unbalanced document. " + msg
+
+func addContent(text, s)
+	// do nothing
+    
+
+

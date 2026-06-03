@@ -1,0 +1,105 @@
+//
+//  QUEUE IMPLEMENTED BASED ON AN ARRAY IMPLEMENTED AS ADT
+//
+// Note that this implementation can handle any number of 
+// enqueue()/dequeue() calls as long as the number of current 
+// queue elements does not exceed the length of the array.
+
+
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+var len = 10  // maximal length of queue
+
+var q = new Queue
+call q.init()
+
+print q.isEmpty()
+call q.enqueue(3)
+call q.enqueue(4)
+call q.enqueue(5)
+print q.dequeue()
+print q.dequeue()
+call q.enqueue(27)
+print q.isEmpty()
+print "tail is " + q.tail
+
+
+print "finished"
+
+
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+struct Queue
+
+	num[] Q    // array should be sufficiently long
+	num tail  // index for putting the next element
+	
+	init()
+		var help[len] = 0  // note that this.Q[len]=0 does not work
+		this.Q = help
+		
+		this.tail = 1
+	
+	
+	isEmpty()
+	    if this.tail == 1
+	        return true
+	    else
+	        return false
+	
+	isFull()
+		if this.tail > len
+			return true
+		return false
+	  
+	/*
+	 * Adding a new element to the queue.
+	 * 
+	 * NOTE: It is the responsibility of the caller
+	 * to check before, that the queue is not full yet.
+	 * 
+	 * If the queue is full, an exception is thrown and
+	 * the program execution stops.
+	 * 
+	 */       
+	enqueue(x)
+		if this.isFull()
+			throw "ERROR: queue is already full"
+		this.Q[this.tail] = x
+		this.tail = this.tail + 1
+	
+	
+	
+	/*
+	 * Returning a new element from the queue.
+	 * 
+	 * NOTE: It is the responsibility of the caller
+	 * to check before, that the queue is not empty yet.
+	 * 
+	 * If the queue is empty, an exception is thrown and
+	 * the program execution stops.
+	 * 
+	 */       
+	dequeue()
+	    if this.isEmpty()
+	        throw "ERROR: queue is empty"  
+	
+	    var x = this.Q[1]
+	    this.tail = this.tail - 1
+	    for i=2 to this.tail
+	        this.Q[i-1] = this.Q[i]
+	
+	    return x    
+	    
+    

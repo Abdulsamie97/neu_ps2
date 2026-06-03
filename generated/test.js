@@ -78,5 +78,3 @@ let p = new Person()
 
 let a = p.setAge(25)
 
-
-

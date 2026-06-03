@@ -1,0 +1,37 @@
+struct some_struct
+    num val
+    
+func doSomething(a[1..n])
+	var first = a[1]
+	var second = a[2]
+	var third = a[3]
+	first.val = second.val + third.val + 1
+	second.val = third.val
+	third.val = 5
+	second.val = third.val * 2
+
+var s1 = new some_struct
+var s2 = new some_struct
+var s3 = new some_struct
+
+var a = [s1, s2, s3]
+s1.val = 1
+s2.val = 2
+s3.val = 3
+
+
+var temp1 = a[1]
+var temp2 = a[2]
+var temp3 = a[3]
+
+print "Print 1: " + temp1.val 
+print "Print 2: " + s2.val 
+print "Print 3: " + temp3.val 
+
+doSomething(a)
+var temp4 = a[2]
+print "Print 6: " + s1.val
+print "Print 10: " + temp4.val
+print "Print 5: " + s3.val
+
+// print add([4, 4, 4], b)

@@ -1,0 +1,277 @@
+//
+// creates a binary tree using add(root, Array) 
+// computes depth of tree
+// prints the binary tree as string on the console 
+// // (depends on that  key is neither negative nor greater 99) TODO: FIXIT
+// (depends on that  key is neither negative nor greater 9)
+
+
+// general debug-flag for printing out DEBUG-messages
+//var debug=true
+var debug=false
+ 
+struct treeElem
+	num key
+	treeElem left
+	treeElem right
+  
+  
+// create root node  
+var root = new treeElem
+root.key=4
+root.left=null
+root.right=null
+
+// add sub-nodes (for each array-element one new node)
+//
+//// Case 1: nothing added (one layer)
+//
+//// Case 2: two layers 
+//add(root, [2])
+//// Case 3: three layers
+add(root, [2,1,3,7,8])
+//// Case 4: four layers 
+//add(root, [2,1,3,7,8,9,0])
+//// Case 5: five layers added
+//add(root, [2,1,3,5,6,7,8])
+
+// output lines
+// TODO: if we had struct-of-arrays we wouldn't need these global ugly vars
+var line1[1] = " "
+var line2[1] = " "
+var line3[1] = " "
+var line4[1] = " "
+
+
+
+
+printTree(root)
+
+visit_lwr(root)  // prints out all node-keys
+
+var newRoot = new treeElem
+newRoot = visit_wlr(root)
+
+printTree(newRoot)
+
+// change something in the root-tree
+root.key = 9
+
+// nothing changed in newRoot --> it is a real copy!
+printTree(root)
+printTree(newRoot)
+
+
+
+//
+// functions
+//
+
+// INORDER: visit nodes in ordering left-central-right
+// is a depth-first processing
+func visit_lwr(node)
+	if node==null
+		return
+	visit_lwr(node.left)
+	print node.key
+	visit_lwr(node.right)	
+
+// PREORDER: visit nodes in ordering central-left-right
+// can be used to copy
+func visit_wlr(node)
+	if node==null
+		return null
+		
+	var copy = new treeElem
+	copy.key = node.key
+	copy.left = visit_wlr(node.left)
+	copy.right = visit_wlr(node.right)
+	return copy
+
+
+
+
+
+
+
+
+func printTree(r)
+
+    var depth = depthOf(r)
+    print("depth of the tree is " + depth)
+    if depth>4
+        print("WARNING: Will only show first four layers of the tree")
+
+    var depthForPrinting = 0
+    depthForPrinting = min(depth,4)
+
+
+    // initializing output strings 
+    var noLeafs = 2 ^ depthForPrinting - 1
+
+    //// TODO: version for 2-digit numbers
+    //var line1[noLeafs] = "  "
+    //var line2[noLeafs] = "  "
+    //var line3[noLeafs] = "  "
+    //var line4[noLeafs] = "  "
+
+    var nline1[noLeafs] = " "
+    var nline2[noLeafs] = " "
+    var nline3[noLeafs] = " "
+    var nline4[noLeafs] = " "
+
+    line1 = nline1
+    line2 = nline2
+    line3 = nline3
+    line4 = nline4
+
+    // print tree on output string
+    treeToLineI(r,1,2^(depthForPrinting-1),0)
+
+    printAllLineI(depth)
+
+
+
+// d -- depth
+func printAllLineI(d)  
+    //printing out all output strings
+    print("##############   printing the tree ----  Start ###############")
+
+    printArr(line1, "_")
+    if d > 1
+        printArr(line2, "_")
+    if d > 2
+        printArr(line3, "_")
+    if d > 3
+        printArr(line4, "_")
+
+    print("##############   printing the tree ----  End  ###############")
+
+
+
+func depthOf(r)
+    if r == null
+        return 0
+    var depthL = depthOf(r.left)
+    var depthR = depthOf(r.right)
+    //    return max(depthL, depthR) + 1  //TODO: would cause type error
+    var res = 0 // make clear what the type of 'res' is
+    res=max(depthL, depthR) + 1
+    return res
+
+
+
+func max(i, j)
+    if i > j
+        return i
+    return j    
+
+func min(i, j)
+    if i < j
+        return i
+    return j    
+
+
+
+
+
+
+func treeToLineI(t,row,col,offset)
+    if t==null
+        return
+        
+    putOnLineI(row, offset+col, t.key)    
+    treeToLineI(t.left, row+1,col/2, offset)
+    treeToLineI(t.right, row+1, col/2, offset+col)
+
+
+
+func putOnLineI(row, col, val)
+    // // TODO: Version for 2-digit numbers
+    //if val<0 || val>99
+    //    throw("key of node not in expected range 0..99")
+    if val<0 || val>9
+        throw("key of node not in expected range 0..9")
+    
+    var valS = val+""
+    // // TODO: Version for 2-digit numbers
+    //if val < 10
+    //    valS = " " + valS  
+    if row == 1
+        line1[col] = valS
+        return
+    if row == 2
+        line2[col] = valS
+        return
+    if row == 3
+        line3[col] = valS
+        return
+    if row == 4
+        line4[col] = valS
+        return
+
+
+
+
+// A - array to print
+// sep - separator (a string)
+func printArr(A[1..n], sep)
+    var res = ""
+    for i=1 to n
+        res = res +  A[i] + sep
+    print("res is '" + res + "'")    
+
+
+func printDebug(msg)
+    if (debug)
+        print("DEBUG " + msg)
+
+func add(r, A[1..n])
+    if r==null
+        throw ("r must not be null")
+    if n == 0
+        // empty array -> do nothing
+        return 
+    printDebug("add(): Array has " + n + " elements")  
+    printDebug(" The elements are :")
+    for j=1 to n
+        printDebug(""+A[j])
+        var kj = A[j]
+        addElement(r, kj)
+    
+func addElement(r, k)
+    if r.key==k
+        printDebug("addElement: " + k + " is already member")
+        return
+
+    printDebug("addElement: " + k + " is inserted for node " + r.key)
+    if k < r.key
+        printDebug("addElement: recursively invoke on left for " + k + " on  node " + r.key)
+        if r.left != null
+            var l = new treeElem
+            l = r.left
+            addElement(l, k)
+        else
+            var elem = new treeElem
+            elem.key = k
+            elem.left = null
+            elem.right = null
+            r.left = elem
+    else
+        printDebug("addElement: recursively invoke on right for " + k + " on  node " + r.key)
+        if r.right != null
+            var ri = new treeElem
+            ri = r.right
+            addElement(ri, k)
+        else
+            var elem1 = new treeElem
+            elem1.key = k
+            elem1.left = null
+            elem1.right = null
+            r.right = elem1
+       
+
+
+
+
+

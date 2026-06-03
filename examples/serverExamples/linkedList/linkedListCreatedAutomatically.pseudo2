@@ -1,0 +1,86 @@
+//
+//  REALIZATION OF (SINGLY) LINKED LIST
+//  WITH FUNCTION FOR AUTOMATIC CREATION
+//
+// Note that linked lists should not be cyclic.
+
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+var L = createList([5,8,9,3,1,4])
+
+
+//
+// go through list and print out each key
+//	
+var p = L
+while (p != null)
+	print p.key
+	p = p.next
+
+
+// explicit access to first elements
+print L.key        // access to 1st element
+print L.next.key   // access to 2nd element
+print L.next.next.key  // access to 3rd element
+
+
+
+//
+// find maximum element of list
+//
+p = L
+var max = p.key
+while p != null 
+	if p.key > max
+		max = p.key
+	p = p.next
+
+print "Maximal element has value " + max
+
+print "finished"
+
+
+
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+
+
+
+// element within the list
+struct LLElem 
+	num key
+	LLElem next
+
+
+// Automatic Building the linked list 
+// based on an passed array
+
+func createList(A[1..n])
+	var last = new LLElem  // to get the type right
+	last = null
+	
+	// return null when array is empty
+	if n == 0 		
+		return last
+		
+	var currElem = new LLElem  // to get the type right
+	for i=n downto 1
+		currElem = new LLElem
+		currElem.key = A[i]
+		currElem.next = last
+		last = currElem
+	return currElem
+
+
+

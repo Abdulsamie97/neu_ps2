@@ -1,0 +1,79 @@
+//
+//  STACK IMPLEMENTED BASED ON AN ARRAY
+//
+// Note that one limitation here is, that the stack has a
+// fixed, maximal length
+
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+
+var len = 10
+var S[len] = 0  // array should be sufficiently long
+var top = 1   // index for putting the next element
+
+func isEmpty()
+    if top == 1
+        return true
+    else
+        return false
+
+func isFull()
+	if top > len
+		return true
+	return false
+  
+/*
+ * Pushing a new element on the stack.
+ * 
+ * NOTE: It is the responsibility of the caller
+ * to check before, that the stack is not full yet.
+ * 
+ * If the stack is full, an exception is thrown and
+ * the program execution stops.
+ * 
+ */       
+func push(x)
+	if isFull()
+		throw "ERROR: stack is already full"
+	S[top] = x
+	top = top + 1
+
+
+
+/*
+ * Returning the youngest element from the stack.
+ * (note that stack is a LIFO (last-in first-out) memory)
+ * 
+ * NOTE: It is the responsibility of the caller
+ * to check before, that the stack is not empty yet.
+ * 
+ * If the stack is empty, an exception is thrown and
+ * the program execution stops.
+ * 
+ */       
+func pop()
+    if isEmpty()
+        throw "ERROR: stack is empty"  
+    top = top - 1
+    return S[top]
+
+ 
+print isEmpty() // true
+push(4)
+push(22)
+push(8)
+print  pop()   // prints 8
+print  isEmpty()	
+print  pop()   // prints 22
+print  pop()   // prints 4
+//print  pop()   // causes exception
+
+
+print "finished"

@@ -1,0 +1,56 @@
+//
+//  BINARY SEARCH
+//
+//  Note that the input array is assumed to be already ordered!
+
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+var B = [1, 16, 25, 36]
+
+print binarySearch(B, 16) // true
+print binarySearch(B, 1)  // true
+print binarySearch(B, 24)  // false
+print binarySearch(B, 60)  // false
+
+print "finished"
+
+
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+
+func binarySearch( A[1..n], key )
+	var a = 1			// left border
+	var b = n			// right border
+	while  a <= b		
+		var m = div((a+b),2)		// middle (rounded down)
+		if A[m] == key
+		    // found at index m
+			return true	
+		if A[m] > key
+		    // go ahead with left part
+			b = m-1		
+		else
+		    // go ahead with right part
+			a = m+1		
+			
+	// if we come until here, nothing was found	
+	return false			
+
+
+
+//// integer division, i.e. result is an integer  (div(13,3)=4)
+func div(a, b) 
+    return (a - (a mod b)) / b
+

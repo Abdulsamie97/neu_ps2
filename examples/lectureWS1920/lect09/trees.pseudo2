@@ -1,0 +1,97 @@
+struct treeElem
+	num key
+	treeElem left
+	treeElem right
+  
+ 
+func insert(node, newNode )
+	if newNode==null
+		throw "newNode is expected to be not null"
+
+	if node==null
+		node=newNode
+				
+	if node.key == newNode.key
+		return  
+			
+	if node.key > newNode.key
+		if node.left==null
+			node.left=newNode
+		else
+			insert(node.left,newNode)	
+		 	 
+	else 
+		if node.right==null
+			node.right=newNode
+		else
+			insert(node.right, newNode)	
+	
+//  Usage
+var root = new treeElem
+root.key = 12
+
+var e5 = new treeElem
+e5.key=5
+e5.left=null
+e5.right=null
+insert(root, e5)
+print root.left.key
+
+func rsearch(node, key)
+	if node == null
+		return null		// key not in tree
+	
+	if key < node.key
+		return rsearch(node.left, key )
+	
+	if key > node.key
+		return rsearch(node.right, key )
+	else
+		return node		// key found !
+			
+
+
+func isearch(node, key)
+	while node!=null && key!= node.key
+		if key < node.key
+			node=node.left
+		else
+			node=node.right
+	return node
+			
+// we need function call to resolve types of parameters				
+var n = isearch(root, 15)
+
+if (n == null)
+	print "Key not found"
+else
+	print "Found: " + n.key
+
+var e15 = new treeElem
+e15.key=15
+e15.left=null
+e15.right=null
+insert(root, e15)
+
+var inode = isearch(root, 15)
+
+if (inode == null)
+	print "Key not found" 
+else
+	print "Found iterative: " + inode.key
+	
+var rnode = rsearch(root, 15)
+if (rnode == null)
+	print "Key not found"
+else
+	print "Found recursive: " + rnode.key 
+
+ 
+func visit_lwr(node)
+	if node==null
+		return
+	visit_lwr(node.left)
+	print node.key
+	visit_lwr(node.right)	
+
+visit_lwr(root)	

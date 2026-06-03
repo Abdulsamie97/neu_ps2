@@ -1,0 +1,53 @@
+//
+//  SELECTION SORT
+//
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+var B = [4, 6, 2, 5]
+
+
+selectionSort(B)
+
+for i=1 to 4
+	print B[i]
+
+
+print "finished"
+
+
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+func selectionSort( A[1..n] )
+	for i = 1 to n-1
+		var j = mini( A, i)
+		flip( A, i, j ) 	  
+
+
+// return index >= i with minimal element 
+func mini( A[1..n], i)
+    var j = i
+    for k = i+1 to n
+		if A[k] < A[j]
+			j = k
+    return j
+
+
+// flip A[i] with A[j]
+func flip( A[1..n], i, j )
+	var t = A[i]
+	A[i] = A[j]
+	A[j] = t
+
+
+

@@ -1,0 +1,18 @@
+func mini( A[1..n] )
+	var i = 1
+	for j = 2 to n
+		if A[j] < A[i]
+			i = j
+
+	return i
+
+var B[4] = 3
+B[1] = 76
+B[2] = 16
+B[3] = 25
+B[4] = 36
+ 
+
+var l = mini(B)
+
+print l 

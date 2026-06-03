@@ -1,0 +1,56 @@
+//
+// Addition of two numbers (second must be positive and an integer)
+// by using merely successor/predecessor function
+//
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+var a_orig = 5 // choose  value
+var b_orig = 7 // choose positive integer value
+
+a_orig = 35
+
+if !(b_orig > 0 && isInt(b_orig))
+    throw "b_orig must be a non-negative integer" 
+
+var a = a_orig 
+//var b = b_orig
+var b = 25
+
+// add a and b by counting up/down
+while b > 0
+	a = succ(a)
+	b = pred(b)
+
+print "The sum of " + a_orig + " and " + b_orig + " is " + a
+
+print "finished"
+
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+
+func succ(x)
+	return x+1
+	
+func pred(x)
+	return x-1	
+
+
+func isInt(x)
+    if x mod 1 == 0
+        return true
+    else 
+        return false
+
+

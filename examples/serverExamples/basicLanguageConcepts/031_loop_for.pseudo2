@@ -1,0 +1,45 @@
+//
+// Illustrates basic language concepts: FOR-loops
+//
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+// simples form of for-loop
+for 1 to 5 
+	print "hello"
+
+
+// prints only 3 times
+// (when implicit loopvar = 1, 3, 5 )
+for 1 to 5 by 2
+	print "hello1"
+	
+//// RUNTIME ERROR: value after 'by' must not be negative
+//for 1 to 5 by -2
+//	print "hello"
+
+
+// loop variable (count up)
+for i=1 to 5
+	print i
+
+// loop variable (count down)
+for i=5 downto 1
+	print i
+		
+for i=1 to 5 
+	print i
+	//	i=i+1  // SYNTAX ERROR: loopvar is not assignable
+
+
+
+print "finished"
+
+
+
+	

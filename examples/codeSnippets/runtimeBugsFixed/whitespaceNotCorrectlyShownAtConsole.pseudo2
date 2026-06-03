@@ -1,0 +1,27 @@
+
+
+var line1[8] = " "
+
+
+line1[2] = 2 + ""
+line1[5] = 5 + ""
+
+
+//printing out all output strings
+printArr(line1, "_")  // OK, prints ' _2_ _ _5_ _ _ _'
+printArr(line1, " ")  // Not OK?!; on the console one sees ' 2 5 ' 
+                     // copy-paste of the output yields '  2     5       ' ?! (what would be ok)
+
+
+
+
+// A - array to print
+// sep - separator (a string)
+func printArr(A[1..n], sep)
+    var res = ""
+    for i=1 to n
+        print("DEBUG i=" + i + " and A[i]='" + A[i] + "'")
+        res = res +  A[i] + sep
+    print("res is '" + res + "'")    
+
+

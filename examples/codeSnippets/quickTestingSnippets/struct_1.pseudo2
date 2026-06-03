@@ -1,0 +1,30 @@
+struct my_struct
+	num key
+	my_struct left
+	my_struct right
+
+var a = new my_struct
+var b = new my_struct
+var c = new my_struct
+b.key = 4
+c.key = 12
+print "print 4: " + b.key
+if (b.key != 4)
+    throw "Error 1"
+
+var n = 3
+a.left = b
+a.right = c
+print "print 4: " + a.left.key
+if (a.left.key != 4)
+    throw "Error 2"
+    
+print "print 12: " + a.right.key
+if (a.right.key != 12)
+    throw "Error 3"
+    
+a.left.right = new my_struct
+a.left.right.key = n
+print "print 3: " + a.left.right.key
+if (a.left.right.key != 3)
+    throw "Error 4"

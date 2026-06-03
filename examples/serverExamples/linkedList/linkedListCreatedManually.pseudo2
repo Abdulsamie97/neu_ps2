@@ -1,0 +1,83 @@
+//
+//  REALIZATION OF (SINGLY) LINKED LIST
+//
+// Note that linked lists should not be cyclic.
+
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+
+// element within the list
+struct LLElem 
+	num key
+	LLElem next
+
+
+// (Manually) Building the linked list starting with the 
+// last element
+
+var e6 = new LLElem
+e6.key=4
+e6.next=null
+
+var e5 = new LLElem
+e5.key=1
+e5.next=e6
+
+var e4 = new LLElem
+e4.key=3
+e4.next=e5
+
+var e3 = new LLElem
+e3.key=9
+e3.next=e4
+
+var e2 = new LLElem
+e2.key=8
+e2.next=e3
+
+var e1 = new LLElem
+e1.key=5
+e1.next=e2
+
+var L = e1  // set to first element
+
+
+
+//
+// go through list and print out each key
+//	
+var p = L
+while (p != null)
+	print p.key
+	p = p.next
+
+
+// explicit access to first elements
+print L.key        // access to 1st element
+print L.next.key   // access to 2nd element
+print L.next.next.key  // access to 3rd element
+
+
+
+//
+// find maximum element of list
+//
+p = L
+var max = p.key
+while p != null 
+	if p.key > max
+		max = p.key
+	p = p.next
+
+print "Maximal element has value " + max
+
+print "finished"
+
+

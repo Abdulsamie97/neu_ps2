@@ -1,0 +1,15 @@
+struct Datum
+   num tag
+   num monat
+   num jahr
+
+
+var heute = new Datum
+
+heute.tag = 31
+heute.monat = 12
+heute.jahr = 2026
+
+var immatrikulationsdatum = heute
+
+print immatrikulationsdatum.monat

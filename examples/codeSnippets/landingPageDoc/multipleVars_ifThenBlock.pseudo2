@@ -1,0 +1,11 @@
+//var x =3
+ 
+if true
+	var x = 5 / 2
+	print x
+//	var x = 35
+//	print x  // value of second variable is printed
+	
+	
+	  
+	

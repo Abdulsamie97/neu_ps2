@@ -1,0 +1,67 @@
+struct dvlElem 
+	num key
+	dvlElem next
+	dvlElem prev
+ 
+struct ptr
+	dvlElem ptr
+
+var head = new ptr
+var tail = new ptr
+
+func enqueue(k)
+	print "Enqueue: " + k
+	var p = new dvlElem
+	p.key = k
+	p.next = null
+	p.prev = null
+	if empty()
+		// first element created
+		print "[ENQ] Inserting first element ..."
+		head.ptr = p
+		tail.ptr = p
+	else
+		p.prev = tail.ptr
+		tail.ptr.next = p
+		tail.ptr = p
+	
+	print "[ENQ] Head key is now: " + head.ptr.key
+	print "[ENQ] Tail key is now: " + tail.ptr.key
+
+
+func dequeue()
+	print "Dequeue ..."
+	if empty()
+		throw "ERROR: dequeue() invoked on empty list"
+	
+	print "[DEQ] Saving head element"
+	var k = head.ptr.key
+	print "[DEQ] Setting head"
+	head.ptr = head.ptr.next
+	print "[DEQ] Check if head is now null"
+	if (head.ptr == null)
+		print "[DEQ] Queue is now empty"
+		tail.ptr = null
+	
+	print "[DEQ] Return key..."
+	return k
+
+
+func empty()
+	return head.ptr == null || tail.ptr == null
+
+
+//  usage
+print "Is queue empty?: " + empty()
+enqueue(1)
+enqueue(2)
+enqueue(3)
+enqueue(4)
+print "Is queue empty?: " + empty()
+print "Everything enqueued"
+print dequeue()  // 1
+print dequeue()  // 2
+print dequeue()  // 3
+print dequeue()  // 4
+print empty()
+

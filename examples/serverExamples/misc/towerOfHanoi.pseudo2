@@ -1,0 +1,163 @@
+//
+// The classical problem  TOWER OF HANOI
+//
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+var N = 3  // number of rings
+
+var margin = "      "	
+var maxPoints = ringSizeToPoints(N)
+
+var places[3] = new Place
+for i=1 to 3
+	call places[i].init()
+
+var r = new Ring // to get the type right
+for i=N downto 1 
+	r = new Ring
+	r.size = i
+	call places[1].s.push(r)
+
+printAll()
+
+move(places[1], places[2], places[3], N)
+
+print "finished"
+
+
+
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+// moving a complete tower from src to dest
+func move(src, dest, help, no)
+	if no==0
+		return
+	move(src, help, dest, no-1)
+	call dest.s.push(src.s.pop())
+	printAll()
+	move(help, dest, src, no-1)
+	
+
+func printAll()
+	var res = "\\n"
+	for y = N downto 1
+		var line = ""
+		for i=1 to 3
+			line=line+margin+line(places[i], y)
+		res=res+line+"\\n"
+	print res
+
+func ringSizeToPoints(n)
+	if n < 1 
+		return 0
+	return 2*n - 1	
+
+
+// how does the ith- line for place p
+// look like
+func line(p, i)
+	var points = ringSizeToPoints(p.s.getSizeOfIthRing(i))
+	var res = ""
+	var whitePoints = (maxPoints - points) / 2
+	for 1 to whitePoints
+		res = res + "-"
+	for 1 to points
+		res = res + "*"
+	if points == 0
+	    res = res + "-"
+	for 1 to whitePoints
+		res = res + "-"
+		
+	return res		
+	
+	
+	
+
+struct Ring
+	num size
+
+
+struct Place
+	RingStack s
+	init()
+		this.s = new RingStack
+		call this.s.init()
+
+
+
+// in addition to normal stack, it 
+// provides method get() that yields youngest 
+// element with removing it (as in pop())	
+struct RingStack
+	Ring[] S
+	num top
+	
+	init()
+		var help[N] = new Ring // just dummy elements
+		this.S = help 
+		                  
+		this.top=1
+
+	isEmpty()
+    	if this.top == 1
+        	return true
+    	else
+        	return false
+
+	isFull()
+		if this.top > N
+			return true
+		return false
+  
+	/*
+	 * Pushing a new element on the stack.
+	 * 
+	 * NOTE: It is the responsibility of the caller
+	 * to check before, that the stack is not full yet.
+	 * 
+	 * If the stack is full, an exception is thrown and
+	 * the program execution stops.
+	 * 
+	 */       
+	push(x)
+		if this.isFull()
+			throw "ERROR: stack is already full"
+		this.S[this.top] = x
+		this.top = this.top + 1
+
+
+
+	/*
+	 * Returning the youngest element from the stack.
+	 * (note that stack is a LIFO (last-in first-out) memory)
+	 * 
+	 * NOTE: It is the responsibility of the caller
+	 * to check before, that the stack is not empty yet.
+	 * 
+	 * If the stack is empty, an exception is thrown and
+	 * the program execution stops.
+	 * 
+	 */       
+	pop()
+	    if this.isEmpty()
+	        throw "ERROR: stack is empty"  
+	    this.top = this.top - 1
+	    return this.S[this.top]
+
+	
+	getSizeOfIthRing(i)
+		if i >= this.top	
+			return 0
+		return this.S[i].size
+	

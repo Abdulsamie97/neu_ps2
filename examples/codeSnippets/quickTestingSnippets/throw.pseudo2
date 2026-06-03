@@ -1,0 +1,4 @@
+var a = 2
+
+if (true)
+	throw "asd" + " 123d"

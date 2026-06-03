@@ -1,0 +1,92 @@
+//
+//  REALIZATION OF (DOUBLY) LINKED LIST
+//  WITH FUNCTION FOR AUTOMATIC CREATION
+//
+// Note that linked lists should not be cyclic.
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+var head = createList([5,8,9,7,3,1,4])
+
+var last = getLast(head)	
+	
+	
+// explicit access to first elements
+print head.key        // access to 1st element
+print head.next.key   // access to 2nd element
+print head.next.next.key  // access to 3rd element
+
+// explicit access to last elements
+print last.key        // access to last element
+print last.prev.key   // access to last but 1 element
+print last.prev.prev.key  // access to last but 2 element
+	
+	
+//
+// go through list and print out each key from start to end
+//	
+var p = head
+while (p != null)
+	print p.key
+	p = p.next
+
+//
+// go through list backwards
+//	
+p = last
+while (p != null)
+	print p.key
+	p = p.prev
+
+
+print "finished"
+
+
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+
+
+// element within the list
+struct DLLElem  //doubly-linked-list-Element
+
+	num key
+	DLLElem next
+	DLLElem prev
+ 
+
+// Automatic Building the linked list 
+// based on an passed array
+
+func createList(A[1..n])
+	var lastCreated = new DLLElem  // to get the type right
+	lastCreated = null
+	var currElem = new DLLElem  // to get the type right
+	for i=n downto 1
+		currElem = new DLLElem
+		currElem.key = A[i]
+		currElem.next = lastCreated
+		if lastCreated != null
+			lastCreated.prev = currElem
+		lastCreated = currElem
+		
+	currElem.prev = null
+	return currElem
+
+
+
+// find the last element
+func getLast(p)
+	while (p.next != null)
+		p = p.next
+	return p
+	
+

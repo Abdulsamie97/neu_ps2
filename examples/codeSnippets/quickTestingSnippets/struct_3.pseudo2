@@ -1,0 +1,13 @@
+struct my_struct
+	num key
+	my_struct left
+	my_struct right
+
+var a = new my_struct
+var b = new my_struct
+
+a.left = b
+a.right = b
+a.left.right = new my_struct
+a.left.right.key = 2
+print("print 2: " + a.left.right.key)

@@ -1,0 +1,35 @@
+//
+//  LINEAR SEARCH
+//
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+var B = [25, 36, 1, 7]
+
+print linearSearch(B, 36)  // true
+print linearSearch(B, 2)  // false
+
+
+print "finished"
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+
+func linearSearch( A[1..n], key )
+	for i=1 to n 
+		if A[i] == key
+			return true
+			
+	// if we come up to here, nothing was found 		
+	return false
+
+

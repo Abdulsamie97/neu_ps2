@@ -1,0 +1,54 @@
+struct Datum
+   num tag
+   num monat
+   num jahr
+
+   
+var heute = new Datum
+
+heute.tag = 31
+heute.monat = 12
+heute.jahr = 2026
+
+var immatrikulationsdatum = heute
+
+struct Student
+   string vorname
+   string nachname
+   Datum geburtsdatum
+   num matrikelnummer
+   Datum immatrikulationsdatum
+   Studiengang studiengang
+   
+struct Studiengang
+   string name
+   num regelstudienzeit
+   string fachbereich
+   string sprecher
+   
+var ce = new Studiengang
+ce.name="CE"
+ce.regelstudienzeit=6
+ce.fachbereich="FB1"
+ce.sprecher="Prof. Gremzow"
+
+var s1 = new Student
+s1.vorname="Anton"
+s1.studiengang=ce
+
+var s2 = new Student
+s2.vorname="Berta"
+s2.studiengang=ce
+
+var s3 = new Student
+s3.vorname="Zak"
+s3.studiengang=ce
+
+
+for i=1 to 40
+    var s = new Student
+   
+    s.studiengang = ce
+
+
+

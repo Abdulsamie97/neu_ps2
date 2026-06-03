@@ -1,0 +1,38 @@
+struct Datum
+   num tag
+   num monat
+   num jahr
+
+   
+var heute = new Datum
+ 
+heute.tag = 31
+heute.monat = 12
+heute.jahr = 2026
+
+var immatrikulationsdatum = heute
+
+struct Student
+	string vorname
+	string nachname
+	Datum geburtsdatum
+	num matrikelnummer 
+	Datum immatrikulationsdatum
+
+var student = new Student
+ 
+student.matrikelnummer = 5
+student.nachname="Meier"
+student.vorname="Tom"
+
+
+student.immatrikulationsdatum.jahr = 43
+
+
+student.immatrikulationsdatum = heute 
+
+if student.immatrikulationsdatum.jahr > 200
+	send_letter(student)
+	  
+func send_letter(s)
+	print "hello " + s.vorname

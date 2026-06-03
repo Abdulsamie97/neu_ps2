@@ -1,0 +1,39 @@
+//
+// Illustrates basic language concepts: IF-THEN-ELSE
+//
+// Note that the ELSE-branch is optional
+//
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+var x = 5
+var y = 3
+var z = 7
+
+// if-condition without else
+if x > y
+	print "x is greater"
+	print "y is smaller"
+
+// printing out the maximum of x, y, z
+if x > y
+	if z > x
+		print z
+	else
+		print x	
+else 
+	if z > y
+		print z
+	else 
+		print y
+
+
+	
+print "finished"		
+	 

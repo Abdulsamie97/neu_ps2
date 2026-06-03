@@ -1,0 +1,18 @@
+struct ptr
+    ptr val
+
+var head = new ptr
+head.val = null
+var tail = head
+tail.val = head.val
+func empty()
+	return tail.val == null
+
+print("print true: " + empty())
+if (empty() != true)
+    throw "Error 1"
+    
+var k = empty()
+print "print true: " + k
+if (k != true)
+    throw "Error 2"

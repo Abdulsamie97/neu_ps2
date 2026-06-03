@@ -1,0 +1,45 @@
+//
+// Illustrates basic language concepts: ARITHMETIC and LOGICAL OPERATORS
+//
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+// + for strings means concatenation
+// one of the arguments can also be a number or a boolean
+print "hello" + "world"
+print  3 + " hello "+ false
+
+print "hello " + 4 + 5  //string + num + num
+print "hello " + (4 + 5)  //string + num
+
+var x = 3
+var y = 5
+
+// arithmetical operations
+print -x  // unary minus
+print x + y 
+print x - y
+print x * y 
+print x / y
+print x mod y  // modulo
+
+// uncomment the next line
+// it works :-)
+//print x ^ y  // exponent
+
+print "" + (x < y) + (x <= y) + (x > y) + (x >= y) + (x == y) + (x != y)
+
+print "" + true 
++  false 
++ (true && false)  // AND
++ (true || false)  // OR
+
+
+
+print  "finished"

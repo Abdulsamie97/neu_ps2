@@ -1,0 +1,51 @@
+//1. Global Commands
+func f() {
+  print("hi")
+}
+
+call f()
+throw "oops"
+print(1 + 2)
+
+
+//2. Struct + Methode + Attribut
+struct A {
+  num age
+  func getAge() {
+    return age
+  }
+}
+
+var a = new A
+a.age = 25
+print(a.age)
+print(a.getAge())
+
+//3. Array-Parameter
+func first(x[1..n]) {
+  return x[0]
+}
+
+var A = [7,8,9]
+print(first(A))
+
+//4. Operatoren
+print(2 + 3)
+print("a" + "b")
+print("a" + 5)
+print(10 mod 3)
+print(2 ^ 3)
+print((5 < 10) && true)
+
+//5. Nested Calls
+func f1(x) {
+  return x + 1
+}
+
+func g(y) {
+  return f1(y) * 2
+}
+
+print(g(5))
+
+

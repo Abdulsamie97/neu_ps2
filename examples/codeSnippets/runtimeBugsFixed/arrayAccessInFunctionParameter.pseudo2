@@ -1,0 +1,62 @@
+struct edgeElem
+    num vid // vertex id
+    edgeElem next
+    
+
+var dummy = new edgeElem    
+
+ 
+var n = 6  // number of nodes
+
+
+var V[n] = dummy
+print edgeListToString(dummy) // just to have a call to function edgeListToString
+
+//V[1]=toEdgeList([2,3,6])
+//V[2]=toEdgeList([1,3,4])
+//V[2]=toEdgeList([4])
+V[2]=toEdgeList([4,5])
+
+
+print "print '4 5 null' in next line:"
+print(edgeListToString(V[2])) // TODO: does not work -> throws runtime exception
+
+var p = new edgeElem
+p = V[2]
+print "print '4 5 null' in next line:"
+print(edgeListToString(p))  // OK
+
+
+//
+// Functions
+//
+
+func edgeListToString(first)
+    print "in edgeListToString" 
+    if first==null
+        return "null"
+    var tailAsString = edgeListToString(first.next)    
+    return first.vid + " " + tailAsString   
+   
+
+func toEdgeList(A[1..n])
+    //print("DEB: n is " + n)
+    if n==0
+        return null
+    var start=new edgeElem
+    start.vid = A[1]
+    //print("DEB: start.vid is " + start.vid)
+    start.next=null
+    
+    // var last = start  //TODO: does not work
+    var last = new edgeElem
+    last = start
+    //print("DEB: last.vid outsize loop is " + last.vid)
+    for i=2 to n
+        var e = new edgeElem
+        e.vid=A[i]
+        e.next=null
+        last.next=e
+        last=e
+    return start
+

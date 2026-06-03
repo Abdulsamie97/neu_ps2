@@ -1,0 +1,210 @@
+//
+// Dijkstra-Algorithm for computing the shortest path of a graph
+//
+// Construction of graph is done in function init()
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+
+// general debug-flag for printing out DEBUG-messages
+var debug=false
+//debug=true
+
+
+struct EdgeElem
+    num vid // vertex id
+    num weight 
+    EdgeElem next
+    
+
+//
+// initialization of graph in form of adjacency list
+//
+
+var noNodes = 6  // how many nodes do we have?
+                 // ATTENTION: when greater 24, the initialization of 'Label' does not work
+
+var dummy = new EdgeElem  // dummy element to pre-initialize V
+var V[noNodes] = dummy   // create V as backbone of adjacency list
+init(V)  // creates graph
+
+// labeling the nodes
+var AllChars = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"]
+
+var Label[noNodes]=""
+// ATTENTION: assume that 'noNodes' is not greater than size of 'AllChars'
+for i=1 to noNodes
+    Label[i]=AllChars[i]
+
+
+//
+// managing, whether a node has been already visited
+//
+
+var s_white = 0  // status white (new)
+var s_grey = 1 // status grey (discovered)
+var s_black = 2 // status black (processed)
+
+
+var pred[noNodes]=0
+for i=1 to noNodes
+    pred[i]=i
+    
+var dist[noNodes]=-1
+var mark[noNodes]=s_white
+
+//TODO: turn X into ADT
+// Initializing Datastructure X
+
+var X[10]=0
+var tail=1
+
+// computing shortest path between node 1 and node 6
+dijkstra(1, 6) 
+
+print "finished"
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+
+func dijkstra(start, target)
+	dist[start]=0
+	add(start)
+    
+	while !empty()
+		var x = 0
+		x = getElementWithMinDist()
+		mark[x]=s_black
+		delete(x)
+		printDebug("L1 empty()="+empty())
+		if x==target
+			var len = dist[x]
+			print "Have found a path from " + Label[start] + " to " + Label[target] + " with length " + len
+			return
+            
+		var p = new EdgeElem
+		p = V[x]
+		while p!=null
+			var y = p.vid
+			var d = dist[x] + p.weight
+			
+			if dist[y] == -1 || d < dist[y]
+				dist[y]=d
+				printDebug("set dist[" + y + "]=" + d)
+				pred[y]=x
+				
+			if mark[y]==s_white
+				mark[y]=s_grey
+				add(y)
+			p=p.next    
+
+    
+	
+// assumption: dist[n] >= 0 for all n from X	
+func getElementWithMinDist()
+	if empty()
+		throw "getElementMinDist() invoked on empty X"
+	var n = X[1]
+	var min=dist[n]
+	for i=2 to tail-1
+		n=X[i]
+		if dist[n] < min
+			min = dist[n]
+			
+	for j=1 to tail-1
+		n=X[j]
+		if dist[n]==min
+			return n
+			
+	throw "getElementWithMinDist(): Could not found index with minimal distance"
+	
+
+
+func printDebug(msg)
+    if (debug)
+        print "DEBUG " + msg
+
+func printGraph(A[1..n])
+    var p = new EdgeElem
+    for i=1 to n
+        p = A[i]
+        print "Adacency list for node " + i + " is: " + edgeListToString(p)  //OK
+
+
+// original example given in lecture
+func init(A[1..n])
+    A[1]=toWeightedEdgeList([2,3,4], [3,5,9])
+    A[2]=toWeightedEdgeList([4, 5, 3, 1], [4,7,3,3])
+    A[3]=toWeightedEdgeList([4, 5, 2, 1, 6], [2, 6, 3, 5, 8])
+    A[4]=toWeightedEdgeList([6, 1, 2, 3, 5], [2, 9, 4, 2, 2])
+    A[5]=toWeightedEdgeList([6, 2, 3, 4], [5, 7, 6, 2])
+    A[6]=toWeightedEdgeList([3, 4, 5], [8, 2, 5])
+
+
+func edgeListToString(first)
+    if first==null
+        return "null"
+    var tailAsString = edgeListToString(first.next)    
+    return first.vid + " " + tailAsString   
+    
+
+func toWeightedEdgeList(A[1..n], W[1..m])
+    if n==0 || m==0
+        return null
+    var start=new EdgeElem
+    start.vid = A[1]
+    start.weight = W[1]
+    start.next=null
+    var last = new EdgeElem
+    last = start
+    for i=2 to n
+        var e = new EdgeElem
+        e.vid=A[i]
+        e.weight=W[i]
+        e.next=null
+        last.next=e
+        last=e
+    return start    
+
+
+//
+// Datastructure X
+//
+
+func empty()
+	return tail==1
+
+func add(x)
+	if contains(x)
+		throw "add(): cannot insert " + x + " a second time"
+	X[tail] = x
+	tail = tail +1
+	
+func delete(x)
+	if !contains(x)
+		throw "delete(): Could not found " + x + " to delete"
+	
+	for i=1 to tail-1
+		if X[i]==x
+			for j=i to tail-2
+				X[j]=X[j+1]
+			tail=tail-1
+
+func contains(x)
+	for i=1 to tail-1
+		if x==X[i]
+			return true
+	return false
+	
+
+			

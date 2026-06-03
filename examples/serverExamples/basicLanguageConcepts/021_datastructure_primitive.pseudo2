@@ -1,0 +1,40 @@
+//
+// Illustrates basic data structures and types
+//  - PRIMITIVE DATATYPES
+            
+           
+//################################################
+//#
+//#   Main
+//#
+//################################################
+  
+  
+//  
+// there are the following kinds of primitiv datatypes
+//
+
+// Numeric (can be integer of or rational number)
+
+var x = 5
+print x
+
+x = 3 / 2
+print x  // prints 1.5
+
+
+// Boolean 
+var cond = true
+print cond
+
+print cond && x < 2/3
+
+
+// String (literal can be single- or double-quoted)
+var s = 'hello'
+print s
+print s + " world"  // '+' on strings means concatenation
+
+
+print "finished"
+

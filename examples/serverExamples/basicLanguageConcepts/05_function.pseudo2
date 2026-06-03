@@ -1,0 +1,185 @@
+//
+// Illustrates basic language concepts: FUNCTION
+//
+// Also illustration difference call-by-value and call-by-reference
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+// function to be used as expression
+func m_with_return()
+	var x = 4
+	return x + 1
+	
+// function to be used as statement	
+func m_without_return()
+	print m_with_return()
+	
+// call of function
+m_without_return()  
+
+
+
+
+// recursive function with error handling
+func fak(n)
+	if n == 1
+		return 1	
+
+	if n <=0		
+		throw "argument not positive"  
+		
+	if ! isInt(n)
+		throw "argument is not an integer"
+		 
+	return n*fak(n-1)
+ 
+print fak(5)
+	
+
+
+//
+// Call-by-value
+//
+// If a function is invoked with a variable, e.g. 'm(x)', then
+// within the body of function 'm' the value of the argument
+// might change, but the value of variable 'x' remain the same.
+//
+// In other words: Executing function 'm' won't have any side-effect
+// on the value of the variables at the caller's place.
+//
+// In pseudo2, all variables being of a primitive type are handled
+// by the call-by-value mechanism.
+
+
+// example for number
+var xn = 5
+
+func mn(arg)
+	arg = arg + 1
+	print arg
+	
+print xn
+mn(xn)
+print xn // remains the same	
+
+
+// example for string
+var xs = "hej"
+
+func ms(arg)
+	arg = arg + "jo"
+	print arg
+	
+print xs
+ms(xs)
+print xs // remains the same	
+
+// example for bool
+var xb = true
+
+func mb(arg)
+	arg = ! arg
+	print arg
+	
+print xb
+mb(xb)
+print xb // remains the same	
+
+
+
+
+//
+// Call-by-reference
+//
+// If a function is invoked with a variable of a struct or array,
+// then the *REFERENCE* to the struct/array-object is passed to the 
+// function.
+// This allows to manipulate within the function the same struct/array-object
+// as the object referenced by  the variable at the caller's place.
+//
+// However, by executing the method, one cannot led the variable 
+// at the caller's place refer to a completely new struct/array-object.
+
+
+
+
+// example for array; changing cells
+var A1 = [1,2,3]
+
+func marr1(X[1..n])
+	for i=1 to n
+		X[i] = 5   // this changes also the cells in 
+		           // the array referenced by A1
+	
+print "" + A1[1] + A1[2] + A1[3]
+marr1(A1)
+print "" + A1[1] + A1[2] + A1[3] // values have changed	
+
+
+// example for array; changing array itself does not have any effect !!!
+var A2 = [1,2,3]
+
+func marr2(X[1..n])
+	X = [5,5,5,5,5] // this change does not effect A2 !!!
+	
+print "" + A2[1] + A2[2] + A2[3]
+marr2(A2)
+print "" + A2[1] + A2[2] + A2[3] // values and array-length have NOT changed	
+
+
+
+// example for struct; changing attribute values
+struct S
+	num key
+	
+var s1 = new S
+s1.key = 1	
+
+func mstruct1(arg)
+	arg.key = 5
+	
+print s1.key
+mstruct1(s1)
+print s1.key // value has changed
+
+
+// example for struct; changing struct itself does not have any effect !!!
+	
+var s2 = new S
+s2.key = 2	
+
+func mstruct2(arg)
+	arg = new S   // this change does not effect s2 !!!
+	arg.key = 5
+	
+print s2.key
+mstruct2(s2)
+print s2.key // value has NOT changed
+
+
+
+print "finished"      
+
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+
+func isInt(x)
+    if x mod 1 == 0
+        return true
+    else 
+        return false
+
+
+
+
+  

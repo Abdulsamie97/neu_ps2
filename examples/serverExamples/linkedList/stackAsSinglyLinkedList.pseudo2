@@ -1,0 +1,70 @@
+//
+//  REALIZATION OF A STACK BASED ON A (SINGLY) LINKED LIST
+//
+// Note in contrast to the stack realization based on an array,
+// the size of the stack is not limited here !!!
+
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+var s = new LLStack
+call s.init()
+
+print s.isEmpty()
+
+call s.push(4)
+call s.push(22)
+call s.push(8)
+
+print  s.pop()   // prints 8
+print  s.isEmpty()	
+print  s.pop()   // prints 22
+print  s.pop()   // prints 4
+//print  s.pop()   // causes exception
+
+
+print "finished"
+
+
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+
+
+// element within the list
+struct LLElem 
+	num key
+	LLElem next
+
+
+struct LLStack
+	LLElem head
+	
+	init()
+		this.head = null
+	
+	push(x)
+		var p = new LLElem
+		p.key=x
+		p.next=this.head
+		this.head=p
+	
+	pop()
+		if this.isEmpty() 
+			throw "ERROR: pop() invoked on empty stack"	
+		var x = this.head.key
+		this.head=this.head.next
+		return x	
+	
+	isEmpty()
+		return this.head==null	
+

@@ -1,0 +1,42 @@
+struct treeElem
+	num key
+	treeElem left
+	treeElem right
+  
+ 
+func insert(node, newNode )
+	if newNode==null
+		throw "newNode is expected to be not null"
+
+	if node==null
+		node=newNode
+				
+	if node.key == newNode.key
+		return  
+			
+	if node.key > newNode.key
+		if node.left==null
+			node.left=newNode
+		else
+			insert(node.left,newNode)	
+		 	 
+	else 
+		if node.right==null
+			node.right=newNode
+		else
+			insert(node.right, newNode)	
+
+
+
+
+	
+//  Usage
+var root = new treeElem
+root.key = 12
+
+var e5 = new treeElem
+e5.key=5
+e5.left=null
+e5.right=null
+insert(root, e5)
+print root.left.key

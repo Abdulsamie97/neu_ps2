@@ -1,0 +1,54 @@
+//
+// Illustrates realization of Abstract Data Type (ADT) based on struct
+//
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+struct Person    
+	string name
+	num age
+	
+	// a method
+	//
+	// within a method, access to attributes and methods 
+	// are possible via 'this'
+	birthday()
+		this.age = this.age+1
+		
+	toString()
+		return 	"My name is " + this.name + " and I am " + this.age + " years old."	
+
+	gettingOlder(noYears)
+		if noYears < 1 
+			throw "gettingOlder(): argument should be greater-equal 1 "	
+		for i  = 1 to noYears
+			call this.birthday() // KNOWN RESTRICTION: this.birthday() DOES NOT WORK
+			print this.toString()
+							
+
+
+var p1 = new Person  
+p1.name = "Jon"   
+p1.age = 2
+
+var p2 = new Person  
+p2.name = "Anna"   
+p2.age = 28
+
+
+// time goes by for everybody the same way
+var timeInYears = 5
+call p1.gettingOlder(timeInYears)
+call p2.gettingOlder(timeInYears)
+
+
+print "finished"
+
+
+

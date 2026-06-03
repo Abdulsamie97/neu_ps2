@@ -1,0 +1,50 @@
+//
+// Illustrates basic language concepts: WHILE-loops
+//
+// Note that also DO-WHILE loop is supported
+//
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+var x = 1
+
+while x < 5
+	print x
+	x = x + 1
+	
+	
+// same downward
+x = 5
+while x > 0
+	print x
+	x = x - 1	
+
+// simulating changing step-size
+var step = 1
+x = 1
+while x < 10 
+	print x
+	x = x + step
+	step = step + 1
+	
+
+// nothing is printed
+while false
+	print "while false"
+
+// printed once	
+do
+	print "do_while false"	
+while false
+
+
+	
+print "finished"	
+
+	

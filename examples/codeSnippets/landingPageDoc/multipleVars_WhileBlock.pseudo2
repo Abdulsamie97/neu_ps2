@@ -1,0 +1,11 @@
+
+var flag = true
+var y1 = 2
+var x = 5
+var y2 = 3
+
+while flag
+	print x  // position of x is the context
+	flag=false
+	     
+	 

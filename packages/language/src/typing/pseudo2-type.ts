@@ -76,7 +76,11 @@ export class Pseudo2Type {
       this.isUnknown() ||
       t.isUnknown() ||
       this.isSameAs(t) ||
+      this.isSameAsIgnoringUnknown(t) ||
       (this.isPartiallyUnknown() &&
+        this.isArray === t.isArray &&
+        this.isStruct === t.isStruct) ||
+      (t.isPartiallyUnknown() &&
         this.isArray === t.isArray &&
         this.isStruct === t.isStruct)
     );

@@ -1,0 +1,23 @@
+func inserti( A[1..n], i )
+	var x = A[i]
+	var j = i-1
+	while j>=1 && A[j]>x
+		A[j+1] = A[j]
+		j = j-1
+	A[j+1] = x
+
+func insertion_sort( A[1..n] )
+	for i = 2 to n
+		inserti( A, i )
+
+
+var B[4] = 3
+B[1] = 76
+B[2] = 16
+B[3] = 25
+B[4] = 36
+ 
+
+insertion_sort(B)
+
+//print l

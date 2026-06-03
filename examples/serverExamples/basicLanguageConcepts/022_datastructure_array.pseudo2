@@ -1,0 +1,115 @@
+//
+// Illustrates basic data structures and types
+//  - ARRAYS
+//
+              
+           
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+//
+// Initialization
+// There are two ways to declare/initialize an array variable
+//
+
+// Version 1: with array literal at RHS
+
+var arr1 = [1,43,6] // initialization by array literal
+
+
+//var arrErr1 = [1, "hle"]  //SYNTAX ERROR: all array elements 
+                            //              must have same type
+
+//var arrErr2 = [ [1,2] ]   //SYNTAX ERROR: nested arrays are 
+                            //              not supported
+
+
+// Version 2: by specifying the array length in left-hand-side (LHS) 
+//            and then initializing each cell with RHS
+
+var arr2[5] = "a"  // arr2 is array of length 5 containing "a" 
+                   // in each cell
+
+//var arrErr3[4] = [2]  //SYNTAX ERROR: nested arrays are 
+                        //              not supported
+
+
+//
+//  Initializing with empty array 
+
+//var emptyArr = []  // SYNTAX ERROR: type of variable cannot be computed
+
+var emptyArr1 = [9]  // array of num is now declared
+emptyArr1 = []  // this works :-)
+
+
+// 
+// Accessing array elements (read and write)
+//
+
+print arr1[2]  // access to second element (index starts with 1)
+print arr2[5]  // access to fifth element
+
+
+var i = 3
+print arr1[i]  // index can be specified by any expression, e.g. variable i
+
+//print arr1[4]  //THROWS EXCEPTION: accessing non-existing index
+                 //                  aka OUT-OF-BOUNDS Exception
+
+arr1 = [12,24,3,14,5]  //OK: length of array can be changed
+print arr1[4]  // works due to new length of arr1
+
+//arr1 = ["a", "vc"]  //SYNTAX ERROR: array type cannot be changed
+
+arr1[3] = 23  //OK, 
+print arr1[3]  // prints out the new value
+
+
+
+var arrNew = arr1  // Array assignment with reference semantics: 
+                   //    arrNew and arr1 point now to THE SAME ARRAY
+
+print arr1[2]
+print arrNew[2]   // the same value as in arr1
+
+arrNew[2]=58    // changing a cell in the new array
+print arr1[2]   // new value (58) now also visible in the old array
+print arrNew[2]  
+
+arr1[3]=  111  // changing a cell in the old array
+print arr1[3]
+print arrNew[3] // new value (111) now also visible in new array
+
+// 
+// Testing on emptyness of an array (size = 0)
+// (uses function)
+//
+
+
+
+func isEmptyArray(A[1..n])
+    print n // just for debug
+	return n == 0
+	
+var arrEmptyOrNot = [1,2,3]
+
+print isEmptyArray(arrEmptyOrNot) // false
+
+arrEmptyOrNot = []
+
+print isEmptyArray(arrEmptyOrNot) // true
+
+
+print "finished"
+
+
+
+
+ 

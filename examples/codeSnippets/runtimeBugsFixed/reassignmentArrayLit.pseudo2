@@ -1,0 +1,40 @@
+
+// BUG-Summary:
+//  The initialization and assigments of arrays with another array
+//  has in pseudo2 a REFERENCE semantics: Old and new Array point 
+//  exactly to the same array. This is the right decision, since a
+//  copy-semantics can be easily realized by a user-defined function!
+//
+//  However: If at the assignment we have at RHS an Array-Literal,
+//      an exception is thrown
+//
+
+
+var arr1 = [1,43,6]
+
+var arrNew = arr1  //OK ; initialization with other array
+
+print arrNew[3]  //  OK
+
+var arrNewNew[5] = 1
+
+print arrNewNew[3]  // OK, 
+
+arrNew = arrNewNew  // OK assignment to other array
+
+print arrNew[2]  // OK 1
+
+print arrNew[5]  // OK 1
+
+arrNew[2]=23
+arrNewNew[4]=44
+
+print arrNew[2]  // 23
+print arrNewNew[2]  // 23
+
+print arrNew[4]  // 44
+print arrNewNew[4]   // 44
+
+
+arr1 = [12,24,3,14,5] // BUG: throws exception
+

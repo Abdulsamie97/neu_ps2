@@ -1,0 +1,67 @@
+struct evlElem 
+	num key
+	evlElem next
+
+
+var e4 = new evlElem
+e4.key=4
+e4.next=null
+
+var e1 = new evlElem
+e1.key=1
+e1.next=e4
+
+var e3 = new evlElem
+e3.key=3
+e3.next=e1
+
+var e9 = new evlElem
+e9.key=9
+e9.next=e3
+
+var e8 = new evlElem
+e8.key=8
+e8.next=e9
+
+var e5 = new evlElem
+e5.key=5
+e5.next=e8
+
+
+
+func printAllElements(first)
+    if first==null
+        print "Got empty list"
+        return
+        
+    var res = ""
+    res = res + first.key
+    while first.next != null
+        res = res + " " 
+        res = res + first.next.key
+        first = first.next
+        
+    
+    print res
+
+
+var L = e5  // set to first element
+
+printAllElements(L)  // show all current elements
+
+var q = new evlElem
+q.key=25
+q.next=null
+
+
+
+//
+// Insert q at head of L
+//
+
+q.next = L
+L=q
+
+printAllElements(L)  // show all current elements
+
+

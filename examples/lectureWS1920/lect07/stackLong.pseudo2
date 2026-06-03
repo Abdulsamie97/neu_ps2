@@ -1,0 +1,52 @@
+// Stack Implementierung als Array
+
+var n = 10
+var S[n] = 'b'  // hinreichend großes Array
+var top = 1   // Index hinter dem neuesten Element
+
+
+func empty()
+    if top==1
+        return 1
+    else
+        return 0
+        
+func push(x)
+    S[top] = x
+    top = top + 1
+        
+func pop()
+    if empty()==1
+        throw "Unexpected Situation"
+
+    top = top - 1
+    var x = S[top]
+    return x
+
+
+
+func addOpenTag(tag)
+    push(tag)
+    
+func addCloseTag(tag)
+    var expected = pop()
+    if tag!=expected
+        var msg = "Expected closing tag '" + expected + "' but was '" + tag + "'"
+        print "WARNING: Unbalanced document. " + msg
+
+func addContent(text)
+    // do nothing
+    
+func processExample()
+    addOpenTag("html")
+    addOpenTag("head")
+    addOpenTag("title")
+    addContent("Mein Lieblingsfach")
+    addCloseTag("title")
+    addCloseTag("head")
+    addCloseTag("body")  // generates a warning
+    
+
+
+processExample()
+

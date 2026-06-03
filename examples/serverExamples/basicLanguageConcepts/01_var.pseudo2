@@ -1,0 +1,36 @@
+//
+// Illustrates basic language concepts: variables and assignment
+//
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+// var declaration
+var x = 5  // variable x is declared and initialized with value 5 
+           // initialization expression determines the type of x (here: Numeric)
+
+print x   // 'print' is command printing out the value of x
+
+x = x + 5  // assignment 
+
+print x
+
+
+//x = "Hello" // SYNTAX ERROR: wrong type on right-hand-side (RHS)
+
+//print y   // SYNTAX ERROR: y not declared yet
+
+
+var y = "hello" // y has type of RHS (here: String)
+  
+// + applied on strings means concatenation
+y=y + " world" 
+print y
+
+
+print "finished"
+

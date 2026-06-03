@@ -1,0 +1,43 @@
+struct treeElem
+	num key
+	treeElem left
+	treeElem right
+	
+var root = new treeElem
+
+ 
+func maxDepth(n)
+	if n==null
+		return -1
+	var nl = n.left	
+	var nr = n.right	
+	var ld = maxDepth(nl)
+	var rd = maxDepth(nr)
+	if (ld > rd)
+		return ld+1
+	else 
+		return rd+1	
+	
+maxDepth(root)	
+ 
+
+// return -1 if n cannot be found in tree below root
+func depth(rn, n)
+	if root == null
+		return -1
+	if root == n
+		return 0
+	var dl = depth(rn.left,n)	
+	if dl != -1
+		return dl
+		
+	return 	depth(rn.right,n)
+	
+	 
+depth(root, root)	
+
+
+	
+	
+	
+	

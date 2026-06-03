@@ -1,0 +1,103 @@
+//
+//  REALIZATION OF A BINARY TREE 
+//
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+var debug = false  // switch to 'true' if print-outs of the tracing 
+                   // should be shown
+
+  
+var root = new TreeElem
+root.key=5
+root.left=null
+root.right=null
+
+add(root, [2,3,6,7])
+ 
+
+
+print root.key  // 5  
+
+print root.left.key  // 2
+print root.left.right.key  // 3
+print root.right.key  // 6
+print root.right.right.key  // 7
+
+
+print "finished"
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+struct TreeElem
+	num key
+	TreeElem left
+	TreeElem right
+
+// helper function to show tracing print-outs
+func printDebug(msg)
+    if debug
+        print "DEBUG " + msg
+
+
+
+
+// create new treeElem-objects for the numbers given in 'A' below 'r'
+// If a number occurs twice in 'A', only one node in the tree is generated
+func add(r, A[1..n])
+    if r==null
+        throw "r must not be null"
+    if n == 0
+        // empty array -> do nothing
+        return 
+    printDebug("add(): Array has " + n + " elements")  
+    printDebug(" The elements are :")
+    for j=1 to n
+        printDebug(""+A[j])
+        
+    for j=1 to n    
+        addElement(r, A[j])
+    
+func addElement(r, k)
+    if r.key==k
+        printDebug("addElement: " + k + " is already member")
+        return
+
+    printDebug("addElement: " + k + " is inserted for node " + r.key)
+    if k < r.key
+        printDebug("addElement: recursively invoke on left for " + k + " on  node " + r.key)
+        if r.left != null
+        	addElement(r.left, k)
+        else
+            var elem = new TreeElem
+            elem.key = k
+            elem.left = null
+            elem.right = null
+            r.left = elem
+    else
+        printDebug("addElement: recursively invoke on right for " + k + " on  node " + r.key)
+        if r.right != null
+            addElement(r.right, k)
+        else
+            var elem1 = new TreeElem
+            elem1.key = k
+            elem1.left = null
+            elem1.right = null
+            r.right = elem1
+       
+        
+
+
+
+
+

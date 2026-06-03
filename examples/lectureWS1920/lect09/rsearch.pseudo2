@@ -1,0 +1,21 @@
+struct treeElem
+	num key
+	treeElem left
+	treeElem right
+
+var root = new treeElem
+
+func rsearch(node, key)
+	if node == null
+		return null		// key not in tree
+	
+	if key < node.key
+		return rsearch(node.left, key )
+	
+	if key > node.key
+		return rsearch(node.right, key )
+	else
+		return node		// key found !
+			
+// we need function call to resolve types of parameters				
+rsearch(root, 4)

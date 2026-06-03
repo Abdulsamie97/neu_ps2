@@ -1,0 +1,14 @@
+var A = [1,2,3]
+
+
+
+printArr(A)
+
+func printArr(Arr[1..n])
+    print("n is " + n) //OK
+    for i=1 to n
+        print("i-th element is " + Arr[i]) // OK
+        myprint(A[i])   // NOT OK; does only show empty string for A[i]
+        
+func myprint(k)
+    print("in myprint: " + k)

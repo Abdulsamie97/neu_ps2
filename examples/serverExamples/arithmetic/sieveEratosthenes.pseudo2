@@ -1,0 +1,75 @@
+//
+// Sieve of Eratosthenes
+//
+// Computation of prime natural numbers up to a certain limit
+//
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+var max = 50
+//var max = 1000000  // also works quite fastly, Try it!
+
+var A[max] = 0
+
+for i=1 to max
+    A[i] = i
+    
+    
+sieve(A) 
+   
+print  nonNullElems2String(A, ", ")   
+    
+print "finished"
+
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+// The array Arg is processed many time and whenever
+// index i is detected to be non-prime, then 0 (zero) is
+// written in Arg[i]
+func sieve(Arg[1..n])
+
+    Arg[1] = 0  // 1 is non-prime
+    
+    for i=2 to n/2  // going up to n/2 is more than enough
+    //for i=2 to n ^ 1/2  // even this is sufficient: going up to sqr(n)
+    
+        if Arg[i] != 0  // i is prime since it was 
+                        // not recognized yes as non-prime 
+                        
+            for j=2*i to max by i
+                A[j] = 0  // all multiples of i are set to non-prime
+            
+    
+// convert array of numbers to string
+// using the given separator 
+// However, only elements different to 0 are taken   
+func nonNullElems2String(Arg[1..n], sep)
+	var res = ""  
+	var j = 1
+	// searching for first Arg[j]!=0
+	while j <= n && A[j]==0 
+		j = j+1
+
+	if  j == n+1
+		// nothing found 
+		return res
+
+	res=A[j]+"" // first element
+	for i=j+1 to n
+		if A[i] != 0
+			res = res + sep + A[i]
+	     
+	return res
+
+    

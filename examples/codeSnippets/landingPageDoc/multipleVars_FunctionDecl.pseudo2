@@ -1,0 +1,20 @@
+
+var x = 5
+var y = 5
+
+func foox(x)
+	print x  
+
+func fooy(y)
+	print x
+	
+func fooz(x)
+	//var x = 25  //Syntax ERROR: Duplicate Var
+	var y= 7
+	print y 
+	
+	
+foox(2)	// OK 2 
+fooy(2) // OK 5 
+fooz(2) // OK 7
+	

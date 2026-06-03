@@ -1,7 +1,7 @@
 // packages/language/src/pseudo2-validator.ts
 
 import { AstUtils } from 'langium';
-import type { ValidationAcceptor, ValidationChecks } from 'langium';
+import type { AstNode, ValidationAcceptor, ValidationChecks } from 'langium';
 import type {
   Pseudo2AstType,
   BracedBlock,
@@ -76,7 +76,7 @@ import {
 } from './generated/ast.js';
 
 import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
-import { TYPE_NUM, TYPE_BOOL, TYPE_STRING, TYPE_ARRAY_UNKNOWN, TYPE_UNKNOWN } from './typing/pseudo2-type.js';
+import { TYPE_NUM, TYPE_BOOL, TYPE_STRING, TYPE_ARRAY_UNKNOWN, TYPE_UNKNOWN, TYPE_STRUCT } from './typing/pseudo2-type.js';
 
 export function registerValidationChecks(services: Pseudo2Services) {
   const registry = services.validation.ValidationRegistry;
@@ -350,13 +350,33 @@ export class Pseudo2Validator {
   }
 
   private isStatementFunctionCall(node: FunctionCall): boolean {
-    const container: any = node.$container;
+    let current: any = node.$container;
 
-    return (
-      container?.$type === 'Program' ||
-      isBracedBlock(container) ||
-      isIndentedBlock(container)
-    );
+    while (current) {
+      if (
+        current.$type === 'ExprStatement' ||
+        current.$type === 'CallCommand' ||
+        isBracedBlock(current) ||
+        isIndentedBlock(current) ||
+        current.$type === 'Program'
+      ) {
+        return true;
+      }
+
+      if (
+        current.$type === 'VarDecl' ||
+        current.$type === 'Assignment' ||
+        current.$type === 'ReturnStmt' ||
+        current.$type === 'PrintCommand' ||
+        current.$type === 'ThrowCommand'
+      ) {
+        return false;
+      }
+
+      current = current.$container;
+    }
+
+    return false;
   }
 
   checkReturnStmt(node: ReturnStmt, accept: ValidationAcceptor): void {
@@ -647,7 +667,7 @@ export class Pseudo2Validator {
     let current: any = node.$container;
 
     while (current) {
-      if (current.$type === 'ExprStatement') {
+      if (current.$type === 'ExprStatement' || current.$type === 'CallCommand') {
         return true;
       }
 
@@ -656,8 +676,7 @@ export class Pseudo2Validator {
         current.$type === 'Assignment' ||
         current.$type === 'ReturnStmt' ||
         current.$type === 'PrintCommand' ||
-        current.$type === 'ThrowCommand' ||
-        current.$type === 'CallCommand'
+        current.$type === 'ThrowCommand'
       ) {
         return false;
       }
@@ -768,6 +787,33 @@ export class Pseudo2Validator {
     }
   }
 
+  private mergeExpectedTypes(
+  a: ReturnType<Pseudo2TypeComputer['typeFor']>,
+  b: ReturnType<Pseudo2TypeComputer['typeFor']>
+): ReturnType<Pseudo2TypeComputer['typeFor']> {
+  if (a.isUnknown()) {
+    return b;
+  }
+
+  if (b.isUnknown()) {
+    return a;
+  }
+
+  if (a.isSameAs(b)) {
+    return a;
+  }
+
+  if (a.isSameAsIgnoringUnknown(b)) {
+    return a.isPartiallyUnknown() ? b : a;
+  }
+
+  if (b.isSameAsIgnoringUnknown(a)) {
+    return b.isPartiallyUnknown() ? a : b;
+  }
+
+  return TYPE_UNKNOWN;
+}
+
   private expectedParameterType(param: ParameterDecl): ReturnType<Pseudo2TypeComputer['typeFor']> {
     if (param.isArray) {
       return TYPE_ARRAY_UNKNOWN;
@@ -782,17 +828,18 @@ export class Pseudo2Validator {
       return TYPE_UNKNOWN;
     }
 
+    let inferred = TYPE_UNKNOWN;
+
     for (const n of AstUtils.streamAllContents(fn)) {
       if (isVarRef(n) && n.ref?.ref === param) {
-        const inferred = this.inferTypeFromUsage(n);
-        if (!inferred.isUnknown()) {
-          return inferred;
-        }
+        const usageType = this.inferTypeFromUsage(n);
+        inferred = this.mergeExpectedTypes(inferred, usageType);
       }
     }
 
-    return TYPE_UNKNOWN;
+    return inferred;
   }
+
 
   private inferTypeFromUsage(ref: VarRef): ReturnType<Pseudo2TypeComputer['typeFor']> {
     let current: any = ref.$container;
@@ -802,6 +849,83 @@ export class Pseudo2Validator {
         return TYPE_UNKNOWN;
       }
 
+      // Equality-Kontext: x == y oder x != y
+      // Der Typ eines Operanden soll sich möglichst aus dem anderen Operanden ergeben,
+      // nicht aus dem äußeren if/while-Bool-Kontext.
+      if (isEquality(current) && (current.right?.length ?? 0) > 0) {
+        const operands = [current.left, ...(current.right ?? [])];
+
+        const otherOperands = operands.filter((e: Expr) => !this.exprContainsNode(e, ref));
+        const otherOperandTypes = otherOperands.map((e: Expr) => this.types.typeFor(e));
+
+        for (const t of otherOperandTypes) {
+          if (!t.isUnknown()) {
+            return t;
+          }
+        }
+
+        return TYPE_UNKNOWN;
+      }
+
+      // bool-Kontext
+      if (isIfStatement(current) && this.exprContainsNode(current.condition, ref)) {
+        return TYPE_BOOL;
+      }
+
+      if (isWhileLoop(current) && this.exprContainsNode(current.condition, ref)) {
+        return TYPE_BOOL;
+      }
+
+      if (isDoWhileLoop(current) && this.exprContainsNode(current.condition, ref)) {
+        return TYPE_BOOL;
+      }
+
+      if (isNot(current) && this.exprContainsNode(current.value, ref)) {
+        return TYPE_BOOL;
+      }
+
+      if (isAnd(current) && (current.right?.length ?? 0) > 0) {
+        return TYPE_BOOL;
+      }
+
+      if (isOr(current) && (current.right?.length ?? 0) > 0) {
+        return TYPE_BOOL;
+      }
+
+      // Array-Kontext
+      if (ref.index) {
+        return TYPE_ARRAY_UNKNOWN;
+      }
+
+      if (isVarRef(current) && current.ref?.ref === ref.ref?.ref && current.index) {
+        return TYPE_ARRAY_UNKNOWN;
+      }
+
+      // Struct-Kontext: x.age
+      if (isAttSelection(current) && current.receiver === ref) {
+        const attDecl = current.attref.ref?.ref;
+        const ownerStruct = attDecl ? AstUtils.getContainerOfType(attDecl, isStructDeclaration) : undefined;
+
+        if (ownerStruct) {
+          return TYPE_STRUCT(ownerStruct.name);
+        }
+
+        return TYPE_STRUCT('');
+      }
+
+      // Struct-Kontext: x.m()
+      if (isMethSelection(current) && current.receiver === ref) {
+        const methodDecl = current.methref.f?.ref;
+        const ownerStruct = methodDecl ? AstUtils.getContainerOfType(methodDecl, isStructDeclaration) : undefined;
+
+        if (ownerStruct) {
+          return TYPE_STRUCT(ownerStruct.name);
+        }
+
+        return TYPE_STRUCT('');
+      }
+
+      // numerischer Kontext
       if (isMultiplication(current) && (current.right?.length ?? 0) > 0) {
         return TYPE_NUM;
       }
@@ -814,26 +938,50 @@ export class Pseudo2Validator {
         return TYPE_NUM;
       }
 
+      // lockere Addition:
+      // string beteiligt -> string
+      // bool/array/struct beteiligt -> unknown
+      // num + num möglich, aber x + 1 erzwingt nicht automatisch x:num,
+      // weil auch string + num erlaubt ist
       if (isAddition(current) && (current.right?.length ?? 0) > 0) {
-        return TYPE_NUM;
-      }
+        const operands = [current.left, ...(current.right ?? [])];
 
-      if (isNot(current)) {
-        return TYPE_BOOL;
-      }
+        const otherOperands = operands.filter((e: Expr) => !this.exprContainsNode(e, ref));
+        const otherOperandTypes = otherOperands.map((e: Expr) => this.types.typeFor(e));
 
-      if (isAnd(current) && (current.right?.length ?? 0) > 0) {
-        return TYPE_BOOL;
-      }
+        if (otherOperandTypes.some(t => t.isSameAs(TYPE_STRING))) {
+          return TYPE_STRING;
+        }
 
-      if (isOr(current) && (current.right?.length ?? 0) > 0) {
-        return TYPE_BOOL;
+        if (otherOperandTypes.some(t => t.isSameAs(TYPE_BOOL) || t.isArrayType() || t.isStructType())) {
+          return TYPE_UNKNOWN;
+        }
+
+        return TYPE_UNKNOWN;
       }
 
       current = current.$container;
     }
 
     return TYPE_UNKNOWN;
+  }
+
+  private exprContainsNode(expr: Expr | undefined, node: AstNode): boolean {
+    if (!expr) {
+      return false;
+    }
+
+    if (expr === node) {
+      return true;
+    }
+
+    for (const child of AstUtils.streamAllContents(expr)) {
+      if (child === node) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   checkAddition(node: Addition, accept: ValidationAcceptor): void {

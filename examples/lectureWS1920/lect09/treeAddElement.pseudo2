@@ -1,0 +1,98 @@
+//
+// creates a binary tree
+//
+
+
+// general debug-flag for printing out DEBUG-messages
+//var debug=true
+var debug=false
+ 
+struct treeElem 
+	num key
+	treeElem left
+	treeElem right
+  
+var root = new treeElem
+root.key=5
+root.left=null
+root.right=null
+
+add(root, [2,3,6,7])
+
+
+
+print(root.key) // 5  OK
+printChild("left", root.left)
+printChild("right", root.right)
+
+print(root.left.key) // 2
+print(root.left.right.key) // 3
+print(root.right.key) // 6
+print(root.right.right.key) // 7
+
+
+//
+// functions
+//
+ 
+
+func printDebug(msg)
+    if (debug)
+        print("DEBUG " + msg)
+
+func printChild(role, r)
+    if r==null
+        printDebug(role + " is null")
+    else
+        printDebug(role + " in node with key " + r.key)
+
+func add(r, A[1..n])
+    if r==null
+        throw ("r must not be null")
+    if n == 0
+        // empty array -> do nothing
+        return 
+    printDebug("add(): Array has " + n + " elements")  
+    printDebug(" The elements are :")
+    for j=1 to n
+        printDebug(""+A[j])
+        var kj = A[j]
+        addElement(r, kj)
+    
+func addElement(r, k)
+    if r.key==k
+        printDebug("addElement: " + k + " is already member")
+        return
+
+    printDebug("addElement: " + k + " is inserted for node " + r.key)
+    if k < r.key
+        printDebug("addElement: recursively invoke on left for " + k + " on  node " + r.key)
+        if r.left != null
+            var l = new treeElem
+            l = r.left
+            addElement(l, k)
+        else
+            var elem = new treeElem
+            elem.key = k
+            elem.left = null
+            elem.right = null
+            r.left = elem
+    else
+        printDebug("addElement: recursively invoke on right for " + k + " on  node " + r.key)
+        if r.right != null
+            var ri = new treeElem
+            ri = r.right
+            addElement(ri, k)
+        else
+            var elem1 = new treeElem
+            elem1.key = k
+            elem1.left = null
+            elem1.right = null
+            r.right = elem1
+       
+        
+
+
+
+
+

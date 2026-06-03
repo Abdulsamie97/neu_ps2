@@ -1,0 +1,41 @@
+// Queue Implementierung mit Array (2. Variante)
+//  Unterversion mit size-Attribut
+
+
+var Q[10] = 0  // hinreichend grosses Array
+var head = 1   // Index: Erstes Element der Warteschlange
+                //    (falls tail > head)
+var tail = 1   // Index: Naechster Index nach Ende der Warteschlange
+
+var size = 0
+
+
+func empty()
+    if size==0
+        return 1
+    else
+        return 0
+        
+func enqueue(x)
+    Q[tail] = x
+    tail = tail + 1
+    size = size + 1
+
+func dequeue()
+    if empty()==1
+        throw "ERROR: dequeue() cannot be invoked when empty"
+
+    var x = Q[head]
+    head = head + 1
+    size = size - 1
+    return x    
+    
+print empty()
+enqueue(3)
+enqueue(4)
+enqueue(5)
+print dequeue()
+print empty()
+print "head is " + head
+print "tail is " + tail
+print "size is " + size

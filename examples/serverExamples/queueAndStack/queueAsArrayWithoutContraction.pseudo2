@@ -1,0 +1,95 @@
+//
+//  QUEUE IMPLEMENTED BASED ON AN ARRAY AND SIZE-ATTRIBUTE
+//
+// Note that this implementation can handle only len-many  
+// enqueue() calls where len is the length of the array.
+
+
+
+//################################################
+//#
+//#   Main
+//#
+//################################################
+
+
+var len = 10
+var Q[len] = 0  // array should be sufficiently long
+var tail = 1    // index for putting the next element
+var head = 1    // index of returned element (only if tail > head)
+var size = 0    // current number of elements within the queue
+
+    
+print isEmpty()
+enqueue(3)
+enqueue(4)
+enqueue(5)
+print dequeue()
+print dequeue()
+enqueue(27)
+print isEmpty()
+print "head is " + head
+print "tail is " + tail
+print "size is " + size
+
+
+print "finished"
+
+//################################################
+//#
+//#   Definitions (Functions/Structs)
+//#
+//################################################
+
+
+
+func isEmpty()
+    if size == 0
+        return true
+    else
+        return false
+
+func isFull()
+	if tail > len
+		return true
+	return false
+  
+/*
+ * Adding a new element to the queue.
+ * 
+ * NOTE: It is the responsibility of the caller
+ * to check before, that the queue is not full yet.
+ * 
+ * If the queue is full, an exception is thrown and
+ * the program execution stops.
+ * 
+ */       
+func enqueue(x)
+	if isFull()
+		throw "ERROR: queue is already full"
+	Q[tail] = x
+	tail = tail + 1
+	size = size + 1
+
+
+
+/*
+ * Returning a new element from the queue.
+ * 
+ * NOTE: It is the responsibility of the caller
+ * to check before, that the queue is not empty yet.
+ * 
+ * If the queue is empty, an exception is thrown and
+ * the program execution stops.
+ * 
+ */       
+func dequeue()
+    if isEmpty()
+        throw "ERROR: queue is empty"  
+
+    var x = Q[head]
+    head = head + 1
+    size = size - 1
+
+    return x    
+    

@@ -50,12 +50,3 @@ struct Person {
 
 var p = new Person
 var a = p.setAge(25)
-
-
-  print(n-1)
-  print(n+true) //anpassen
-  print(n+"bla")
-  //struct rekursiv?
-  //key von c
-  //Annotation sprache, wie definiert man vor-und nachbedinungen, sie erfinden und c file generieren
-  //kann verifast ohne gui betrieben werden???, ob die 

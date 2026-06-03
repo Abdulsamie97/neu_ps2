@@ -38,7 +38,14 @@ import {
   isAssignment,
 
   isAttSelection,
-  isMethSelection
+  isMethSelection,
+
+  isExprStatement,
+
+  isPrintCommand,
+  isThrowCommand,
+  isCallCommand
+  
 } from '../generated/ast.js';
 
 import { Pseudo2TypeComputer, TypeComputationContext } from '../typing/pseudo2-type-computer.js';
@@ -224,14 +231,55 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
   private scopeForVarRefFrom(container: AstNode | undefined): Named[] {
     if (!container) return [];
 
-    const enclosingFn = AstUtils.getContainerOfType(container, isFunctionDeclaration);
+    const directLocals = this.collectVisibleLocalsFromContainer(container);
+
+    const enclosingFn = isFunctionDeclaration(container)
+      ? container
+      : AstUtils.getContainerOfType(container, isFunctionDeclaration);
+
     const params = enclosingFn ? this.collectFunctionParameters(enclosingFn) : [];
     const globals = this.collectGlobalVars(container);
     const structAtts = this.collectEnclosingStructAttributes(container);
 
-  //  console.log('[VAR SCOPE FROM] params=', params.map(v => v.name), 'globals=', globals.map(v => v.name), 'structAtts=', structAtts.map(v => v.name));
+    const loopIter = isForLoop(container) && container.iterator ? [container.iterator] : [];
 
-    return [...structAtts, ...params, ...globals];
+    const parent = container.$container;
+    const outer = parent ? this.scopeForVarRefFrom(parent) : [];
+
+    return this.dedupByName([
+      ...directLocals,
+      ...loopIter,
+      ...structAtts,
+      ...params,
+      ...globals,
+      ...outer
+    ]);
+  }
+
+  private collectVisibleLocalsFromContainer(container: AstNode): VarDecl[] {
+    const currentInstr = this.getEnclosingInstruction(container);
+    if (!currentInstr) {
+      return [];
+    }
+
+    if (isBracedBlock(container) || isIndentedBlock(container)) {
+      return this.extractVarDeclsBeforeCurrent(container.instructions ?? [], currentInstr);
+    }
+
+    if (isIfStatement(container)) {
+      const thenInstrs = container.thenBlock?.instructions ?? [];
+      const elseInstrs = container.elseBlock?.instructions ?? [];
+
+      if (thenInstrs.includes(currentInstr)) {
+        return this.extractVarDeclsBeforeCurrent(thenInstrs, currentInstr);
+      }
+
+      if (elseInstrs.includes(currentInstr)) {
+        return this.extractVarDeclsBeforeCurrent(elseInstrs, currentInstr);
+      }
+    }
+
+    return [];
   }
 
   private handleIfStatement(ifStmt: IfStatement, currentInstr: Instruction): Named[] {
@@ -247,11 +295,13 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
 
   private extractVarDeclsBeforeCurrent(instrs: Instruction[], current: Instruction): VarDecl[] {
     const out: VarDecl[] = [];
+
     for (const i of instrs) {
       if (i === current) break;
-      if (isVarDecl(i)) out.unshift(i);
+      if (isVarDecl(i)) out.push(i);
     }
-    return out;
+
+    return out.reverse();
   }
 
   private dedupByName(vars: Named[]): Named[] {
@@ -277,8 +327,6 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
 
   private isInstructionNode(n: AstNode): boolean {
     return (
-      isBracedBlock(n) ||
-      isIndentedBlock(n) ||
       isIfStatement(n) ||
       isWhileLoop(n) ||
       isForLoop(n) ||
@@ -287,11 +335,28 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
       isStructDeclaration(n) ||
       isVarDecl(n) ||
       isAssignment(n) ||
-      isFunctionCall(n) ||
-      isReturnStmt(n)
+      isReturnStmt(n) ||
+      isExprStatement(n) ||
+      isPrintCommand(n) ||
+      isThrowCommand(n) ||
+      isCallCommand(n) ||
+      (isFunctionCall(n) && this.isStandaloneFunctionCallInstruction(n))
     );
   }
 
+
+  private isStandaloneFunctionCallInstruction(node: AstNode): boolean {
+    const parent = node.$container;
+    return (
+      !!parent &&
+      (
+        isBracedBlock(parent) ||
+        isIndentedBlock(parent) ||
+        this.getProgram(node) === parent
+      )
+    );
+  }
+  
   private collectGlobalVars(from: AstNode): VarDecl[] {
     const program = this.getProgram(from);
     return program ? program.instructions.filter(isVarDecl) : [];

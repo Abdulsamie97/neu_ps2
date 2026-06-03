@@ -1,0 +1,65 @@
+// creates a graph via adjacency list
+// and prints it out on the console
+//
+// graph creation is realized in function init()
+
+
+struct edgeElem
+    num vid // vertex id
+    edgeElem next
+    
+var dummy = new edgeElem    
+
+
+// initialization and printing
+var V[6] = dummy
+init(V)
+printGraph(V)
+
+
+// 
+// Functions
+//
+
+func printGraph(A[1..n])
+    var p = new edgeElem
+    for i=1 to n
+        p = A[i]
+        print ("Adacency list for node " + i + " is: " + edgeListToString(p))  //OK
+
+
+
+func init(A[1..n])
+    A[1]=toEdgeList([2,3,6])
+    A[2]=toEdgeList([1,3,4])
+    A[3]=toEdgeList([1,2,4,5,6])
+    A[4]=toEdgeList([2,3,5])
+    A[5]=toEdgeList([3,4,6])
+    A[6]=toEdgeList([1,3,5])
+
+
+
+func edgeListToString(first)
+    if first==null
+        return "null"
+    var tailAsString = edgeListToString(first.next)    
+    return first.vid + " " + tailAsString   
+    
+
+func toEdgeList(A[1..n])
+    if n==0
+        return null
+    var start=new edgeElem
+    start.vid = A[1]
+    start.next=null
+    var last = new edgeElem
+    last = start
+    for i=2 to n
+        var e = new edgeElem
+        e.vid=A[i]
+        e.next=null
+        last.next=e
+        last=e
+    return start    
+
+       

@@ -1,7 +1,7 @@
 // packages/language/src/typing/pseudo2-type-computer.ts
 
 import { AstUtils } from 'langium';
-import type { AstNode } from 'langium';
+//import type { AstNode } from 'langium';
 
 import type {
   Expr,
@@ -11,7 +11,7 @@ import type {
   ReturnStmt,
   VarDecl,
   ParameterDecl,
-  MethRef,
+ // MethRef,
   TypeRef,
   ArrayType,
   StructType,
@@ -22,7 +22,7 @@ import type {
   MethSelection,
   StructAttDeclaration,
   ArrayLiteral,
-  Exponentiation
+  //Exponentiation
 } from '../generated/ast.js';
 
 import {
@@ -50,7 +50,7 @@ import {
   isReturnStmt,
   isVarDecl,
   isParameterDecl,
-  isMethRef,
+ // isMethRef,
   isStructDeclaration,
   isArrayType,
   isStructType,
@@ -186,14 +186,33 @@ export class Pseudo2TypeComputer {
 
     if (isVarDecl(target)) {
       if (this.isLengthParameterDecl(target)) return TYPE_NUM;
-      if (!target.initializer) return TYPE_UNKNOWN;
       if (ctx.hasVar(target)) return TYPE_UNKNOWN;
 
       const c2 = ctx.copy();
       c2.addVar(target);
 
-      let t = this.typeFor(target.initializer, c2);
-      if (v.index) t = t.asBaseType();
+      let t: Pseudo2Type;
+
+      if ((target as any).isArrayVariable === true) {
+        if (target.initializer) {
+          const initType = this.typeFor(target.initializer, c2);
+          t = Pseudo2Type.create({
+            name: initType.name,
+            isStruct: initType.isStruct,
+            isArray: true
+          });
+        } else {
+          t = TYPE_ARRAY_UNKNOWN;
+        }
+      } else {
+        if (!target.initializer) return TYPE_UNKNOWN;
+        t = this.typeFor(target.initializer, c2);
+      }
+
+      if (v.index) {
+        t = t.asBaseType();
+      }
+
       return t;
     }
 
@@ -218,6 +237,7 @@ export class Pseudo2TypeComputer {
     return TYPE_UNKNOWN;
   }
 
+  /*
   private handleParameter(p: ParameterDecl, ctx: TypeComputationContext): Pseudo2Type {
     const defaultUnknown = p.isArray ? TYPE_ARRAY_UNKNOWN : TYPE_UNKNOWN;
     if (ctx.hasVar(p)) return defaultUnknown;
@@ -258,6 +278,16 @@ export class Pseudo2TypeComputer {
 
       return defaultUnknown;
     }
+  }*/
+
+  private handleParameter(p: ParameterDecl, ctx: TypeComputationContext): Pseudo2Type {
+    const defaultUnknown = p.isArray ? TYPE_ARRAY_UNKNOWN : TYPE_UNKNOWN;
+
+    if (ctx.hasVar(p)) {
+      return defaultUnknown;
+    }
+
+    return defaultUnknown;
   }
 
   private handleFunctionCall(fc: FunctionCall, ctx: TypeComputationContext): Pseudo2Type {
@@ -321,6 +351,13 @@ export class Pseudo2TypeComputer {
     return TYPE_UNKNOWN;
   }
 
+  private isLengthParameterDecl(v: VarDecl): boolean {
+    const parent: any = v.$container;
+    if (!parent || !isFunctionDeclaration(parent)) return false;
+    return (parent.params ?? []).some((p: any) => p.len === v);
+  }
+
+/*
   private allReferencingFunctionCalls(fd: FunctionDeclaration): FunctionCall[] {
     const root = AstUtils.getDocument(fd).parseResult.value;
     const out: FunctionCall[] = [];
@@ -330,11 +367,6 @@ export class Pseudo2TypeComputer {
     return out;
   }
 
-  private isLengthParameterDecl(v: VarDecl): boolean {
-    const parent: any = v.$container;
-    if (!parent || !isFunctionDeclaration(parent)) return false;
-    return (parent.params ?? []).some((p: any) => p.len === v);
-  }
 
   private allReferencingMethRefs(fd: FunctionDeclaration): MethRef[] {
     const root = AstUtils.getDocument(fd).parseResult.value;
@@ -350,6 +382,9 @@ export class Pseudo2TypeComputer {
     for (const n of AstUtils.streamAllContents(fd)) inner.add(n);
     return items.filter(i => !inner.has(i));
   }
+*/
+
+
 
   private allReturnsWithValue(fd: FunctionDeclaration): ReturnStmt[] {
     const out: ReturnStmt[] = [];

@@ -1,0 +1,114 @@
+//
+// Prints the vid of each reachable node of Graph V
+// and checks for cycles
+//
+// Construction of graph is done in function init()
+
+
+// general debug-flag for printing out DEBUG-messages
+var debug=false
+
+
+struct edgeElem
+    num vid // vertex id
+    edgeElem next
+    
+var dummy = new edgeElem    
+ 
+
+// initialization and printing
+var V[6] = dummy
+init(V)  // creates graph
+
+var s_white = 0  // status white (new)
+var s_grey = 1 // status grey (discovered)
+var s_black = 2 // status black (processed)
+
+var VStatus[6] = s_white // initially set to new
+
+// invoking depth-first-search
+cycleSearch(1) 
+
+// prints out message when a cycle is found
+func cycleSearch(node)
+    if VStatus[node]==s_white
+        VStatus[node]=s_grey
+        print(node)
+        var p = new edgeElem
+        p = V[node]
+        while p!=null
+            cycleSearch(p.vid)
+            p=p.next
+        VStatus[node]=s_black
+    else
+        print "Cycle detected on node " + node
+    
+
+
+
+
+//
+// Functions
+//
+
+func printDebug(msg)
+    if (debug)
+        print "DEBUG " + msg
+
+
+
+
+func printGraph(A[1..n])
+    var p = new edgeElem
+    for i=1 to n
+        p = A[i]
+        print "Adacency list for node " + i + " is: " + edgeListToString(p)  //OK
+
+
+///*
+// example given in lecture for cycle
+func init(A[1..n])
+    A[1]=toEdgeList([2,3])
+    //A[2]=toEdgeList([4])
+    A[2]=toEdgeList([])
+    A[3]=toEdgeList([4])
+    A[4]=toEdgeList([5])
+    //A[5]=toEdgeList([2])
+    A[5]=toEdgeList([])
+    A[6]=toEdgeList([])
+//*/
+/*
+// example of directed binary tree 
+func init(A[1..n])
+    A[1]=toEdgeList([2,3])
+    A[2]=toEdgeList([4,5])
+    A[3]=toEdgeList([6])
+    A[4]=toEdgeList([])
+    A[5]=toEdgeList([])
+    A[6]=toEdgeList([])
+*/
+
+func edgeListToString(first)
+    if first==null
+        return "null"
+    var tailAsString = edgeListToString(first.next)    
+    return first.vid + " " + tailAsString   
+    
+
+func toEdgeList(A[1..n])
+    if n==0
+        return null
+    var start=new edgeElem
+    start.vid = A[1]
+    start.next=null
+    var last = new edgeElem
+    last = start
+    for i=2 to n
+        var e = new edgeElem
+        e.vid=A[i]
+        e.next=null
+        last.next=e
+        last=e
+    return start    
+
+

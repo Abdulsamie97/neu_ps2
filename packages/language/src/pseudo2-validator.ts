@@ -63,6 +63,7 @@ import {
   isDoWhileLoop,
   isFunctionCall,
   isMethSelection,
+  isMethRef,
   isOr,
   isAnd,
   isEquality,
@@ -163,9 +164,6 @@ export class Pseudo2Validator {
   }
 
   checkForLoop(node: ForLoop, accept: ValidationAcceptor): void {
-    if (!node.iterator) {
-      accept('warning', 'For-Schleife ohne Iterator.', { node });
-    }
 
     const fromType = this.types.typeFor(node.from);
     if (!fromType.isSameAs(TYPE_NUM) && !fromType.isUnknown()) {
@@ -387,6 +385,10 @@ export class Pseudo2Validator {
   }
 
   checkVarDecl(node: VarDecl, accept: ValidationAcceptor): void {
+    if (this.isLengthParameterDecl(node)) {
+      return;
+    }
+
     const siblings = this.getSiblingVarDecls(node);
     const index = siblings.indexOf(node);
     const previousSame = siblings.slice(0, index).find(v => v.name === node.name);
@@ -399,6 +401,18 @@ export class Pseudo2Validator {
       return;
     }
 
+    const enclosingFn = AstUtils.getContainerOfType(node, isFunctionDeclaration);
+    if (enclosingFn) {
+      const sameParam = (enclosingFn.params ?? []).find(p => p.name === node.name);
+      if (sameParam) {
+        accept('error', `Doppelte Deklaration von '${node.name}' in derselben Funktion.`, {
+          node,
+          property: 'name'
+        });
+        return;
+      }
+    }
+
     const outer = this.findOuterVisibleName(node, node.name);
     if (outer) {
       accept('warning', `Variable '${node.name}' überschattet eine äußere Deklaration.`, {
@@ -406,6 +420,15 @@ export class Pseudo2Validator {
         property: 'name'
       });
     }
+  }
+
+  private isLengthParameterDecl(v: VarDecl): boolean {
+    const parent: any = v.$container;
+    if (!parent || !isFunctionDeclaration(parent)) {
+      return false;
+    }
+
+    return (parent.params ?? []).some((p: ParameterDecl) => p.len === v);
   }
 
   checkAssignment(node: Assignment, accept: ValidationAcceptor): void {
@@ -846,6 +869,14 @@ export class Pseudo2Validator {
 
     while (current) {
       if (isFunctionDeclaration(current)) {
+        return TYPE_UNKNOWN;
+      }
+
+      if (isFunctionCall(current) && (current.params ?? []).some((p: Expr) => this.exprContainsNode(p, ref))) {
+        return TYPE_UNKNOWN;
+      }
+
+      if (isMethRef(current) && (current.params ?? []).some((p: Expr) => this.exprContainsNode(p, ref))) {
         return TYPE_UNKNOWN;
       }
 

@@ -72,6 +72,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { extractDestinationAndName } from './util.js';
 
+// Zähler für künstlich erzeugte Iteratornamen bei for-Schleifen ohne expliziten Iterator.
+let syntheticForCounter = 0;
+
 export function generate(programAst: Program, filePath: string, destination: string | undefined): string {
   const data = extractDestinationAndName(filePath, destination);
   const generatedFilePath = `${path.join(data.destination, data.name)}.js`;
@@ -155,13 +158,8 @@ function genForLoop(loop: ForLoop, indent = ''): string {
   const to = genExpr(loop.to);
   const step = loop.step ? genExpr(loop.step) : '1';
 
-  const iterName = loop.iterator?.name ?? null;
-  if (!iterName) {
-    let out = `${indent}// TODO: for-loop without iterator is not supported in JS output\n`;
-    out += `${indent}// for ${from} ${loop.direction} ${to} by ${step}\n`;
-    out += genBlockAny(loop.body, indent);
-    return out;
-  }
+  // Synthetischer Iteratorname für for-Schleifen ohne explizite Iteratorvariable.
+  const iterName = loop.iterator?.name ?? `__for_${syntheticForCounter++}`;
 
   if (loop.direction === 'to') {
     return `${indent}for (let ${iterName} = ${from}; ${iterName} <= ${to}; ${iterName} += ${step}) ` +
@@ -255,9 +253,16 @@ function genCallCommand(cmd: CallCommand, indent = ''): string {
 }
 
 function genVarDecl(n: VarDecl, indent = ''): string {
+  if ((n as any).isArrayVariable) {
+    const sizeExpr = (n as any).size ? genExpr((n as any).size) : '0';
+    const initExpr = n.initializer ? genExpr(n.initializer) : 'null';
+    return `${indent}let ${n.name} = Array((${sizeExpr}) + 1).fill(${initExpr})\n`;
+  }
+
   if (n.initializer) {
     return `${indent}let ${n.name} = ${genExpr(n.initializer)}\n`;
   }
+
   return `${indent}let ${n.name}\n`;
 }
 

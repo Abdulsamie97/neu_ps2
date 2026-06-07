@@ -47,7 +47,3 @@ func isInt(x)
         return true
     else 
         return false
-
-
-
- 

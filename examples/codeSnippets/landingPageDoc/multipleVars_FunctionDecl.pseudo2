@@ -17,4 +17,3 @@ func fooz(x)
 foox(2)	// OK 2 
 fooy(2) // OK 5 
 fooz(2) // OK 7
-	

@@ -7,7 +7,7 @@
 // implement an Abstract Data Type (ADT). This is illustrated 
 // in a separate file.
               
-  
+
 
 //################################################
 //#
@@ -17,15 +17,15 @@
 
 
 struct Person   // this introduces new datatype Person  
-           // (unfortunately, we have to keep the next line blank due to this comment :-(   )
-                  
-	string name   // component 'name' of type string
-	num age       // component 'age' of type num (numeric - stands for integer and reals)
-	Person mother  // component 'mother' of type Person
-	num[] ids    // component 'ids' of type ArrayOf(num)
+    // (unfortunately, we have to keep the next line blank due to this comment :-(   )
+
+    string name   // component 'name' of type string
+    num age       // component 'age' of type num (numeric - stands for integer and reals)
+    Person mother  // component 'mother' of type Person
+    num[] ids    // component 'ids' of type ArrayOf(num)
 
 
-		
+
 var p1 = new Person   // instantiating struct Person
 p1.name = "Anna"   // write access to component
 p1.age = 28

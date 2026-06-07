@@ -25,7 +25,7 @@ SimpleStatement:
     VarDeclaration
   | Assignment
   | StructDeclaration
-  | FunctionCall
+  //| FunctionCall
   | ReturnStatement
   | ExprStatement
   | GlobalCommand

@@ -1,7 +1,7 @@
 // packages/language/src/typing/pseudo2-type-computer.ts
 
 import { AstUtils } from 'langium';
-//import type { AstNode } from 'langium';
+import type { AstNode } from 'langium';
 
 import type {
   Expr,
@@ -50,7 +50,7 @@ import {
   isReturnStmt,
   isVarDecl,
   isParameterDecl,
- // isMethRef,
+  isMethRef,
   isStructDeclaration,
   isArrayType,
   isStructType,
@@ -251,49 +251,6 @@ export class Pseudo2TypeComputer {
     return TYPE_UNKNOWN;
   }
 
-  /*
-  private handleParameter(p: ParameterDecl, ctx: TypeComputationContext): Pseudo2Type {
-    const defaultUnknown = p.isArray ? TYPE_ARRAY_UNKNOWN : TYPE_UNKNOWN;
-    if (ctx.hasVar(p)) return defaultUnknown;
-
-    const parentFn = AstUtils.getContainerOfType(p, isFunctionDeclaration);
-    if (!parentFn) return defaultUnknown;
-
-    const idx = (parentFn.params ?? []).indexOf(p);
-    if (idx < 0) return defaultUnknown;
-
-    const c2 = ctx.copy();
-    c2.addVar(p);
-
-    const owningStruct = AstUtils.getContainerOfType(parentFn, isStructDeclaration);
-
-    if (!owningStruct) {
-      const calls = this.allReferencingFunctionCalls(parentFn);
-      const outer = this.excludeInner(parentFn, calls);
-
-      for (const call of outer) {
-        const arg = (call.params ?? [])[idx];
-        if (!arg) continue;
-        const t = this.typeFor(arg, c2.copy());
-        if (!t.isUnknown()) return t;
-      }
-
-      return defaultUnknown;
-    } else {
-      const refs = this.allReferencingMethRefs(parentFn);
-      const outer = this.excludeInner(parentFn, refs);
-
-      for (const mr of outer) {
-        const arg = (mr.params ?? [])[idx];
-        if (!arg) continue;
-        const t = this.typeFor(arg, c2.copy());
-        if (!t.isUnknown()) return t;
-      }
-
-      return defaultUnknown;
-    }
-  }*/
-
   private handleParameter(p: ParameterDecl, ctx: TypeComputationContext): Pseudo2Type {
     const defaultUnknown = p.isArray ? TYPE_ARRAY_UNKNOWN : TYPE_UNKNOWN;
 
@@ -301,7 +258,79 @@ export class Pseudo2TypeComputer {
       return defaultUnknown;
     }
 
+    const parentFn = AstUtils.getContainerOfType(p, isFunctionDeclaration);
+    if (!parentFn) {
+      return defaultUnknown;
+    }
+
+    const idx = (parentFn.params ?? []).indexOf(p);
+    if (idx < 0) {
+      return defaultUnknown;
+    }
+
+    const c2 = ctx.copy();
+    c2.addVar(p);
+
+    const root = AstUtils.getDocument(parentFn).parseResult.value;
+    const owningStruct = AstUtils.getContainerOfType(parentFn, isStructDeclaration);
+
+    for (const n of AstUtils.streamAllContents(root)) {
+      if (!owningStruct) {
+        if (!isFunctionCall(n) || n.f?.ref !== parentFn) {
+          continue;
+        }
+
+        // Rekursive Aufrufe innerhalb derselben Funktion ignorieren
+        if (this.isInsideFunction(n, parentFn)) {
+          continue;
+        }
+
+        const arg = (n.params ?? [])[idx];
+        if (!arg) continue;
+
+        const t = this.typeFor(arg, c2.copy());
+        if (t.isUnknown()) continue;
+
+        // Nur Struct-/Array-Typen aus Aufrufen übernehmen
+        if (t.isStructType() || t.isArrayType()) {
+          return t;
+        }
+      } else {
+        if (!isMethRef(n) || n.f?.ref !== parentFn) {
+          continue;
+        }
+
+        // Rekursive Methodenaufrufe innerhalb derselben Methode ignorieren
+        if (this.isInsideFunction(n, parentFn)) {
+          continue;
+        }
+
+        const arg = (n.params ?? [])[idx];
+        if (!arg) continue;
+
+        const t = this.typeFor(arg, c2.copy());
+        if (t.isUnknown()) continue;
+
+        if (t.isStructType() || t.isArrayType()) {
+          return t;
+        }
+      }
+    }
+
     return defaultUnknown;
+  }
+
+  private isInsideFunction(node: AstNode, fn: FunctionDeclaration): boolean {
+    let current: AstNode | undefined = node.$container;
+
+    while (current) {
+      if (current === fn) {
+        return true;
+      }
+      current = current.$container;
+    }
+
+    return false;
   }
 
   private handleFunctionCall(fc: FunctionCall, ctx: TypeComputationContext): Pseudo2Type {
@@ -370,35 +399,6 @@ export class Pseudo2TypeComputer {
     if (!parent || !isFunctionDeclaration(parent)) return false;
     return (parent.params ?? []).some((p: any) => p.len === v);
   }
-
-/*
-  private allReferencingFunctionCalls(fd: FunctionDeclaration): FunctionCall[] {
-    const root = AstUtils.getDocument(fd).parseResult.value;
-    const out: FunctionCall[] = [];
-    for (const n of AstUtils.streamAllContents(root)) {
-      if (isFunctionCall(n) && n.f?.ref === fd) out.push(n);
-    }
-    return out;
-  }
-
-
-  private allReferencingMethRefs(fd: FunctionDeclaration): MethRef[] {
-    const root = AstUtils.getDocument(fd).parseResult.value;
-    const out: MethRef[] = [];
-    for (const n of AstUtils.streamAllContents(root)) {
-      if (isMethRef(n) && n.f?.ref === fd) out.push(n);
-    }
-    return out;
-  }
-
-  private excludeInner<T extends AstNode>(fd: FunctionDeclaration, items: T[]): T[] {
-    const inner = new Set<AstNode>();
-    for (const n of AstUtils.streamAllContents(fd)) inner.add(n);
-    return items.filter(i => !inner.has(i));
-  }
-*/
-
-
 
   private allReturnsWithValue(fd: FunctionDeclaration): ReturnStmt[] {
     const out: ReturnStmt[] = [];

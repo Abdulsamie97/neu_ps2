@@ -179,7 +179,3 @@ func isInt(x)
     else 
         return false
 
-
-
-
-  

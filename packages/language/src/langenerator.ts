@@ -299,9 +299,17 @@ function generateCallCommand(cmd: CallCommand, indent = 0): string {
 
 function generateVarDecl(decl: VarDecl, indent = 0): string {
   const padding = ' '.repeat(indent);
+
+  if ((decl as any).isArrayVariable) {
+    const sizeExpr = (decl as any).size ? genExpr((decl as any).size) : '0';
+    const initExpr = decl.initializer ? genExpr(decl.initializer) : 'null';
+    return `${padding}let ${decl.name} = Array((${sizeExpr}) + 1).fill(${initExpr})`;
+  }
+
   if (decl.initializer) {
     return `${padding}let ${decl.name} = ${genExpr(decl.initializer)}`;
   }
+
   return `${padding}let ${decl.name}`;
 }
 

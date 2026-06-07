@@ -2,8 +2,7 @@
 // Illustrates basic data structures and types
 //  - ARRAYS
 //
-              
-           
+
 
 
 //################################################
@@ -96,8 +95,8 @@ print arrNew[3] // new value (111) now also visible in new array
 
 func isEmptyArray(A[1..n])
     print n // just for debug
-	return n == 0
-	
+    return n == 0
+
 var arrEmptyOrNot = [1,2,3]
 
 print isEmptyArray(arrEmptyOrNot) // false
@@ -108,8 +107,3 @@ print isEmptyArray(arrEmptyOrNot) // true
 
 
 print "finished"
-
-
-
-
- 

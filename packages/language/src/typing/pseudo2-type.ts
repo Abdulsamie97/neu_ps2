@@ -55,6 +55,12 @@ export class Pseudo2Type {
   }
 
   isSameAsIgnoringUnknown(t: Pseudo2Type): boolean {
+    // Array(UNKNOWN) soll zu jedem Array passen,
+    // egal ob Basis num/string/bool oder Struct ist
+    if (this.isArray && t.isArray && (this.name === '' || t.name === '')) {
+      return true;
+    }
+
     return (
       this.isArray === t.isArray &&
       this.isStruct === t.isStruct &&

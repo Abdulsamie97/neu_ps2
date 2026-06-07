@@ -12,7 +12,7 @@ func arrToEvl(A[1..n])
         last = e
     return last
 
- 
+
 var first = arrToEvl([1,1,2,3,5,8,11])
 
 func printList1(f)

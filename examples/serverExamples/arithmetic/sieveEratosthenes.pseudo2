@@ -43,13 +43,11 @@ func sieve(Arg[1..n])
     
     for i=2 to n/2  // going up to n/2 is more than enough
     //for i=2 to n ^ 1/2  // even this is sufficient: going up to sqr(n)
-    
+
         if Arg[i] != 0  // i is prime since it was 
-                        // not recognized yes as non-prime 
-                        
+            // not recognized yes as non-prime  
             for j=2*i to max by i
                 A[j] = 0  // all multiples of i are set to non-prime
-            
     
 // convert array of numbers to string
 // using the given separator 
@@ -72,4 +70,3 @@ func nonNullElems2String(Arg[1..n], sep)
 	     
 	return res
 
-    

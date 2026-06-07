@@ -237,5 +237,3 @@ func toWeightedEdgeList(A[1..n], W[1..m])
         last.next=e
         last=e
     return start    
-
-			

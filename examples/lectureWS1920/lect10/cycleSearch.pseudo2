@@ -110,5 +110,3 @@ func toEdgeList(A[1..n])
         last.next=e
         last=e
     return start    
-
-

@@ -12,8 +12,6 @@
 
 var debug = false  // switch to 'true' if print-outs of the tracing 
                    // should be shown
-
-  
 var root = new TreeElem
 root.key=5
 root.left=null
@@ -94,10 +92,3 @@ func addElement(r, k)
             elem1.left = null
             elem1.right = null
             r.right = elem1
-       
-        
-
-
-
-
-

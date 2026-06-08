@@ -37,14 +37,14 @@ func binarySearch( A[1..n], key )
 		var m = div((a+b),2)		// middle (rounded down)
 		if A[m] == key
 		    // found at index m
-			return true	
+            return true	
 		if A[m] > key
 		    // go ahead with left part
-			b = m-1		
+            b = m-1		
 		else
 		    // go ahead with right part
-			a = m+1		
-			
+            a = m+1		
+
 	// if we come until here, nothing was found	
 	return false			
 

@@ -93,13 +93,9 @@ struct Queue
 	 */       
 	dequeue()
 	    if this.isEmpty()
-	        throw "ERROR: queue is empty"  
-	
+	        throw "ERROR: queue is empty"	
 	    var x = this.Q[1]
 	    this.tail = this.tail - 1
 	    for i=2 to this.tail
-	        this.Q[i-1] = this.Q[i]
-	
-	    return x    
-	    
-    
+	        this.Q[i-1] = this.Q[i]	
+	    return x

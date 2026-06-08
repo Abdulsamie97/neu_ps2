@@ -88,5 +88,3 @@ func getLast(p)
 	while (p.next != null)
 		p = p.next
 	return p
-	
-

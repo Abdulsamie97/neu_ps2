@@ -38,8 +38,8 @@ func selectionSort( A[1..n] )
 func mini( A[1..n], i)
     var j = i
     for k = i+1 to n
-		if A[k] < A[j]
-			j = k
+        if A[k] < A[j]
+            j = k
     return j
 
 
@@ -48,6 +48,3 @@ func flip( A[1..n], i, j )
 	var t = A[i]
 	A[i] = A[j]
 	A[j] = t
-
-
-

@@ -64,7 +64,7 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
   override getScope(context: ReferenceInfo): Scope {
     const c = context.container;
     const r = context.reference;
-
+      console.log('CUSTOM SCOPE PROVIDER ACTIVE', context.container.$type, context.property);
     //console.log('[SCOPE] container=', c.$type, 'refText=', (r as any).$refText ?? 'n/a');
 
     // VarRef.ref

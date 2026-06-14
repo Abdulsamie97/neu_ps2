@@ -301,4 +301,13 @@ describe('ScopeTests', () => {
 
     assertAttRefScope(scopeProvider, attRef, 'key, left, right');
   });
+
+  //temporärer Test:
+  test('uses custom scope provider', async () => {
+  const { scopeProvider } = await parseModel(`
+    var x = 1
+  `);
+
+  expect(scopeProvider.constructor.name).toBe('Pseudo2ScopeProvider');
+});
 });

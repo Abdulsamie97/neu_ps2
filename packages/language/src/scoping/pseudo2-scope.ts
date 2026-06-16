@@ -359,7 +359,7 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
   
   private collectGlobalVars(from: AstNode): VarDecl[] {
     const program = this.getProgram(from);
-    return program ? program.instructions.filter(isVarDecl) : [];
+    return program ? [...program.instructions.filter(isVarDecl)].reverse() : [];
   }
 
   private collectGlobalFunctions(from: AstNode): FunctionDeclaration[] {

@@ -180,8 +180,10 @@ function genDoWhileLoop(loop: DoWhileLoop, indent = ''): string {
 
 function genStructDeclaration(structDecl: StructDeclaration, indent = ''): string {
   const attributes = (structDecl.children ?? []).filter(isStructAttDeclaration);
-  const methods = (structDecl.children ?? []).filter(isFunctionDeclaration);
-
+  const methods = (structDecl.children ?? [])
+    .filter(isFunctionDeclaration)
+    .filter(isMethodDecl);
+  
   const ctorLines = attributes
     .map(att => `${indent}    this.${att.name} = null;\n`)
     .join('');
@@ -195,6 +197,10 @@ function genStructDeclaration(structDecl: StructDeclaration, indent = ''): strin
     .join('\n');
 
   return `${indent}class ${structDecl.name} {\n${ctor}${methodText ? '\n' + methodText : ''}${indent}}\n`;
+}
+
+function isMethodDecl(fn: FunctionDeclaration): boolean {
+  return fn.keyword !== true;
 }
 
 function genMethodDeclaration(fn: FunctionDeclaration, indent = ''): string {

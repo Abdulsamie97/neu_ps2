@@ -210,8 +210,10 @@ function generateStructDeclaration(structDecl: StructDeclaration, indent = 0): s
   const padding = ' '.repeat(indent);
 
   const attributes = (structDecl.children ?? []).filter(isStructAttDeclaration);
-  const methods = (structDecl.children ?? []).filter(isFunctionDeclaration);
-
+  const methods = (structDecl.children ?? [])
+    .filter(isFunctionDeclaration)
+    .filter(isMethodDecl);
+  
   const ctorLines = attributes.map(att => `${' '.repeat(indent + 4)}this.${att.name} = null;`).join('\n');
   const ctor =
     attributes.length > 0
@@ -232,6 +234,10 @@ function generateMethodDeclaration(fn: FunctionDeclaration, indent = 0): string 
   const params = collectJsParams(fn).join(', ');
   const body = generateBlock(fn.body, indent);
   return `${padding}${fn.name}(${params}) ${body}`;
+}
+
+function isMethodDecl(fn: FunctionDeclaration): boolean {
+  return fn.keyword !== true;
 }
 
 // --------------------

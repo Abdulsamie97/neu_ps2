@@ -59,7 +59,7 @@ IndentedBlock:
 // ======================================================
 
 interface Variable {
-  name: string
+  name: string    //Soll ID sein, wird auch so in Weboberfö#äche betrachtet
 }
 
 interface VarDecl extends Variable {
@@ -149,19 +149,13 @@ StructDeclaration:
 
 StructDeclarationChild:
     StructAttDeclarationRule
-  | MethodDeclaration
+  | FunctionDeclaration
 ;
 
 StructAttDeclarationRule returns StructAttDeclaration:
   type=TypeRef name=ID
 ;
 
-MethodDeclaration returns FunctionDeclaration:
-  {FunctionDeclaration}
-  name=ID
-  '(' (params+=Parameter (',' params+=Parameter)*)? ')'
-  body=Block
-;
 // -------------------- Types --------------------
 
 interface TypeRef {}
@@ -211,13 +205,15 @@ StructTypeRule returns StructType:
 // Functions
 // ======================================================
 interface FunctionDeclaration {
+  keyword: boolean
   name: string
   params: ParameterDecl[]
   body: Block
 }
 
 FunctionDeclaration returns FunctionDeclaration:
-  'func' name=ID
+  (keyword?='func')?
+  name=ID
   '(' (params+=Parameter (',' params+=Parameter)*)? ')'
   body=Block
 ;
@@ -226,7 +222,7 @@ FunctionDeclaration returns FunctionDeclaration:
 Parameter returns ParameterDecl:
   name=ID
   (
-    isArray?='[' start=INT '..' len=LengthParameter ']'
+    isArray?='[' start=INT '..' len=LengthParameter ']' //start zu 1
   )?
 ;
 

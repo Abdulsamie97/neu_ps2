@@ -79,6 +79,13 @@ import {
 import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
 import { TYPE_NUM, TYPE_BOOL, TYPE_STRING, TYPE_ARRAY_UNKNOWN, TYPE_UNKNOWN, TYPE_STRUCT } from './typing/pseudo2-type.js';
 
+export const INCOMPATIBLE_TYPES = 'INCOMPATIBLE_TYPES';
+export const INCOMPATIBLE_TYPES_EQ = 'INCOMPATIBLE_TYPES_EQ';
+export const INCOMPATIBLE_TYPES_PLUS = 'INCOMPATIBLE_TYPES_PLUS';
+export const VAR_DECL_NO_NESTED_ARRAY = 'VAR_DECL_NO_NESTED_ARRAY';
+export const DIFFERENT_TYPES_OF_RETURNS = 'DIFFERENT_TYPES_OF_RETURNS';
+export const PRINT_EXPECTS_BASE_TYPE = 'PRINT_EXPECTS_BASE_TYPE';
+
 export function registerValidationChecks(services: Pseudo2Services) {
   const registry = services.validation.ValidationRegistry;
   const validator = services.validation.Pseudo2Validator;
@@ -148,7 +155,8 @@ export class Pseudo2Validator {
     if (!conditionType.isSameAs(TYPE_BOOL) && !conditionType.isUnknown()) {
       accept('error', `if-Bedingung muss vom Typ bool sein, ist aber '${conditionType.asString()}'.`, {
         node,
-        property: 'condition'
+        property: 'condition',
+        code: INCOMPATIBLE_TYPES
       });
     }
   }
@@ -158,7 +166,8 @@ export class Pseudo2Validator {
     if (!conditionType.isSameAs(TYPE_BOOL) && !conditionType.isUnknown()) {
       accept('error', `while-Bedingung muss vom Typ bool sein, ist aber '${conditionType.asString()}'.`, {
         node,
-        property: 'condition'
+        property: 'condition',
+        code: INCOMPATIBLE_TYPES
       });
     }
   }
@@ -169,7 +178,8 @@ export class Pseudo2Validator {
     if (!fromType.isSameAs(TYPE_NUM) && !fromType.isUnknown()) {
       accept('error', `for-Startwert muss vom Typ num sein, ist aber '${fromType.asString()}'.`, {
         node,
-        property: 'from'
+        property: 'from',
+        code: INCOMPATIBLE_TYPES
       });
     }
 
@@ -177,7 +187,8 @@ export class Pseudo2Validator {
     if (!toType.isSameAs(TYPE_NUM) && !toType.isUnknown()) {
       accept('error', `for-Endwert muss vom Typ num sein, ist aber '${toType.asString()}'.`, {
         node,
-        property: 'to'
+        property: 'to',
+        code: INCOMPATIBLE_TYPES
       });
     }
 
@@ -186,7 +197,8 @@ export class Pseudo2Validator {
       if (!stepType.isSameAs(TYPE_NUM) && !stepType.isUnknown()) {
         accept('error', `for-Schrittweite muss vom Typ num sein, ist aber '${stepType.asString()}'.`, {
           node,
-          property: 'step'
+          property: 'step',
+          code: INCOMPATIBLE_TYPES
         });
       }
     }
@@ -197,7 +209,8 @@ export class Pseudo2Validator {
     if (!conditionType.isSameAs(TYPE_BOOL) && !conditionType.isUnknown()) {
       accept('error', `do-while-Bedingung muss vom Typ bool sein, ist aber '${conditionType.asString()}'.`, {
         node,
-        property: 'condition'
+        property: 'condition',
+        code: INCOMPATIBLE_TYPES
       });
     }
   }
@@ -266,7 +279,8 @@ export class Pseudo2Validator {
     if (returnsWithValue.length > 0 && returnsWithoutValue.length > 0) {
       for (const r of allReturns) {
         accept('error', `Funktion '${node.name}' mischt return mit und ohne Wert.`, {
-          node: r
+          node: r,
+          code: DIFFERENT_TYPES_OF_RETURNS
         });
       }
     }
@@ -290,7 +304,8 @@ export class Pseudo2Validator {
           `Inkonsistente Rückgabetypen in Funktion '${node.name}': '${firstType.asString()}' und '${currentType.asString()}'.`,
           {
             node: returnsWithValue[i],
-            property: 'retExpr'
+            property: 'retExpr',
+            code: DIFFERENT_TYPES_OF_RETURNS
           }
         );
       }
@@ -394,7 +409,7 @@ export class Pseudo2Validator {
     const previousSame = siblings.slice(0, index).find(v => v.name === node.name);
 
     if (previousSame) {
-      accept('error', `Doppelte lokale Variable '${node.name}' im selben Block.`, {
+      accept('warning', `Doppelte lokale Variable '${node.name}' im selben Block.`, {
         node,
         property: 'name'
       });
@@ -419,6 +434,40 @@ export class Pseudo2Validator {
         node,
         property: 'name'
       });
+    }
+
+    // -----------------------------
+    // Array-Deklarationen prüfen
+    // -----------------------------
+    const isArrayVar = (node as any).isArrayVariable === true;
+
+    if (!isArrayVar) {
+      return;
+    }
+
+    // 1) Keine verschachtelten Arrays bei "var A[...] = <array>"
+    if (node.initializer) {
+      const initType = this.types.typeFor(node.initializer);
+      if (initType.isArrayType()) {
+        accept('error', 'Initialisierung eines Array-Elements darf kein Array sein.', {
+          node,
+          property: 'initializer',
+          code: VAR_DECL_NO_NESTED_ARRAY
+        });
+      }
+    }
+
+    // 2) Größe/Länge muss num sein
+    const sizeExpr = (node as any).size ?? (node as any).len ?? (node as any).arraySize;
+    if (sizeExpr) {
+      const sizeType = this.types.typeFor(sizeExpr);
+      if (!sizeType.isSameAs(TYPE_NUM) && !sizeType.isUnknown()) {
+        accept('error', 'Array-Größe muss vom Typ num sein.', {
+          node,
+          property: 'size',
+          code: INCOMPATIBLE_TYPES
+        });
+      }
     }
   }
 
@@ -450,7 +499,11 @@ export class Pseudo2Validator {
       accept(
         'error',
         `Typfehler bei Zuweisung: '${rightType.asString()}' ist nicht zuweisbar zu '${leftType.asString()}'.`,
-        { node, property: 'value' }
+        { node, 
+          property: 'value',
+          code: INCOMPATIBLE_TYPES
+        }
+        
       );
     }
   }
@@ -541,7 +594,8 @@ export class Pseudo2Validator {
       if (!isArrayTarget) {
         accept('error', 'Indexzugriff ist nur auf Array-Typen erlaubt.', {
           node,
-          property: 'index'
+          property: 'index',
+          code: INCOMPATIBLE_TYPES
         });
       }
 
@@ -549,7 +603,8 @@ export class Pseudo2Validator {
       if (!indexType.isSameAs(TYPE_NUM) && !indexType.isUnknown()) {
         accept('error', 'Der Array-Index muss vom Typ num sein.', {
           node,
-          property: 'index'
+          property: 'index',
+          code: INCOMPATIBLE_TYPES
         });
       }
     }
@@ -569,7 +624,8 @@ export class Pseudo2Validator {
       if (!attType.isArrayType()) {
         accept('error', 'Indexzugriff ist nur auf Array-Typen erlaubt.', {
           node,
-          property: 'index'
+          property: 'index',
+          code: INCOMPATIBLE_TYPES
         });
       }
 
@@ -577,7 +633,8 @@ export class Pseudo2Validator {
       if (!indexType.isSameAs(TYPE_NUM) && !indexType.isUnknown()) {
         accept('error', 'Der Array-Index muss vom Typ num sein.', {
           node,
-          property: 'index'
+          property: 'index',
+          code: INCOMPATIBLE_TYPES
         });
       }
     }
@@ -618,7 +675,8 @@ export class Pseudo2Validator {
     if (!receiverType.isStructType() && !receiverType.isUnknown()) {
       accept('error', `Attributzugriff nur auf Struct-Typen erlaubt, erhalten '${receiverType.asString()}'.`, {
         node,
-        property: 'receiver'
+        property: 'receiver',
+        code: INCOMPATIBLE_TYPES
       });
       return;
     }
@@ -643,14 +701,15 @@ export class Pseudo2Validator {
       });
     }
   }
-
+////////////////////////
   checkMethSelection(node: MethSelection, accept: ValidationAcceptor): void {
     const receiverType = this.types.typeFor(node.receiver);
 
     if (!receiverType.isStructType() && !receiverType.isUnknown()) {
       accept('error', `Methodenaufruf nur auf Struct-Typen erlaubt, erhalten '${receiverType.asString()}'.`, {
         node,
-        property: 'receiver'
+        property: 'receiver',
+        code: INCOMPATIBLE_TYPES
       });
       return;
     }
@@ -741,7 +800,8 @@ export class Pseudo2Validator {
         accept('error', 'Alle Elemente eines Array-Literals müssen denselben Typ haben.', {
           node,
           property: 'elems',
-          index: i
+          index: i,
+          code: INCOMPATIBLE_TYPES
         });
       }
     }
@@ -752,7 +812,8 @@ export class Pseudo2Validator {
     if (!t.isUnknown() && !t.isBaseType()) {
       accept('error', `print erwartet einen Basistyp, ist aber '${t.asString()}'.`, {
         node,
-        property: 'param'
+        property: 'param',
+        code: PRINT_EXPECTS_BASE_TYPE
       });
     }
   }
@@ -762,7 +823,8 @@ export class Pseudo2Validator {
     if (!t.isUnknown() && !t.isSameAs(TYPE_STRING)) {
       accept('error', `throw erwartet einen Wert vom Typ string, ist aber '${t.asString()}'.`, {
         node,
-        property: 'param'
+        property: 'param',
+        code: INCOMPATIBLE_TYPES
       });
     }
   }
@@ -803,13 +865,14 @@ export class Pseudo2Validator {
           {
             node: callNode,
             property: 'params',
-            index: i
+            index: i,
+            code: INCOMPATIBLE_TYPES
           }
         );
       }
     }
   }
-
+///
   private mergeExpectedTypes(
   a: ReturnType<Pseudo2TypeComputer['typeFor']>,
   b: ReturnType<Pseudo2TypeComputer['typeFor']>
@@ -1031,7 +1094,9 @@ export class Pseudo2Validator {
       accept(
         'error',
         `Ungültige Addition: '+' erlaubt keine Arrays oder Structs.`,
-        { node }
+        { node,
+          code: INCOMPATIBLE_TYPES_PLUS
+        }
       );
       return;
     }
@@ -1047,7 +1112,9 @@ export class Pseudo2Validator {
       accept(
         'error',
         `Ungültige Addition: bool ist nur in String-Verkettung mit '+' erlaubt.`,
-        { node }
+        { node, 
+          code: INCOMPATIBLE_TYPES_PLUS 
+        }
       );
       return;
     }
@@ -1061,7 +1128,8 @@ export class Pseudo2Validator {
           {
             node,
             property: i === 0 ? 'left' : 'right',
-            index: i === 0 ? undefined : i - 1
+            index: i === 0 ? undefined : i - 1,
+            code: INCOMPATIBLE_TYPES_PLUS
           } as any
         );
         return;
@@ -1073,28 +1141,28 @@ export class Pseudo2Validator {
     if ((node.right?.length ?? 0) === 0) return;
 
     const operands = [node.left, ...(node.right ?? [])];
-    this.requireAllTypes(node, operands, TYPE_NUM, accept, `Operatoren '*', '/', '%' und 'mod' erwarten num.`);
+    this.requireAllTypes(node, operands, TYPE_NUM, accept, `Operatoren '*', '/', '%' und 'mod' erwarten num.`, INCOMPATIBLE_TYPES);
   }
 
   checkExponentiation(node: Exponentiation, accept: ValidationAcceptor): void {
     if ((node.right?.length ?? 0) === 0) return;
 
     const operands = [node.left, ...(node.right ?? [])];
-    this.requireAllTypes(node, operands, TYPE_NUM, accept, `Potenzoperator '^' erwartet num.`);
+    this.requireAllTypes(node, operands, TYPE_NUM, accept, `Potenzoperator '^' erwartet num.`, INCOMPATIBLE_TYPES);
   }
 
   checkAnd(node: And, accept: ValidationAcceptor): void {
     if ((node.right?.length ?? 0) === 0) return;
 
     const operands = [node.left, ...(node.right ?? [])];
-    this.requireAllTypes(node, operands, TYPE_BOOL, accept, `Operator '&&' erwartet bool.`);
+    this.requireAllTypes(node, operands, TYPE_BOOL, accept, `Operator '&&' erwartet bool.`, INCOMPATIBLE_TYPES);
   }
 
   checkOr(node: Or, accept: ValidationAcceptor): void {
     if ((node.right?.length ?? 0) === 0) return;
 
     const operands = [node.left, ...(node.right ?? [])];
-    this.requireAllTypes(node, operands, TYPE_BOOL, accept, `Operator '||' erwartet bool.`);
+    this.requireAllTypes(node, operands, TYPE_BOOL, accept, `Operator '||' erwartet bool.`, INCOMPATIBLE_TYPES);
   }
 
   checkNot(node: Not, accept: ValidationAcceptor): void {
@@ -1102,17 +1170,20 @@ export class Pseudo2Validator {
     if (!t.isSameAs(TYPE_BOOL) && !t.isUnknown()) {
       accept('error', `Operator '!' erwartet bool, erhalten '${t.asString()}'.`, {
         node,
-        property: 'value'
+        property: 'value',
+        code: INCOMPATIBLE_TYPES
       });
     }
   }
 
   checkNeg(node: Neg, accept: ValidationAcceptor): void {
     const t = this.types.typeFor(node.value);
+
     if (!t.isSameAs(TYPE_NUM) && !t.isUnknown()) {
       accept('error', `Vorzeichen '-' erwartet num, erhalten '${t.asString()}'.`, {
         node,
-        property: 'value'
+        property: 'value',
+        code: INCOMPATIBLE_TYPES
       });
     }
   }
@@ -1139,7 +1210,9 @@ export class Pseudo2Validator {
         accept(
           'error',
           `Vergleich nicht erlaubt: Arrays können nicht mit '==' oder '!=' verglichen werden.`,
-          { node }
+          { node,
+            code: INCOMPATIBLE_TYPES_EQ
+           }
         );
         return;
       }
@@ -1153,7 +1226,9 @@ export class Pseudo2Validator {
         accept(
           'error',
           `Typfehler im Vergleich: '${first.asString()}' kann nicht mit '${current.asString()}' verglichen werden.`,
-          { node }
+          { node,
+            code: INCOMPATIBLE_TYPES_EQ
+           }
         );
         return;
       }
@@ -1162,7 +1237,9 @@ export class Pseudo2Validator {
         accept(
           'error',
           `Typfehler im Vergleich: '${first.asString()}' kann nicht mit '${current.asString()}' verglichen werden.`,
-          { node }
+          { node,
+            code: INCOMPATIBLE_TYPES_EQ
+           }
         );
         return;
       }
@@ -1251,7 +1328,8 @@ export class Pseudo2Validator {
     operands: Expr[],
     expected: ReturnType<Pseudo2TypeComputer['typeFor']>,
     accept: ValidationAcceptor,
-    message: string
+    message: string,
+    code?: string
   ): void {
     for (const operand of operands) {
       const actual = this.types.typeFor(operand);
@@ -1262,7 +1340,8 @@ export class Pseudo2Validator {
 
       if (!actual.isSameAs(expected)) {
         accept('error', `${message} Erhalten: '${actual.asString()}'.`, {
-          node: node as any
+          node: node as any,
+          code
         });
         return;
       }

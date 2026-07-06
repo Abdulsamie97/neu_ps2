@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { AstUtils, EmptyFileSystem, URI, type AstNode, type LangiumDocument } from 'langium';
+import { AstUtils, EmptyFileSystem, URI, type AstNode, type LangiumDocument} from 'langium';
 
 import type {
   Program,
@@ -24,10 +24,13 @@ import {
   isAddition,
   isMultiplication,
   isExponentiation,
-  isPrintCommand
+  isFunctionDeclaration,
+  isPrintCommand,
+  isVarDecl,
 } from '../../src/generated/ast.js';
 
 import { createPseudo2Services } from '../../src/pseudo2-module.js';
+import { Pseudo2ScopeProvider } from '../../src/scoping/pseudo2-scope.js';
 
 describe('ScopeTests', () => {
   let docCounter = 0;
@@ -53,10 +56,10 @@ describe('ScopeTests', () => {
   }
 
   // Prüft, dass beim Parsen/Bauen keine Fehlerdiagnosen entstanden sind.
- /* function assertNoDocumentErrors(document: LangiumDocument): void {
+  function assertNoDocumentErrors(document: LangiumDocument): void {
     const errors = (document.diagnostics ?? []).filter(d => d.severity === 1);
     expect(errors.map(e => e.message).join('\n')).toBe('');
-  }*/
+  }
 
   // Parst einen Pseudo2-Text mit frischen Services,
   // damit keine vorherigen Testdokumente in den Scope hineinwirken.
@@ -73,7 +76,7 @@ describe('ScopeTests', () => {
     const uri = URI.parse(`memory:/scope-test-${docCounter++}.pseudo2`);
     const document: LangiumDocument = documentFactory.fromString(dedent(text), uri);
     await documentBuilder.build([document], { validation: true });
-    //assertNoDocumentErrors(document);
+    assertNoDocumentErrors(document);
 
     return {
       model: document.parseResult.value as Program,
@@ -188,6 +191,24 @@ describe('ScopeTests', () => {
     expect(getScopeNamesForAttRef(scopeProvider, context)).toBe(expected);
   }
 
+  // Sucht im AST den ersten Knoten, der zum gewünschten Typ passt.
+  function firstNodeOfType<T extends AstNode>(
+    root: AstNode,
+    guard: (node: AstNode) => node is T
+  ): T | undefined {
+    if (guard(root)) {
+      return root;
+    }
+
+    for (const n of AstUtils.streamAllContents(root)) {
+      if (guard(n)) {
+        return n;
+      }
+    }
+
+    return undefined;
+  }
+
   test('scopeVarRefSimpleWhile', async () => {
     const { model, scopeProvider } = await parseModel(`
       var flag = true
@@ -226,7 +247,8 @@ describe('ScopeTests', () => {
     `);
 
     // Testet den Scope von "x" in einem if-Block mit zwei x-Deklarationen.
-    // Für das letzte "print x" sollen beide x-Deklarationen im Scope sichtbar sein.
+    // Wie im ursprünglichen Xtext-Test prüfen wir die rohe Kandidatenliste vor MapScope.
+    // Erwartung: Für das letzte "print x" sind beide x-Deklarationen sichtbar.
     const topInstr = model.instructions.at(-1) as IfStatement;
     const printInstr = lastPrintCommand(topInstr);
     expect(printInstr).toBeTruthy();
@@ -234,7 +256,50 @@ describe('ScopeTests', () => {
     const cont = unwrapExpr(printInstr!.param);
     expect(isVarRef(cont)).toBeTruthy();
 
-    assertVarRefScope(scopeProvider, cont as VarRef, 'x, x');
+    const rawNames = (scopeProvider as Pseudo2ScopeProvider).debugVarRefScopeNames(cont as VarRef);
+    expect(rawNames.join(', ')).toBe('x, x');
+  });
+
+  test('scopeNestedIndentShadowing', async () => {
+    // Testet zusätzlichen Indent als inneren Scope:
+    // - erstes print x  -> äußeres x
+    // - zweites print x -> inneres x
+    // - drittes print x -> wieder äußeres x
+    const { model, document } = await parseModel(`
+      func f()
+          var x = 5 / 2
+          print x
+            var x = 35
+            print x
+          print x
+    `);
+
+    assertNoDocumentErrors(document);
+
+    const fn = firstNodeOfType(model, isFunctionDeclaration);
+    expect(fn).toBeTruthy();
+
+    const decls = Array.from(AstUtils.streamAllContents(fn!)).filter(isVarDecl);
+    const prints = Array.from(AstUtils.streamAllContents(fn!)).filter(isPrintCommand);
+
+    expect(decls).toHaveLength(2);
+    expect(prints).toHaveLength(3);
+
+    const firstExpr = unwrapExpr(prints[0]!.param);
+    const secondExpr = unwrapExpr(prints[1]!.param);
+    const thirdExpr = unwrapExpr(prints[2]!.param);
+
+    expect(isVarRef(firstExpr)).toBe(true);
+    expect(isVarRef(secondExpr)).toBe(true);
+    expect(isVarRef(thirdExpr)).toBe(true);
+
+    const firstRef = firstExpr as VarRef;
+    const secondRef = secondExpr as VarRef;
+    const thirdRef = thirdExpr as VarRef;
+
+    expect(firstRef.ref?.ref).toBe(decls[0]);
+    expect(secondRef.ref?.ref).toBe(decls[1]);
+    expect(thirdRef.ref?.ref).toBe(decls[0]);
   });
 
   test('scopeVarRefFuncDecl', async () => {

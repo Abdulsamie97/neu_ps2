@@ -65,11 +65,11 @@ import {
   TYPE_STRING,
   TYPE_UNKNOWN,
   TYPE_STRUCT_UNKNOWN,
-  TYPE_STRUCT
+  TYPE_STRUCT,
+  TYPE_ARRAY_NUM
 } from './pseudo2-type.js';
 
-const TYPE_ARRAY_UNKNOWN = Pseudo2Type.create({ name: '', isStruct: false, isArray: true });
-
+export const TYPE_ARRAY_UNKNOWN = Pseudo2Type.create({ name: '', isStruct: false, isArray: true });
 export class TypeComputationContext {
   readonly vars = new Set<VarDecl | ParameterDecl | StructAttDeclaration>();
   readonly fns = new Set<FunctionDeclaration>();
@@ -408,3 +408,5 @@ export class Pseudo2TypeComputer {
     return out;
   }
 }
+
+export { TYPE_NUM, TYPE_STRING, TYPE_STRUCT, TYPE_BOOL, TYPE_ARRAY_NUM, TYPE_UNKNOWN };

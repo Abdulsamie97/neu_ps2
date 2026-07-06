@@ -1,6 +1,6 @@
 // packages/language/src/scoping/pseudo2-scope.ts
 
-import type { AstNode, ReferenceInfo, Scope, AstNodeDescription } from 'langium';
+import type { AstNode, ReferenceInfo, Scope, AstNodeDescription} from 'langium';
 import { AstUtils, DefaultScopeProvider, MapScope, EMPTY_SCOPE } from 'langium';
 import type { Pseudo2Services } from '../pseudo2-module.js';
 
@@ -9,6 +9,7 @@ import type {
   Instruction,
   Expr,
   VarDecl,
+  VarRef,
   FunctionDeclaration,
   StructDeclaration,
   IfStatement
@@ -52,6 +53,15 @@ import { Pseudo2TypeComputer, TypeComputationContext } from '../typing/pseudo2-t
 
 type Named = { name: string };
 
+function isGlobalFunctionDecl(fn: FunctionDeclaration): boolean {
+  return fn.keyword === true;
+}
+
+function isMethodDecl(fn: FunctionDeclaration): boolean {
+  return fn.keyword !== true;
+}
+
+
 export class Pseudo2ScopeProvider extends DefaultScopeProvider {
   private readonly descProvider: Pseudo2Services['workspace']['AstNodeDescriptionProvider'];
   private readonly types = new Pseudo2TypeComputer();
@@ -69,8 +79,12 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
 
     // VarRef.ref
     if (isVarRef(c) && r === c.ref) {
+      console.log('--- VARREF SCOPE START ---');
+      console.log('VarRef text =', c.ref?.$refText ?? c.ref?.ref?.name ?? 'n/a');
+
       const vars = this.scopeForVarRef(c);
-     // console.log('[VAR SCOPE]', vars.map(v => v.name));
+      console.log('Final vars =', vars.map(v => v.name));
+      console.log('--- VARREF SCOPE END ---');
       return this.scopeFromNamed(vars);
     }
 
@@ -140,8 +154,10 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
      // console.log('[METH SCOPE] struct found =', sd?.name ?? 'none');
       if (!sd) return EMPTY_SCOPE;
 
-      const methods = (sd.children ?? []).filter(isFunctionDeclaration);
-     // console.log('[METH SCOPE] methods =', methods.map(m => m.name));
+    const methods = (sd.children ?? [])
+      .filter(isFunctionDeclaration)
+      .filter(isMethodDecl);     
+      // console.log('[METH SCOPE] methods =', methods.map(m => m.name));
       return this.scopeFromNodes(methods, m => m.name);
     }
 
@@ -166,19 +182,28 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
   private scopeForVarRef(node: AstNode): Named[] {
     const currentInstr = this.getEnclosingInstruction(node);
 
+    console.log('[scopeForVarRef] node type =', node.$type);
+    console.log('[scopeForVarRef] currentInstr =', currentInstr?.$type);
+
     if (currentInstr) {
       const container = currentInstr.$container;
-     // console.log('[VAR SCOPE] current instruction container =', container?.$type);
+      console.log('[scopeForVarRef] container =', container?.$type);
 
       if (isBracedBlock(container) || isIndentedBlock(container)) {
         const locals = this.extractVarDeclsBeforeCurrent(container.instructions ?? [], currentInstr);
-      //  console.log('[VAR SCOPE] block locals =', locals.map(v => v.name));
-        return this.dedupByName([...locals, ...this.scopeForVarRefFrom(container.$container)]);
+        const outer = this.scopeForVarRefFrom(container.$container);
+
+        // Lokale Deklarationen im aktuellen Block vollständig behalten,
+        // auch wenn derselbe Name mehrfach vorkommt.
+        // Nur äußere Namen, die bereits lokal vorkommen, ausblenden.
+        return this.mergeLocalsWithOuter(locals, outer);
       }
 
       if (isIfStatement(container)) {
+        console.log('[scopeForVarRef] entered IF branch');
         const locals = this.handleIfStatement(container, currentInstr);
-      //  console.log('[VAR SCOPE] if locals =', locals.map(v => v.name));
+        console.log('[scopeForVarRef] IF locals =', locals.map(v => v.name));
+
         return this.dedupByName(locals);
       }
 
@@ -218,6 +243,15 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     }
 
     return this.dedupByName(this.collectGlobalVars(node));
+  }
+
+  public debugVarRefScopeNames(node: VarRef): string[] {
+    return this.scopeForVarRef(node).map(v => v.name);
+  }
+
+  private mergeLocalsWithOuter(locals: Named[], outer: Named[]): Named[] {
+    const localNames = new Set(locals.map(v => v.name));
+    return [...locals, ...outer.filter(v => !localNames.has(v.name))];
   }
 
   private collectEnclosingStructAttributes(from: AstNode): Named[] {
@@ -286,23 +320,45 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     const thenInstrs: Instruction[] = ifStmt.thenBlock?.instructions ?? [];
     const elseInstrs: Instruction[] = ifStmt.elseBlock?.instructions ?? [];
 
+    console.log('[handleIfStatement] currentInstr =', currentInstr.$type);
+    console.log('[handleIfStatement] thenInstrs =', thenInstrs.map(i => i.$type));
+    console.log('[handleIfStatement] elseInstrs =', elseInstrs.map(i => i.$type));  
+
+
     const inThen = thenInstrs.includes(currentInstr);
     const list = inThen ? thenInstrs : elseInstrs;
 
+    console.log('[handleIfStatement] inThen =', inThen);
+    console.log('[handleIfStatement] chosen list =', list.map(i => i.$type));
+
     const locals = this.extractVarDeclsBeforeCurrent(list, currentInstr);
+    console.log('[handleIfStatement] extracted locals =', locals.map(v => v.name));
+  
     return [...locals, ...this.scopeForVarRefFrom(ifStmt.$container)];
+    
   }
 
   private extractVarDeclsBeforeCurrent(instrs: Instruction[], current: Instruction): VarDecl[] {
     const out: VarDecl[] = [];
 
+    console.log('[extractVarDeclsBeforeCurrent] current =', current.$type);
+    console.log('[extractVarDeclsBeforeCurrent] instrs =', instrs.map(i => i.$type));
+
     for (const i of instrs) {
-      if (i === current) break;
-      if (isVarDecl(i)) out.push(i);
+      console.log('[extractVarDeclsBeforeCurrent] visiting =', i.$type);
+      if (i === current) {
+        console.log('[extractVarDeclsBeforeCurrent] reached current -> stop');
+        break;
+      }
+      if (isVarDecl(i)) {
+        console.log('[extractVarDeclsBeforeCurrent] found varDecl =', i.name);
+        out.push(i);
+      }
     }
 
     return out.reverse();
   }
+
 
   private dedupByName(vars: Named[]): Named[] {
     const seen = new Set<string>();
@@ -364,7 +420,11 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
 
   private collectGlobalFunctions(from: AstNode): FunctionDeclaration[] {
     const program = this.getProgram(from);
-    return program ? program.instructions.filter(isFunctionDeclaration) : [];
+    return program
+      ? program.instructions
+          .filter(isFunctionDeclaration)
+          .filter(isGlobalFunctionDecl)
+      : [];
   }
 
   private collectFunctionParameters(fn: FunctionDeclaration): Named[] {

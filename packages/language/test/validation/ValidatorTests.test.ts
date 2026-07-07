@@ -8,7 +8,18 @@ import {
   INCOMPATIBLE_TYPES_EQ,
   VAR_DECL_NO_NESTED_ARRAY,
   DIFFERENT_TYPES_OF_RETURNS,
-  PRINT_EXPECTS_BASE_TYPE
+  DIFFERENT_KINDS_OF_RETURNS,
+  PRINT_EXPECTS_BASE_TYPE,
+  DUPLICATE_ELEMENT,
+  FUNC_DECL_ONLY_GLOBAL,
+  METH_DECL_ONLY_IN_STRUCT,
+  FUNC_CALL_RIGHT_PARANUM,
+  FUNC_CALL_ACTUALPARA_CONFORMSTO_FORMALPARA,
+  CONSISTENT_ARRAY_TYPE_OF_PARA,
+  VAR_DECL_NO_INIT_WITH_EMPTY_ARRAY,
+  VAR_DECL_NO_INIT_WITH_NULL,
+  ASSIGNED_TO_LOOPVAR,
+  ARRAY_ACCESS_ON_PLAIN_TYPE
 } from '../../src/pseudo2-validator.js';
 
 describe('ValidatorTests', () => {
@@ -79,10 +90,10 @@ describe('ValidatorTests', () => {
   }
 
   // Prüft, dass eine Fehlermeldung einen bestimmten Text enthält.
-  function assertHasErrorMessage(document: LangiumDocument, messagePart: string): void {
+  /*function assertHasErrorMessage(document: LangiumDocument, messagePart: string): void {
     const messages = errorDiagnostics(document).map(d => d.message);
     expect(messages.some(m => m.includes(messagePart))).toBe(true);
-  }
+  }*/
 
   // Prüft, dass eine Warnung einen bestimmten Text enthält.
   function assertHasWarningMessage(document: LangiumDocument, messagePart: string): void {
@@ -115,7 +126,7 @@ describe('ValidatorTests', () => {
         print("bla")
     `);
 
-    assertHasErrorMessage(document, 'Doppelte globale Funktion');
+    assertHasErrorCode(document, DUPLICATE_ELEMENT);
   });
 
   test('doubleParameter', async () => {
@@ -126,7 +137,7 @@ describe('ValidatorTests', () => {
         print("bla")
     `);
 
-    assertHasErrorMessage(document, 'Doppelter Parametername');
+    assertHasErrorCode(document, DUPLICATE_ELEMENT);
   });
 
   test('sameVariableAsParameter', async () => {
@@ -137,7 +148,7 @@ describe('ValidatorTests', () => {
         var i = 7
     `);
 
-    assertHasErrorMessage(document, 'Doppelte Deklaration von');
+    assertHasErrorCode(document, DUPLICATE_ELEMENT);
   });
 
   test('doubleVariableWithinFunction', async () => {
@@ -206,7 +217,7 @@ describe('ValidatorTests', () => {
         num y
     `);
 
-    assertHasErrorMessage(document, 'Doppelte Struct-Deklaration');
+    assertHasErrorCode(document, DUPLICATE_ELEMENT);
   });
 
   test('sameStructElemInDifferentStructs', async () => {
@@ -229,7 +240,7 @@ describe('ValidatorTests', () => {
         string x
     `);
 
-    assertHasAnyError(document);
+    assertHasErrorCode(document, DUPLICATE_ELEMENT);
   });
 
   test('doubleStructElementsV2', async () => {
@@ -243,7 +254,7 @@ describe('ValidatorTests', () => {
       }
     `);
 
-    assertHasAnyError(document);
+    assertHasErrorCode(document, DUPLICATE_ELEMENT);
   });
 
   test('doubleStructElementsV3', async () => {
@@ -257,7 +268,7 @@ describe('ValidatorTests', () => {
           return 24
     `);
 
-    assertHasAnyError(document);
+    assertHasErrorCode(document, DUPLICATE_ELEMENT);
   });
 
   test('varRef1', async () => {
@@ -324,7 +335,7 @@ describe('ValidatorTests', () => {
       var b = A[5]
     `);
 
-    assertHasErrorMessage(document, 'Indexzugriff ist nur auf Array-Typen erlaubt');
+    assertHasErrorCode(document, ARRAY_ACCESS_ON_PLAIN_TYPE);
   });
 
   test('arrayDecvl_EmptyLitWrong', async () => {
@@ -333,7 +344,7 @@ describe('ValidatorTests', () => {
       var A = []
     `);
 
-    assertHasAnyError(document);
+    assertHasErrorCode(document, VAR_DECL_NO_INIT_WITH_EMPTY_ARRAY);
   });
 
   test('functionIsGlobal', async () => {
@@ -359,7 +370,7 @@ describe('ValidatorTests', () => {
       }
     `);
 
-    assertHasAnyError(document);
+    assertHasErrorCode(document, FUNC_DECL_ONLY_GLOBAL);
   });
 
   test('methodIsLocal', async () => {
@@ -384,7 +395,7 @@ describe('ValidatorTests', () => {
         print( 'blub' )
     `);
 
-    assertHasAnyError(document);
+    assertHasErrorCode(document, METH_DECL_ONLY_IN_STRUCT);
   });
 
   test('methodNotNested', async () => {
@@ -397,7 +408,7 @@ describe('ValidatorTests', () => {
           print("hello")
     `);
 
-    assertHasAnyError(document);
+    assertHasErrorCode(document, METH_DECL_ONLY_IN_STRUCT);
   });
 
   test('functionWithoutReturn', async () => {
@@ -419,7 +430,7 @@ describe('ValidatorTests', () => {
       bla("Hello", "bug")
     `);
 
-    assertHasErrorMessage(document, 'Zu viele Argumente');
+    assertHasErrorCode(document, FUNC_CALL_RIGHT_PARANUM);
   });
 
   test('functionWithDifferentReturnKinds', async () => {
@@ -436,7 +447,7 @@ describe('ValidatorTests', () => {
       bla(5)
     `);
 
-    assertHasErrorCode(document, DIFFERENT_TYPES_OF_RETURNS);
+    assertHasErrorCode(document, DIFFERENT_KINDS_OF_RETURNS);
   });
 
   test('functionWithMultipleReturns1', async () => {
@@ -544,7 +555,7 @@ describe('ValidatorTests', () => {
       k = bla(5)
     `);
 
-    assertHasErrorMessage(document, 'nicht zuweisbar');
+    assertHasErrorCode(document, INCOMPATIBLE_TYPES);
   });
 
   test('paraType1', async () => {
@@ -563,16 +574,14 @@ describe('ValidatorTests', () => {
   test('paraType2', async () => {
     // Testet falschen Parametertyp bei numerischer Benutzung.
     const { document } = await parseModel(`
-      func sum1( a )
-      {
+      func sum1(a)
         var s = a - 2
         return s
 
       sum1('bla')
-      }
     `);
 
-    assertHasAnyError(document);
+    assertHasErrorCode(document, FUNC_CALL_ACTUALPARA_CONFORMSTO_FORMALPARA);
   });
 
   test('paraArrayType1', async () => {
@@ -584,7 +593,7 @@ describe('ValidatorTests', () => {
       return bla(5)
     `);
 
-    assertHasAnyError(document);
+    assertHasErrorCode(document, CONSISTENT_ARRAY_TYPE_OF_PARA);
   });
 
   test('paraArrayType2', async () => {
@@ -596,7 +605,7 @@ describe('ValidatorTests', () => {
       return bla([5])
     `);
 
-    assertHasAnyError(document);
+    assertHasErrorCode(document, CONSISTENT_ARRAY_TYPE_OF_PARA);
   });
 
   test('paraArrayType3', async () => {
@@ -636,7 +645,7 @@ describe('ValidatorTests', () => {
       var s = null
     `);
 
-    assertHasAnyError(document);
+    assertHasErrorCode(document, VAR_DECL_NO_INIT_WITH_NULL);
   });
 
   test('structCreate', async () => {
@@ -717,7 +726,7 @@ describe('ValidatorTests', () => {
       print s.m()
     `);
 
-    assertHasErrorMessage(document, 'Zu wenige Argumente');
+    assertHasErrorCode(document, FUNC_CALL_RIGHT_PARANUM);
   });
 
   test('structWithMethodandFunc', async () => {
@@ -772,7 +781,7 @@ describe('ValidatorTests', () => {
       print s1.m()
     `);
 
-    assertHasAnyError(document);
+    assertHasErrorCode(document, DUPLICATE_ELEMENT);
   });
 
   test('structCreateUseWithNext', async () => {
@@ -876,7 +885,7 @@ describe('ValidatorTests', () => {
         i=i+1
     `);
 
-    assertHasAnyError(document);
+    assertHasErrorCode(document, ASSIGNED_TO_LOOPVAR);
   });
 
   test('typeMismatchComparisonBoolNum', async () => {

@@ -299,7 +299,7 @@ describe('ScopeTests', () => {
 
     expect(firstRef.ref?.ref).toBe(decls[0]);
     expect(secondRef.ref?.ref).toBe(decls[1]);
-    expect(thirdRef.ref?.ref).toBe(decls[0]);
+    expect(thirdRef.ref?.ref).toBe(decls[0]); //warum gerät in endlose schleife bei delc[1]?
   });
 
   test('scopeVarRefFuncDecl', async () => {

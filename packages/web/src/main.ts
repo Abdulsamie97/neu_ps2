@@ -99,6 +99,16 @@ const updateCode = async () => {
     }
 };
 
+const updateExecution = async () => {
+    //TODO: make it nicer
+    const exeelem = document.querySelector("#exespan");
+    if (exeelem != null) {
+        // const currentCode = (editorApp?.getEditor()?.getModel()?.getValue() ?? "Default code");
+        const currentCode = getCurrentCode();
+        exeelem.textContent = currentCode;
+    }
+};
+
 function getCurrentCode(): string {
     return editorApp?.getEditor()?.getModel()?.getValue() ?? "";
 }
@@ -110,6 +120,8 @@ export const runDsl = async () => {
         document.querySelector('#button-dispose')?.addEventListener('click', disposeEditor);
         document.querySelector('#button-summary')?.addEventListener('click', updateSummary);
         document.querySelector('#button-code')?.addEventListener('click', updateCode);
+        document.querySelector('#button-execute')?.addEventListener('click', updateExecution);
+
     } catch (e) {
         console.error(e);
     }

@@ -73,7 +73,9 @@ import {
   isMultiplication,
   isGrouping,
   isExponentiation,
-  isNot//,
+  isNot,//,
+  isArrayLiteral,
+  isNullLiteral
   //isNeg
 } from './generated/ast.js';
 
@@ -562,10 +564,13 @@ export class Pseudo2Validator {
     // -----------------------------
     // Array-Deklarationen prüfen
     // -----------------------------
+    // Initialisierer erst auf den eigentlichen Kern-Ausdruck reduzieren,
+    // weil einfache Literale oft noch in Ausdrucks-Hüllen stecken.
+    const initCore = node.initializer ? this.unwrapExpr(node.initializer) : undefined;
+
     // Kein leeres Array als Initialwert
-    if (node.initializer && node.initializer.$type === 'ArrayLiteral') {
-      const arr = node.initializer as ArrayLiteral;
-      if ((arr.elems ?? []).length === 0) {
+    if (initCore && isArrayLiteral(initCore)) {
+      if ((initCore.elems ?? []).length === 0) {
         accept('error', 'Variable kann nicht mit einem leeren Array initialisiert werden.', {
           node,
           property: 'initializer',
@@ -575,7 +580,7 @@ export class Pseudo2Validator {
     }
 
     // Kein null als Initialwert
-    if (node.initializer && node.initializer.$type === 'NullLiteral') {
+    if (initCore && isNullLiteral(initCore)) {
       accept('error', 'Variable kann nicht mit null initialisiert werden.', {
         node,
         property: 'initializer',
@@ -1309,20 +1314,25 @@ export class Pseudo2Validator {
       // lockere Addition:
       // string + string, string + num, num + string, string + bool, bool + string sind erlaubt
       // deshalb darf aus x + ... KEIN harter Parametertyp abgeleitet werden
+      // Addition/Subtraktion
       if (isAddition(current) && (current.right?.length ?? 0) > 0) {
-        const operands = [current.left, ...(current.right ?? [])];
+        // Sobald irgendwo '-' vorkommt, ist der Kontext numerisch.
+        // Beispiel: a - 2  => a muss num sein.
+        if ((current.op ?? []).some(op => op === '-')) {
+          return TYPE_NUM;
+        }
 
+        // Für reines '+' bleibt die Inferenz bewusst locker,
+        // weil string + num, num + string, string + bool usw. erlaubt sind.
+        const operands = [current.left, ...(current.right ?? [])];
         const otherOperands = operands.filter((e: Expr) => !this.exprContainsNode(e, ref));
         const otherOperandTypes = otherOperands.map((e: Expr) => this.types.typeFor(e));
 
-        // Array/Struct bei + sind ungültig -> daraus keine sinnvolle Typinferenz ableiten
+        // Bei Arrays/Structs nichts Hartes ableiten
         if (otherOperandTypes.some(t => t.isArrayType() || t.isStructType())) {
           return TYPE_UNKNOWN;
         }
 
-        // Auch bei string oder bool nicht festlegen:
-        // "text" + x  => x könnte string/num/bool sein
-        // x + 1       => x könnte num oder string sein
         return TYPE_UNKNOWN;
       }
 

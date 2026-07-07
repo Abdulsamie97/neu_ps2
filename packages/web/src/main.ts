@@ -28,6 +28,20 @@ let lcWrapper: LanguageClientWrapper;
 let executionDocCounter = 0;
 let executionServices: ReturnType<typeof createPseudo2Services> | undefined;
 
+type SaveFilePicker = (options: {
+    suggestedName?: string;
+    types?: Array<{
+        description: string;
+        accept: Record<string, string[]>;
+    }>;
+}) => Promise<{
+    name: string;
+    createWritable: () => Promise<{
+        write: (data: BlobPart) => Promise<void>;
+        close: () => Promise<void>;
+    }>;
+}>;
+
 const startEditor = async () => {
     disableElement('button-start', true);
     disableElement('button-dispose', false);
@@ -107,6 +121,47 @@ const updateCode = async () => {
     }
 };
 
+const saveCurrentCode = async () => {
+    if (!editorApp?.getEditor()) {
+        setSaveStatus('Start the editor before saving.');
+        return;
+    }
+
+    const currentCode = getCurrentCode();
+    const suggestedName = getSuggestedFileName();
+
+    try {
+        const saveFilePicker = (window as Window & { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
+        if (saveFilePicker) {
+            const fileHandle = await saveFilePicker({
+                suggestedName,
+                types: [
+                    {
+                        description: 'Pseudo2 file',
+                        accept: {
+                            'text/plain': ['.pseudo2']
+                        }
+                    }
+                ]
+            });
+            const writable = await fileHandle.createWritable();
+            await writable.write(currentCode);
+            await writable.close();
+            setSaveStatus(`Saved: ${fileHandle.name}`);
+            return;
+        }
+
+        downloadCode(currentCode, suggestedName);
+        setSaveStatus(`Downloaded: ${suggestedName}`);
+    } catch (error) {
+        if (isAbortError(error)) {
+            setSaveStatus('Save canceled.');
+            return;
+        }
+        setSaveStatus(`Save failed: ${formatError(error)}`);
+    }
+};
+
 const updateExecution = async () => {
     setTextContent('#exespan', 'Running...');
     setTextContent('#generatedspan', '');
@@ -143,6 +198,13 @@ const updateExecution = async () => {
 
 function getCurrentCode(): string {
     return editorApp?.getEditor()?.getModel()?.getValue() ?? "";
+}
+
+function getSuggestedFileName(): string {
+    const path = editorApp?.getEditor()?.getModel()?.uri?.path ?? '';
+    const parts = path.split('/').filter(Boolean);
+    const fileName = parts[parts.length - 1] ?? '';
+    return fileName.endsWith('.pseudo2') ? fileName : 'program.pseudo2';
 }
 
 function getExecutionServices(): ReturnType<typeof createPseudo2Services> {
@@ -229,6 +291,27 @@ function setTextContent(selector: string, textContent: string): void {
     }
 }
 
+function setSaveStatus(textContent: string): void {
+    setTextContent('#save-status', textContent);
+}
+
+function downloadCode(code: string, fileName: string): void {
+    const blob = new Blob([code], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+}
+
+function isAbortError(error: unknown): boolean {
+    return error instanceof DOMException && error.name === 'AbortError';
+}
+
 
 export const runDsl = async () => {
     try {
@@ -236,6 +319,7 @@ export const runDsl = async () => {
         document.querySelector('#button-dispose')?.addEventListener('click', disposeEditor);
         document.querySelector('#button-summary')?.addEventListener('click', updateSummary);
         document.querySelector('#button-code')?.addEventListener('click', updateCode);
+        document.querySelector('#button-save')?.addEventListener('click', saveCurrentCode);
         document.querySelector('#button-execute')?.addEventListener('click', updateExecution);
 
     } catch (e) {

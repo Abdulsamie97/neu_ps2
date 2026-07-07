@@ -44,6 +44,15 @@ button:disabled {
     background-color: #1177bb;
 }
 
+#button-save {
+    background-color: #345f39;
+    border-color: #457c4b;
+}
+
+#button-save:hover:not(:disabled) {
+    background-color: #457c4b;
+}
+
 .app-shell {
     display: flex;
     flex-direction: column;
@@ -78,10 +87,18 @@ button:disabled {
 }
 
 .toolbar-actions {
+    align-items: center;
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
     justify-content: flex-end;
+}
+
+.status-pill {
+    color: #bdbdbd;
+    font-size: 12px;
+    min-height: 18px;
+    padding: 0 2px;
 }
 
 .workspace-layout {

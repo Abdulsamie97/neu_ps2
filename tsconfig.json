@@ -3,10 +3,9 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "baseUrl": ".",
     "paths": {
       "pseudo2-language": [
-        "packages/language"
+        "./packages/language"
       ]
     },
     "lib": [

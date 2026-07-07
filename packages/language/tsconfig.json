@@ -3,8 +3,7 @@
   "extends": "./tsconfig.src.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": ".",
-    "ignoreDeprecations": "6.0"
+    "rootDir": "."
   },
   "include": [
     "src/**/*"    

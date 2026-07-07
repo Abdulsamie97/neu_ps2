@@ -13,12 +13,20 @@ import { createLangiumGlobalConfig } from './config/dslConfig.js';
 import workerUrl from './worker/dsl-server?worker&url';
 import { MonacoVscodeApiWrapper } from 'monaco-languageclient/vscodeApiWrapper';
 import { LanguageClientWrapper } from 'monaco-languageclient/lcwrapper';
+import { EmptyFileSystem, URI } from 'langium';
 
-import { getSummaryFromCode } from 'pseudo2-language'; //TBC
+import {
+    createPseudo2Services,
+    generateProgram,
+    getSummaryFromCode,
+    type Program
+} from 'pseudo2-language'; //TBC
 
 
 let editorApp: EditorApp | undefined;
 let lcWrapper: LanguageClientWrapper;
+let executionDocCounter = 0;
+let executionServices: ReturnType<typeof createPseudo2Services> | undefined;
 
 const startEditor = async () => {
     disableElement('button-start', true);
@@ -100,17 +108,125 @@ const updateCode = async () => {
 };
 
 const updateExecution = async () => {
-    //TODO: make it nicer
-    const exeelem = document.querySelector("#exespan");
-    if (exeelem != null) {
-        // const currentCode = (editorApp?.getEditor()?.getModel()?.getValue() ?? "Default code");
-        const currentCode = getCurrentCode();
-        exeelem.textContent = currentCode;
+    setTextContent('#exespan', 'Running...');
+    setTextContent('#generatedspan', '');
+
+    if (!editorApp?.getEditor()) {
+        setTextContent('#exespan', 'Editor is not started yet.');
+        return;
+    }
+
+    const currentCode = getCurrentCode();
+    if (currentCode.trim().length === 0) {
+        setTextContent('#exespan', 'No Pseudo2 code to execute.');
+        return;
+    }
+
+    try {
+        const { program, errors } = await parsePseudo2(currentCode);
+        if (errors.length > 0 || !program) {
+            setTextContent('#exespan', `Validation failed:\n${errors.join('\n')}`);
+            return;
+        }
+
+        const generatedCode = generateProgram(program);
+        setTextContent('#generatedspan', generatedCode);
+
+        const result = executeJavaScript(generatedCode);
+        const output = result.output.length > 0 ? result.output.join('\n') : '(no output)';
+        const runtimeError = result.error ? `\nRuntime error:\n${result.error}` : '';
+        setTextContent('#exespan', `${output}${runtimeError}`);
+    } catch (error) {
+        setTextContent('#exespan', `Execution failed:\n${formatError(error)}`);
     }
 };
 
 function getCurrentCode(): string {
     return editorApp?.getEditor()?.getModel()?.getValue() ?? "";
+}
+
+function getExecutionServices(): ReturnType<typeof createPseudo2Services> {
+    executionServices ??= createPseudo2Services(EmptyFileSystem);
+    return executionServices;
+}
+
+async function parsePseudo2(code: string): Promise<{ program?: Program; errors: string[] }> {
+    const services = getExecutionServices();
+    const documentFactory = services.shared.workspace.LangiumDocumentFactory;
+    const documentBuilder = services.shared.workspace.DocumentBuilder;
+    const uri = URI.parse(`memory:/web-execute-${executionDocCounter++}.pseudo2`);
+    const document = documentFactory.fromString(code, uri);
+
+    await documentBuilder.build([document], { validation: true });
+
+    const errors = (document.diagnostics ?? [])
+        .filter(diagnostic => diagnostic.severity === 1)
+        .map(diagnostic => {
+            const line = diagnostic.range.start.line + 1;
+            const character = diagnostic.range.start.character + 1;
+            return `Line ${line}, column ${character}: ${diagnostic.message}`;
+        });
+
+    if (errors.length > 0) {
+        return { errors };
+    }
+
+    return {
+        program: document.parseResult.value as Program,
+        errors: []
+    };
+}
+
+function executeJavaScript(source: string): { output: string[]; error?: string } {
+    const output: string[] = [];
+    const capturedConsole = {
+        log: (...args: unknown[]) => output.push(args.map(formatValue).join(' ')),
+        warn: (...args: unknown[]) => output.push(args.map(formatValue).join(' ')),
+        error: (...args: unknown[]) => output.push(args.map(formatValue).join(' '))
+    };
+
+    try {
+        const runner = new Function('console', `"use strict";\n${source}`);
+        runner(capturedConsole);
+        return { output };
+    } catch (error) {
+        return {
+            output,
+            error: formatError(error)
+        };
+    }
+}
+
+function formatValue(value: unknown): string {
+    if (typeof value === 'string') {
+        return value;
+    }
+    if (value instanceof Error) {
+        return `${value.name}: ${value.message}`;
+    }
+    if (value === undefined) {
+        return 'undefined';
+    }
+
+    try {
+        return JSON.stringify(value) ?? String(value);
+    } catch {
+        return String(value);
+    }
+}
+
+function formatError(error: unknown): string {
+    if (error instanceof Error) {
+        return `${error.name}: ${error.message}`;
+    }
+    return formatValue(error);
+}
+
+function setTextContent(selector: string, textContent: string): void {
+    const element = document.querySelector(selector);
+    if (element) {
+        element.textContent = textContent;
+    }
 }
 
 

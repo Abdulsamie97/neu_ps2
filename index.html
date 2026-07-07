@@ -3,39 +3,66 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Langium's Hello World in the Web</title>
+    <title>Pseudo2 Web Runner</title>
     <link rel="stylesheet" href="packages/web/style.css" />
   </head>
 
   <body>
-    <div class="exampleHeadlineDiv">
-      <b class="exampleHeadline">
-        Helloworld Client & Language Server (Worker)
-      </b>
-      <br />
-      <button type="button" id="button-start">Start</button>
-      <button type="button" id="button-dispose">Dispose</button>
-      <button type="button" id="button-summary">Update Summary</button>
-      <button type="button" id="button-code">Update Code</button>
-      <button type="button" id="button-execute">execute</button>
+    <div class="app-shell">
+      <header class="toolbar">
+        <div class="brand">
+          <b>Pseudo2 Runner</b>
+          <span>Editor, Validierung und Ausgabe im Browser</span>
+        </div>
+        <div class="toolbar-actions">
+          <button type="button" id="button-start">Start</button>
+          <button type="button" id="button-dispose">Dispose</button>
+          <button type="button" id="button-summary">Update Summary</button>
+          <button type="button" id="button-code">Update Code</button>
+          <button type="button" id="button-execute">Execute</button>
+        </div>
+      </header>
 
+      <main class="workspace-layout">
+        <section class="editor-pane" aria-label="Pseudo2 editor">
+          <div class="pane-header">
+            <span>Editor</span>
+          </div>
+          <div id="monaco-editor-root"></div>
+        </section>
+
+        <aside class="output-pane" aria-label="Ausgabe">
+          <section class="output-section output-primary">
+            <div class="pane-header">
+              <span>Execution</span>
+            </div>
+            <pre id="exespan"> -no execution yet- </pre>
+          </section>
+
+          <details class="output-section">
+            <summary>Generated JavaScript</summary>
+            <pre id="generatedspan"> -not generated yet- </pre>
+          </details>
+
+          <section class="output-section">
+            <div class="pane-header">
+              <span>Summary</span>
+            </div>
+            <pre id="summaryspan"> -nothing yet- </pre>
+          </section>
+
+          <details class="output-section">
+            <summary>Current Pseudo2 Code</summary>
+            <pre id="codespan"> -no code yet- </pre>
+          </details>
+        </aside>
+      </main>
     </div>
-    <div id="monaco-editor-root" style="height: 80vh"></div>
+
     <script type="module">
       import { runDsl } from "./packages/web/src/main.ts";
 
       runDsl();
     </script>
-    <b>Summary:</b>
-    <br />
-    <span id="summaryspan"> -nothing yet- </span>
-    <br />
-    <b>Code:</b>
-    <br />
-    <span id="codespan"> -no code yet- </span>
-
-    <b>execution:</b>
-    <br />
-    <span id="exespan"> -no execution yet- </span>
   </body>
 </html>

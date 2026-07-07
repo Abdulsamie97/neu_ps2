@@ -332,7 +332,7 @@ function generateAssignment(assign: Assignment, indent = 0): string {
 function genExpr(e: Expr): string {
   if (isIntLiteral(e)) return String(e.value);
   if (isBoolLiteral(e)) return String(e.value);
-  if (isStringLiteral(e)) return String(e.value);
+  if (isStringLiteral(e)) return JSON.stringify(e.value);
   if (isNullLiteral(e)) return 'null';
 
   if (isArrayLiteral(e)) {

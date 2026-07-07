@@ -55,7 +55,7 @@ describe('ParsingTests_LectADKOrig', () => {
       var a = 5
     `);
 
-    // Minimaler Initialisierungstest wie im ursprünglichen Xtext-Test.
+    // Minimaler Initialisierungstest
     assertNoErrors(document);
   });
 

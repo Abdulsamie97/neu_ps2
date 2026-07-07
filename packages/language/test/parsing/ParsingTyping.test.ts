@@ -140,7 +140,6 @@ describe('ParsingTests_Typing', () => {
     expect(actual.isSameAs(expected)).toBe(true);
   }
 
-  // Wie im alten Xtext-ParseUtil:
   // input muss hier nur ein Ausdruck sein.
   async function assertTypeExp(
     input: string,

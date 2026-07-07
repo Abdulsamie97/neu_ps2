@@ -104,7 +104,6 @@ export class Pseudo2Type {
   }
 }
 
-// literals exactly like Xtext
 export const TYPE_STRING = Pseudo2Type.create({ name: 'string' });
 export const TYPE_NUM = Pseudo2Type.create({ name: 'num' });
 export const TYPE_BOOL = Pseudo2Type.create({ name: 'bool' });

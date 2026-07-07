@@ -95,6 +95,31 @@ export const METHODCALLS_WO_RETURN_ONLY_AS_INSTRUCTION = 'METHODCALLS_WO_RETURN_
 export const ARRAYLIT_NESTED_ARRAY = 'ARRAYLIT_NESTED_ARRAY';
 export const VAR_DECL_NO_INIT_WITH_EMPTY_ARRAY = 'VAR_DECL_NO_INIT_WITH_EMPTY_ARRAY';
 export const VAR_DECL_NO_INIT_WITH_NULL = 'VAR_DECL_NO_INIT_WITH_NULL';
+export const ASSIGNED_TO_LOOPVAR = 'ASSIGNED_TO_LOOPVAR';
+export const ASSIGNED_TO_THIS = 'ASSIGNED_TO_THIS';
+export const ASSIGNED_TO_METHOD_CALL = 'ASSIGNED_TO_METHOD_CALL';
+export const DIFFERENT_KINDS_OF_RETURNS = 'DIFFERENT_KINDS_OF_RETURNS';
+export const MISSING_RETURN_AS_LAST_STATEMENT = 'MISSING_RETURN_AS_LAST_STATEMENT';
+// Eigener Code für falsche Anzahl an Funktions-/Methodenparametern
+export const FUNC_CALL_RIGHT_PARANUM = 'FUNC_CALL_RIGHT_PARANUM';
+
+// Eigener Code für Typfehler bei tatsächlichen Parametern
+export const FUNC_CALL_ACTUALPARA_CONFORMSTO_FORMALPARA = 'FUNC_CALL_ACTUALPARA_CONFORMSTO_FORMALPARA';
+
+// Eigener Code für Arrayzugriff auf Nicht-Array
+export const ARRAY_ACCESS_ON_PLAIN_TYPE = 'ARRAY_ACCESS_ON_PLAIN_TYPE';
+
+// Eigener Code für unterschiedliche Typen in Array-Literalen
+export const DIFFERENT_TYPES_OF_ARRAYLIT_ELEMS = 'DIFFERENT_TYPES_OF_ARRAYLIT_ELEMS';
+
+// Eigener Code: return nur innerhalb von Funktionen
+export const ELEMENT_ONLY_WITHIN_FUNCDECL = 'ELEMENT_ONLY_WITHIN_FUNCDECL';
+
+// Eigener Code: this nur innerhalb von Methoden
+export const ELEMENT_ONLY_WITHIN_METHDECL = 'ELEMENT_ONLY_WITHIN_METHDECL';
+
+// Eigener Code: formaler und tatsächlicher Parameter müssen bzgl. Array konsistent sein
+export const CONSISTENT_ARRAY_TYPE_OF_PARA = 'CONSISTENT_ARRAY_TYPE_OF_PARA';
 
 
 export function registerValidationChecks(services: Pseudo2Services) {
@@ -213,6 +238,23 @@ export class Pseudo2Validator {
         });
       }
     }
+
+    // im Namespace der For-Schleife dürfen keine doppelten (beibehalten??)
+    // Variablennamen vorkommen, inklusive Loop-Iterator
+    const loopVars: VarDecl[] = [];
+
+    if (node.iterator) {
+      loopVars.push(node.iterator);
+    }
+
+    for (const n of AstUtils.streamAllContents(node.body)) {
+      if (isVarDecl(n) && !this.isLengthParameterDecl(n)) {
+        loopVars.push(n);
+      }
+    }
+
+    this.reportDuplicateVarDecls(loopVars, accept);
+
   }
 
   checkDoWhileLoop(node: DoWhileLoop, accept: ValidationAcceptor): void {
@@ -246,6 +288,10 @@ export class Pseudo2Validator {
         code: METH_DECL_ONLY_IN_STRUCT
       });
     }
+
+    // Optionale strengere Prüfung für doppelte lokale Variablen
+    // (außer Loop-Iteratoren) nicht doppelt vorkommen
+    //this.reportDuplicateVarDecls(this.getFunctionLocalVarDecls(node), accept);
     const seen = new Set<string>();
 
     // 1. Parameter prüfen
@@ -253,7 +299,8 @@ export class Pseudo2Validator {
       if (seen.has(p.name)) {
         accept('error', `Doppelter Parametername '${p.name}'.`, {
           node: p,
-          property: 'name'
+          property: 'name',
+          code: DUPLICATE_ELEMENT
         });
       } else {
         seen.add(p.name);
@@ -275,7 +322,8 @@ export class Pseudo2Validator {
         } else if (seen.has(p.len.name)) {
           accept('error', `Doppelter Parametername '${p.len.name}'.`, {
             node: p.len,
-            property: 'name'
+            property: 'name',
+            code: DUPLICATE_ELEMENT
           });
         } else {
           seen.add(p.len.name);
@@ -295,7 +343,8 @@ export class Pseudo2Validator {
         if (previousWithSameName) {
           accept('error', `Doppelte globale Funktion '${node.name}'.`, {
             node,
-            property: 'name'
+            property: 'name',
+            code: DUPLICATE_ELEMENT
           });
         }
       }
@@ -310,36 +359,70 @@ export class Pseudo2Validator {
       for (const r of allReturns) {
         accept('error', `Funktion '${node.name}' mischt return mit und ohne Wert.`, {
           node: r,
-          code: DIFFERENT_TYPES_OF_RETURNS
+          code: DIFFERENT_KINDS_OF_RETURNS
         });
       }
     }
 
     // 4. Rückgabetypen prüfen
-    if (returnsWithValue.length <= 1) {
-      return;
-    }
+    if (returnsWithValue.length > 1) {
+      const firstType = this.types.typeFor(returnsWithValue[0].retExpr);
 
-    const firstType = this.types.typeFor(returnsWithValue[0].retExpr);
-    for (let i = 1; i < returnsWithValue.length; i++) {
-      const currentType = this.types.typeFor(returnsWithValue[i].retExpr);
+      for (let i = 1; i < returnsWithValue.length; i++) {
+        const currentType = this.types.typeFor(returnsWithValue[i].retExpr);
 
-      if (
-        !currentType.isSameAsIgnoringUnknown(firstType) &&
-        !firstType.isUnknown() &&
-        !currentType.isUnknown()
-      ) {
-        accept(
-          'error',
-          `Inkonsistente Rückgabetypen in Funktion '${node.name}': '${firstType.asString()}' und '${currentType.asString()}'.`,
-          {
-            node: returnsWithValue[i],
-            property: 'retExpr',
-            code: DIFFERENT_TYPES_OF_RETURNS
-          }
-        );
+        if (
+          !currentType.isSameAsIgnoringUnknown(firstType) &&
+          !firstType.isUnknown() &&
+          !currentType.isUnknown()
+        ) {
+          accept(
+            'error',
+            `Inkonsistente Rückgabetypen in Funktion '${node.name}': '${firstType.asString()}' und '${currentType.asString()}'.`,
+            {
+              node: returnsWithValue[i],
+              property: 'retExpr',
+              code: DIFFERENT_TYPES_OF_RETURNS
+            }
+          );
+        }
       }
     }
+    // 5. Wenn die Funktion irgendwo einen Wert zurückgibt,
+    // sollte sie auch sinnvoll mit return/throw enden
+    if (returnsWithValue.length > 0 && !this.finishesByReturn(node.body?.instructions ?? [])) {
+      accept('warning', `Die Funktion '${node.name}' gibt Werte zurück, endet aber nicht sicher mit return.`, {
+        node,
+        code: MISSING_RETURN_AS_LAST_STATEMENT
+      });
+    }
+  }
+
+  private finishesByReturn(instructions: Instruction[]): boolean {
+    if (instructions.length === 0) {
+      return false;
+    }
+
+    const last = instructions[instructions.length - 1] as any;
+
+    if (isReturnStmt(last)) {
+      return true;
+    }
+
+    if (last.$type === 'ThrowCommand') {
+      return true;
+    }
+
+    if (isIfStatement(last)) {
+      const thenFinished = this.finishesByReturn(last.thenBlock?.instructions ?? []);
+      const elseFinished = last.elseBlock
+        ? this.finishesByReturn(last.elseBlock.instructions ?? [])
+        : false;
+
+      return thenFinished && elseFinished;
+    }
+
+    return false;
   }
 
   private allReturns(fn: FunctionDeclaration): ReturnStmt[] {
@@ -361,6 +444,7 @@ export class Pseudo2Validator {
     const target = node.f?.ref;
     if (!target) return;
 
+    // Wenn die Funktion keinen Rückgabewert hat, darf sie nicht als Ausdruck benutzt werden
     if (!this.isStatementFunctionCall(node) && !this.hasReturnValue(target)) {
       accept('error', `Funktion '${target.name}' gibt keinen Wert zurück und kann nicht als Ausdruck verwendet werden.`, {
         node,
@@ -375,13 +459,15 @@ export class Pseudo2Validator {
     if (actual < expected) {
       accept('error', `Zu wenige Argumente: erwartet ${expected}, erhalten ${actual}.`, {
         node,
-        property: 'params'
+        property: 'params',
+        code: FUNC_CALL_RIGHT_PARANUM
       });
       return;
     } else if (actual > expected) {
       accept('error', `Zu viele Argumente: erwartet ${expected}, erhalten ${actual}.`, {
         node,
-        property: 'params'
+        property: 'params',
+        code: FUNC_CALL_RIGHT_PARANUM
       });
       return;
     }
@@ -425,8 +511,13 @@ export class Pseudo2Validator {
 
   checkReturnStmt(node: ReturnStmt, accept: ValidationAcceptor): void {
     const fn = AstUtils.getContainerOfType(node, isFunctionDeclaration);
+
+    // return darf nur innerhalb einer Funktion vorkommen
     if (!fn) {
-      accept('error', 'return darf nur innerhalb einer Funktion verwendet werden.', { node });
+      accept('error', 'return darf nur innerhalb einer Funktion verwendet werden.', {
+        node,
+        code: ELEMENT_ONLY_WITHIN_FUNCDECL
+      });
     }
   }
 
@@ -453,7 +544,8 @@ export class Pseudo2Validator {
       if (sameParam) {
         accept('error', `Doppelte Deklaration von '${node.name}' in derselben Funktion.`, {
           node,
-          property: 'name'
+          property: 'name',
+          code: DUPLICATE_ELEMENT
         });
         return;
       }
@@ -510,7 +602,7 @@ export class Pseudo2Validator {
     }
 
     // 2) Größe/Länge muss num sein
-    const sizeExpr = (node as any).size ?? (node as any).len ?? (node as any).arraySize;
+    const sizeExpr = node.size;
     if (sizeExpr) {
       const sizeType = this.types.typeFor(sizeExpr);
       if (!sizeType.isSameAs(TYPE_NUM) && !sizeType.isUnknown()) {
@@ -535,6 +627,43 @@ export class Pseudo2Validator {
   checkAssignment(node: Assignment, accept: ValidationAcceptor): void {
     const leftExpr = node.sel as Expr;
     const validLValue = isVarRef(leftExpr) || isAttSelection(leftExpr);
+    const left = node.sel as Expr;
+
+    // this darf nie links stehen
+    if (left.$type === 'ThisExpr') {
+      accept('error', "'this' darf nicht auf der linken Seite einer Zuweisung stehen.", {
+        node,
+        property: 'sel',
+        code: ASSIGNED_TO_THIS
+      });
+      return;
+    }
+
+    // Methodenaufruf darf nie links stehen
+    if (isMethSelection(left)) {
+      accept('error', 'Ein Methodenaufruf darf nicht auf der linken Seite einer Zuweisung stehen.', {
+        node,
+        property: 'sel',
+        code: ASSIGNED_TO_METHOD_CALL
+      });
+      return;
+    }
+
+    // Schleifenvariable darf nicht zugewiesen werden
+    if (isVarRef(left)) {
+      const target = left.ref?.ref;
+      if (target) {
+        const loop = AstUtils.getContainerOfType(target, isForLoop);
+        if (loop && loop.iterator === target) {
+          accept('error', `Schleifenvariable '${target.name}' darf nicht zugewiesen werden.`, {
+            node,
+            property: 'sel',
+            code: ASSIGNED_TO_LOOPVAR
+          });
+          return;
+        }
+      }
+    }
 
     if (!validLValue) {
       accept('error', 'Linke Seite einer Zuweisung muss eine Variable oder ein Attributzugriff sein.', {
@@ -570,7 +699,8 @@ export class Pseudo2Validator {
       if (previousWithSameName) {
         accept('error', `Doppelte Struct-Deklaration '${node.name}'.`, {
           node,
-          property: 'name'
+          property: 'name',
+          code: DUPLICATE_ELEMENT
         });
       }
     }
@@ -639,7 +769,7 @@ export class Pseudo2Validator {
         accept('error', 'Indexzugriff ist nur auf Array-Typen erlaubt.', {
           node,
           property: 'index',
-          code: INCOMPATIBLE_TYPES
+          code: ARRAY_ACCESS_ON_PLAIN_TYPE
         });
       }
 
@@ -669,7 +799,7 @@ export class Pseudo2Validator {
         accept('error', 'Indexzugriff ist nur auf Array-Typen erlaubt.', {
           node,
           property: 'index',
-          code: INCOMPATIBLE_TYPES
+          code: ARRAY_ACCESS_ON_PLAIN_TYPE
         });
       }
 
@@ -693,6 +823,7 @@ export class Pseudo2Validator {
     const target = node.f?.ref;
     if (!target) return;
 
+    // Methoden ohne Rückgabewert dürfen nur per "call" als Instruktion benutzt werden
     if (!this.hasReturnValue(target) && !this.isInsideCallCommand(node)) {
       accept('error', `Methode '${target.name}' gibt keinen Wert zurück und darf nur mit 'call' als Instruktion verwendet werden.`, {
         node,
@@ -702,6 +833,7 @@ export class Pseudo2Validator {
       return;
     }
 
+    // In Selections dürfen nur echte Methoden stehen, keine globalen Funktionen mit func
     if (target.keyword === true) {
       accept('error', 'In einer Selection dürfen nur Methoden aufgerufen werden, keine globalen Funktionen.', {
         node,
@@ -714,16 +846,19 @@ export class Pseudo2Validator {
     const expected = target.params?.length ?? 0;
     const actual = node.params?.length ?? 0;
 
+    // Eigener Code für falsche Parameteranzahl
     if (actual < expected) {
       accept('error', `Zu wenige Argumente: erwartet ${expected}, erhalten ${actual}.`, {
         node,
-        property: 'params'
+        property: 'params',
+        code: FUNC_CALL_RIGHT_PARANUM
       });
       return;
     } else if (actual > expected) {
       accept('error', `Zu viele Argumente: erwartet ${expected}, erhalten ${actual}.`, {
         node,
-        property: 'params'
+        property: 'params',
+        code: FUNC_CALL_RIGHT_PARANUM
       });
       return;
     }
@@ -853,15 +988,27 @@ export class Pseudo2Validator {
 
   checkThisExpr(node: ThisExpr, accept: ValidationAcceptor): void {
     const fn = AstUtils.getContainerOfType(node, isFunctionDeclaration);
-    const struct = AstUtils.getContainerOfType(node, isStructDeclaration);
 
-    // "this" ist nur innerhalb einer Methode erlaubt:
-    // - es muss in einer FunctionDeclaration liegen
-    // - diese FunctionDeclaration muss in einem Struct liegen
-    // - und sie darf KEIN "func" haben
-    if (!fn || !struct || fn.keyword === true) {
-      accept('error', 'this darf nur innerhalb einer Struct-Methode verwendet werden.', {
-        node
+    // Fall 1:
+    // "this" darf überhaupt nur innerhalb einer FunctionDeclaration vorkommen
+    if (!fn) {
+      accept('error', "'this' darf nur innerhalb einer Funktion verwendet werden.", {
+        node,
+        code: ELEMENT_ONLY_WITHIN_FUNCDECL
+      });
+      return;
+    }
+
+    const struct = AstUtils.getContainerOfType(fn.$container, isStructDeclaration);
+
+    // Fall 2:
+    // Innerhalb einer Funktion ist "this" nur erlaubt,
+    // wenn diese Funktion eine Struct-Methode ist
+    // (also in einem Struct liegt und KEIN func-Keyword hat)
+    if (!struct || fn.keyword === true) {
+      accept('error', "'this' darf nur innerhalb einer Struct-Methode verwendet werden.", {
+        node,
+        code: ELEMENT_ONLY_WITHIN_METHDECL
       });
     }
   }
@@ -898,7 +1045,7 @@ export class Pseudo2Validator {
           node,
           property: 'elems',
           index: i,
-          code: INCOMPATIBLE_TYPES
+          code: DIFFERENT_TYPES_OF_ARRAYLIT_ELEMS
         });
       }
     }
@@ -951,10 +1098,40 @@ export class Pseudo2Validator {
       const expectedType = this.expectedParameterType(param);
       const actualType = this.types.typeFor(arg);
 
+      if (param.isArray && !actualType.isArrayType() && !actualType.isUnknown()) {
+        accept(
+          'error',
+          `Argument ${i + 1} muss ein Array sein, weil der formale Parameter '${param.name}' ein Array-Parameter ist.`,
+          {
+            node: callNode,
+            property: 'params',
+            index: i,
+            code: CONSISTENT_ARRAY_TYPE_OF_PARA
+          }
+        );
+        continue;
+      }
+
+      if (!param.isArray && actualType.isArrayType()) {
+        accept(
+          'error',
+          `Argument ${i + 1} darf kein Array sein, weil der formale Parameter '${param.name}' kein Array-Parameter ist.`,
+          {
+            node: callNode,
+            property: 'params',
+            index: i,
+            code: CONSISTENT_ARRAY_TYPE_OF_PARA
+          }
+        );
+        continue;
+      }
+
+      // Wenn der erwartete Typ noch unbekannt ist, hier nichts weiter prüfen
       if (expectedType.isUnknown()) {
         continue;
       }
 
+      // Normale Typkonformität der Argumente prüfen
       if (!this.isAssignable(actualType, expectedType)) {
         accept(
           'error',
@@ -963,7 +1140,7 @@ export class Pseudo2Validator {
             node: callNode,
             property: 'params',
             index: i,
-            code: INCOMPATIBLE_TYPES
+            code: FUNC_CALL_ACTUALPARA_CONFORMSTO_FORMALPARA
           }
         );
       }
@@ -1417,6 +1594,50 @@ export class Pseudo2Validator {
       }
 
       return current;
+    }
+  }
+  // sammelt alle lokalen Variablendeklarationen einer Funktion,
+  // aber ohne Loop-Iteratoren und ohne Längenparameter von Array-Parametern.
+  /*private getFunctionLocalVarDecls(fn: FunctionDeclaration): VarDecl[] {
+    const result: VarDecl[] = [];
+
+    for (const n of AstUtils.streamAllContents(fn)) {
+      if (isVarDecl(n)) {
+        if (this.isLengthParameterDecl(n)) {
+          continue;
+        }
+
+        // Loop-Iteratoren werden separat im ForLoop-Check behandelt
+        const loop = AstUtils.getContainerOfType(n, isForLoop);
+        if (loop && loop.iterator === n) {
+          continue;
+        }
+
+        result.push(n);
+      }
+    }
+
+    return result;
+  }*/
+
+  // Prüft doppelte Namen in einer Liste von Variablendeklarationen
+  private reportDuplicateVarDecls(
+    vars: VarDecl[],
+    accept: ValidationAcceptor
+  ): void {
+    const seen = new Map<string, VarDecl>();
+
+    for (const v of vars) {
+      const prev = seen.get(v.name);
+      if (prev) {
+        accept('error', `Doppelte Variable '${v.name}'.`, {
+          node: v,
+          property: 'name',
+          code: DUPLICATE_ELEMENT
+        });
+      } else {
+        seen.set(v.name, v);
+      }
     }
   }
 

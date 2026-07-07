@@ -99,7 +99,7 @@ describe('PrinterTests', () => {
     return (ret as ReturnStmt).retExpr!;
   }
 
-  // Formatiert einen Ausdruck in die kanonische Repräsentation wie in den alten Xtext-Tests.
+  // Formatiert einen Ausdruck in die kanonische Repräsentation
   function reprExpr(expr: Expr): string {
     if (isIntLiteral(expr)) return String(expr.value);
     if (isBoolLiteral(expr)) return String(expr.value);

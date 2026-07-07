@@ -247,7 +247,7 @@ describe('ScopeTests', () => {
     `);
 
     // Testet den Scope von "x" in einem if-Block mit zwei x-Deklarationen.
-    // Wie im ursprünglichen Xtext-Test prüfen wir die rohe Kandidatenliste vor MapScope.
+    // Die rohe Kandidatenliste vor MapScope prüfen.
     // Erwartung: Für das letzte "print x" sind beide x-Deklarationen sichtbar.
     const topInstr = model.instructions.at(-1) as IfStatement;
     const printInstr = lastPrintCommand(topInstr);

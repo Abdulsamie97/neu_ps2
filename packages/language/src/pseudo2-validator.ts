@@ -47,6 +47,7 @@ import type {
 import type { Pseudo2Services } from './pseudo2-module.js';
 
 import {
+  isProgram,
   isFunctionDeclaration,
   isStructDeclaration,
   isStructAttDeclaration,
@@ -82,9 +83,19 @@ import { TYPE_NUM, TYPE_BOOL, TYPE_STRING, TYPE_ARRAY_UNKNOWN, TYPE_UNKNOWN, TYP
 export const INCOMPATIBLE_TYPES = 'INCOMPATIBLE_TYPES';
 export const INCOMPATIBLE_TYPES_EQ = 'INCOMPATIBLE_TYPES_EQ';
 export const INCOMPATIBLE_TYPES_PLUS = 'INCOMPATIBLE_TYPES_PLUS';
+export const DUPLICATE_ELEMENT = 'DUPLICATE_ELEMENT';
 export const VAR_DECL_NO_NESTED_ARRAY = 'VAR_DECL_NO_NESTED_ARRAY';
 export const DIFFERENT_TYPES_OF_RETURNS = 'DIFFERENT_TYPES_OF_RETURNS';
 export const PRINT_EXPECTS_BASE_TYPE = 'PRINT_EXPECTS_BASE_TYPE';
+export const FUNC_DECL_ONLY_GLOBAL = 'FUNC_DECL_ONLY_GLOBAL';
+export const METH_DECL_ONLY_IN_STRUCT = 'METH_DECL_ONLY_IN_STRUCT';
+export const SELECTION_REQUIRES_METHODCALLS = 'SELECTION_REQUIRES_METHODCALLS';
+export const FUNCTIONCALLS_WO_RETURN_ONLY_AS_INSTRUCTION = 'FUNCTIONCALLS_WO_RETURN_ONLY_AS_INSTRUCTION';
+export const METHODCALLS_WO_RETURN_ONLY_AS_INSTRUCTION = 'METHODCALLS_WO_RETURN_ONLY_AS_INSTRUCTION';
+export const ARRAYLIT_NESTED_ARRAY = 'ARRAYLIT_NESTED_ARRAY';
+export const VAR_DECL_NO_INIT_WITH_EMPTY_ARRAY = 'VAR_DECL_NO_INIT_WITH_EMPTY_ARRAY';
+export const VAR_DECL_NO_INIT_WITH_NULL = 'VAR_DECL_NO_INIT_WITH_NULL';
+
 
 export function registerValidationChecks(services: Pseudo2Services) {
   const registry = services.validation.ValidationRegistry;
@@ -216,6 +227,25 @@ export class Pseudo2Validator {
   }
 
   checkFunctionDeclaration(node: FunctionDeclaration, accept: ValidationAcceptor): void {
+    const container = node.$container;
+
+    // func-Deklarationen müssen global sein
+    if (node.keyword === true && !isProgram(container)) {
+      accept('error', "Funktionen mit dem Schlüsselwort 'func' müssen global deklariert werden.", {
+        node,
+        property: 'name',
+        code: FUNC_DECL_ONLY_GLOBAL
+      });
+    }
+
+    // methodenartige Deklarationen ohne 'func' nur im Struct
+    if (node.keyword !== true && !isStructDeclaration(container)) {
+      accept('error', "Methoden ohne 'func' dürfen nur innerhalb einer Struct-Deklaration stehen.", {
+        node,
+        property: 'name',
+        code: METH_DECL_ONLY_IN_STRUCT
+      });
+    }
     const seen = new Set<string>();
 
     // 1. Parameter prüfen
@@ -334,7 +364,8 @@ export class Pseudo2Validator {
     if (!this.isStatementFunctionCall(node) && !this.hasReturnValue(target)) {
       accept('error', `Funktion '${target.name}' gibt keinen Wert zurück und kann nicht als Ausdruck verwendet werden.`, {
         node,
-        property: 'f'
+        property: 'f',
+        code: FUNCTIONCALLS_WO_RETURN_ONLY_AS_INSTRUCTION
       });
     }
 
@@ -439,6 +470,27 @@ export class Pseudo2Validator {
     // -----------------------------
     // Array-Deklarationen prüfen
     // -----------------------------
+    // Kein leeres Array als Initialwert
+    if (node.initializer && node.initializer.$type === 'ArrayLiteral') {
+      const arr = node.initializer as ArrayLiteral;
+      if ((arr.elems ?? []).length === 0) {
+        accept('error', 'Variable kann nicht mit einem leeren Array initialisiert werden.', {
+          node,
+          property: 'initializer',
+          code: VAR_DECL_NO_INIT_WITH_EMPTY_ARRAY
+        });
+      }
+    }
+
+    // Kein null als Initialwert
+    if (node.initializer && node.initializer.$type === 'NullLiteral') {
+      accept('error', 'Variable kann nicht mit null initialisiert werden.', {
+        node,
+        property: 'initializer',
+        code: VAR_DECL_NO_INIT_WITH_NULL
+      });
+    }
+
     const isArrayVar = (node as any).isArrayVariable === true;
 
     if (!isArrayVar) {
@@ -523,28 +575,20 @@ export class Pseudo2Validator {
       }
     }
 
-    const seenAttrs = new Set<string>();
-    const seenMethods = new Set<string>();
+    const seenChildren = new Set<string>();
 
     for (const child of node.children ?? []) {
-      if (isStructAttDeclaration(child)) {
-        if (seenAttrs.has(child.name)) {
-          accept('error', `Doppeltes Attribut '${child.name}' in Struct '${node.name}'.`, {
-            node: child,
-            property: 'name'
-          });
-        } else {
-          seenAttrs.add(child.name);
-        }
-      } else if (isFunctionDeclaration(child)) {
-        if (seenMethods.has(child.name)) {
-          accept('error', `Doppelte Methode '${child.name}' in Struct '${node.name}'.`, {
-            node: child,
-            property: 'name'
-          });
-        } else {
-          seenMethods.add(child.name);
-        }
+      const name = (child as { name?: string }).name;
+      if (!name) continue;
+
+      if (seenChildren.has(name)) {
+        accept('error', `Doppeltes Struct-Element '${name}' in Struct '${node.name}'.`, {
+          node: child,
+          property: 'name',
+          code: DUPLICATE_ELEMENT
+        });
+      } else {
+        seenChildren.add(name);
       }
     }
   }
@@ -649,6 +693,24 @@ export class Pseudo2Validator {
     const target = node.f?.ref;
     if (!target) return;
 
+    if (!this.hasReturnValue(target) && !this.isInsideCallCommand(node)) {
+      accept('error', `Methode '${target.name}' gibt keinen Wert zurück und darf nur mit 'call' als Instruktion verwendet werden.`, {
+        node,
+        property: 'f',
+        code: METHODCALLS_WO_RETURN_ONLY_AS_INSTRUCTION
+      });
+      return;
+    }
+
+    if (target.keyword === true) {
+      accept('error', 'In einer Selection dürfen nur Methoden aufgerufen werden, keine globalen Funktionen.', {
+        node,
+        property: 'f',
+        code: SELECTION_REQUIRES_METHODCALLS
+      });
+      return;
+    }
+
     const expected = target.params?.length ?? 0;
     const actual = node.params?.length ?? 0;
 
@@ -667,6 +729,17 @@ export class Pseudo2Validator {
     }
 
     this.checkArgumentTypes(node, target, node.params ?? [], accept);
+  }
+
+  private isInsideCallCommand(node: AstNode): boolean {
+    let current: AstNode | undefined = node;
+    while (current) {
+      if (current.$type === 'CallCommand') {
+        return true;
+      }
+      current = current.$container;
+    }
+    return false;
   }
 
   checkAttSelection(node: AttSelection, accept: ValidationAcceptor): void {
@@ -729,12 +802,14 @@ export class Pseudo2Validator {
     if (!this.isStatementMethodCall(node) && !this.hasReturnValue(target)) {
       accept('error', `Methode '${target.name}' gibt keinen Wert zurück und kann nicht als Ausdruck verwendet werden.`, {
         node,
-        property: 'methref'
+        property: 'methref',
+        code: METHODCALLS_WO_RETURN_ONLY_AS_INSTRUCTION
       });
     }
 
     const exists = (struct.children ?? [])
       .filter(isFunctionDeclaration)
+      .filter(m => m.keyword !== true)
       .some(m => m.name === methodName);
 
     if (!exists) {
@@ -777,16 +852,38 @@ export class Pseudo2Validator {
   }
 
   checkThisExpr(node: ThisExpr, accept: ValidationAcceptor): void {
-    const struct = AstUtils.getContainerOfType(node, isStructDeclaration);
     const fn = AstUtils.getContainerOfType(node, isFunctionDeclaration);
+    const struct = AstUtils.getContainerOfType(node, isStructDeclaration);
 
-    if (!struct || !fn) {
-      accept('error', 'this darf nur innerhalb einer Struct-Methode verwendet werden.', { node });
+    // "this" ist nur innerhalb einer Methode erlaubt:
+    // - es muss in einer FunctionDeclaration liegen
+    // - diese FunctionDeclaration muss in einem Struct liegen
+    // - und sie darf KEIN "func" haben
+    if (!fn || !struct || fn.keyword === true) {
+      accept('error', 'this darf nur innerhalb einer Struct-Methode verwendet werden.', {
+        node
+      });
     }
   }
 
   checkArrayLiteral(node: ArrayLiteral, accept: ValidationAcceptor): void {
     const elems = node.elems ?? [];
+    if (elems.length === 0) {
+      return;
+    }
+
+    for (let i = 0; i < elems.length; i++) {
+      const elemType = this.types.typeFor(elems[i]);
+      if (elemType.isArrayType()) {
+        accept('error', 'Array-Literal darf kein anderes Array als Element enthalten.', {
+          node,
+          property: 'elems',
+          index: i,
+          code: ARRAYLIT_NESTED_ARRAY
+        });
+      }
+    }
+
     if (elems.length <= 1) {
       return;
     }

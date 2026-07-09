@@ -1,5 +1,5 @@
 import type { Program } from 'pseudo2-language';
-import { generateProgram } from 'pseudo2-language';
+import { generateGraphvizArtifacts, generateProgram } from 'pseudo2-language';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { extractDestinationAndName } from './util.js';
@@ -13,5 +13,10 @@ export function generate(programAst: Program, filePath: string, destination: str
     fs.mkdirSync(data.destination, { recursive: true });
   }
   fs.writeFileSync(generatedFilePath, generatedCode);
+
+  for (const artifact of generateGraphvizArtifacts(programAst)) {
+    fs.writeFileSync(path.join(data.destination, artifact.fileName), artifact.code);
+  }
+
   return generatedFilePath;
 }

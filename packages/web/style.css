@@ -53,6 +53,17 @@ button:disabled {
     background-color: #457c4b;
 }
 
+#button-generate-c,
+#button-save-c {
+    background-color: #604b1f;
+    border-color: #80642a;
+}
+
+#button-generate-c:hover:not(:disabled),
+#button-save-c:hover:not(:disabled) {
+    background-color: #765d27;
+}
+
 .app-shell {
     display: flex;
     flex-direction: column;
@@ -187,6 +198,15 @@ pre {
 #exespan {
     border-color: #214d31;
     min-height: 150px;
+}
+
+#cspan {
+    border-color: #5e4a20;
+    min-height: 220px;
+}
+
+#verifastspan {
+    border-color: #284b70;
 }
 
 details {

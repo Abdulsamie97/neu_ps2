@@ -8,15 +8,74 @@
   </head>
 
   <body>
-    <div class="exampleHeadlineDiv">
-      <b class="exampleHeadline">
-        Pseudo2 Client & Language Server (Worker)
-      </b>
-      <br />
-      <button type="button" id="button-start">Start</button>
-      <button type="button" id="button-dispose">Dispose</button>
+    <div class="app-shell">
+      <header class="toolbar">
+        <div class="brand">
+          <b>Pseudo2</b>
+          <span>Editor, JavaScript, C und VeriFast</span>
+        </div>
+        <div class="toolbar-actions">
+          <button type="button" id="button-start">Start</button>
+          <button type="button" id="button-dispose" disabled>Dispose</button>
+          <button type="button" id="button-save">Save Pseudo2</button>
+          <button type="button" id="button-execute">Run JS</button>
+          <button type="button" id="button-generate-c">Generate C</button>
+          <button type="button" id="button-save-c">Save C</button>
+          <button type="button" id="button-summary">Summary</button>
+          <button type="button" id="button-code">Show Source</button>
+        </div>
+        <span id="save-status" class="status-pill"></span>
+      </header>
+
+      <main class="workspace-layout">
+        <section class="editor-pane">
+          <div class="pane-header">Pseudo2 Source</div>
+          <div id="monaco-editor-root" class="example-editor-root"></div>
+        </section>
+
+        <aside class="output-pane">
+          <section class="output-section output-primary">
+            <div class="pane-header">JavaScript Output</div>
+            <pre id="exespan"></pre>
+          </section>
+
+          <section class="output-section">
+            <details open>
+              <summary>Generated JavaScript</summary>
+              <pre id="generatedspan"></pre>
+            </details>
+          </section>
+
+          <section class="output-section">
+            <details open>
+              <summary>Generated C</summary>
+              <pre id="cspan"></pre>
+            </details>
+          </section>
+
+          <section class="output-section">
+            <details open>
+              <summary>VeriFast</summary>
+              <pre id="verifastspan"></pre>
+            </details>
+          </section>
+
+          <section class="output-section">
+            <details>
+              <summary>Summary</summary>
+              <pre id="summaryspan"></pre>
+            </details>
+          </section>
+
+          <section class="output-section">
+            <details>
+              <summary>Source Echo</summary>
+              <pre id="codespan"></pre>
+            </details>
+          </section>
+        </aside>
+      </main>
     </div>
-    <div id="monaco-editor-root" class="example-editor-root"></div>
     <script type="module">
       import { runPseudo2 } from "./src/main.ts";
 

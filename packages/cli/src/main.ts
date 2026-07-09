@@ -18,13 +18,31 @@ const packageContent = await fs.readFile(packagePath, 'utf-8');
 
 export type GenerateOptions = {
     destination?: string;
+    js?: boolean;
+    graphviz?: boolean;
+    onlyJs?: boolean;
+    ast?: boolean;
+    dep?: boolean;
+    cfg?: boolean;
 }
 
 export const generateAction = async (fileName: string, opts: GenerateOptions): Promise<void> => {
     const services = createPseudo2Services(NodeFileSystem).Pseudo2;
     const programAst = await extractAstNode<Program>(fileName, services);
-    const generatedFilePath = generate(programAst, fileName, opts.destination);
-    console.log(chalk.green(`Code generated successfully: ${generatedFilePath}`));
+    const writtenFiles = generate(programAst, fileName, {
+        destination: opts.destination,
+        emitJavaScript: opts.js !== false,
+        emitGraphviz: opts.onlyJs ? false : opts.graphviz !== false,
+        graphvizKinds: selectedGraphvizKinds(opts)
+    });
+    console.log(chalk.green(`Generated ${writtenFiles.length} file(s): ${writtenFiles.join(', ')}`));
+};
+
+export const generateCAction = async (fileName: string, opts: { destination?: string }): Promise<void> => {
+    const services = createPseudo2Services(NodeFileSystem).Pseudo2;
+    const programAst = await extractAstNode<Program>(fileName, services);
+    const generatedFilePath = generateC(programAst, fileName, opts.destination);
+    console.log(chalk.green(`C code generated successfully: ${generatedFilePath}`));
 };
 
 export default function(): void {
@@ -37,6 +55,12 @@ export default function(): void {
         .command('generate')
         .argument('<file>', `source file (possible file extensions: ${fileExtensions})`)
         .option('-d, --destination <dir>', 'destination directory of generating')
+        .option('--no-js', 'skip JavaScript output')
+        .option('--no-graphviz', 'skip Graphviz artifacts')
+        .option('--only-js', 'write only JavaScript output')
+        .option('--ast', 'write AST Graphviz artifact')
+        .option('--dep', 'write dependency Graphviz artifact')
+        .option('--cfg', 'write CFG Graphviz artifacts')
         .description('generates code from a Pseudo2 source file')
         .action(generateAction);
 
@@ -46,8 +70,9 @@ export default function(): void {
         .argument('<file>', 'C file to verify (e.g. out/generated.c)')
         .option('--vf <path>', 'path to verifast.exe (or use VERIFAST_EXE env var)')
         .option('--extra <args...>', 'extra args passed to verifast (optional)')
+        .option('--link', 'enable VeriFast link checking; default verifies generated C only with -c')
         .description('runs VeriFast on a C file and prints JSON result')
-        .action(async (file: string, opts: { vf?: string; extra?: string[] }) => {
+        .action(async (file: string, opts: { vf?: string; extra?: string[]; link?: boolean }) => {
             const verifastExe = opts.vf ?? process.env.VERIFAST_EXE;
             if (!verifastExe) {
             console.error(
@@ -64,6 +89,7 @@ export default function(): void {
             verifastExe,
             file,
             extraArgs: opts.extra ?? [],
+            compileOnly: opts.link !== true,
             });
 
             // JSON auf stdout (ideal für Web-UI)
@@ -71,17 +97,19 @@ export default function(): void {
             process.exit(result.ok ? 0 : 1);
         });
 
-    program
+        program
             .command('generate-c')
             .argument('<file>', `source file (possible file extensions: ${fileExtensions})`)
             .option('-d, --destination <dir>', 'destination directory of generating')
-            .description('generates C code (VeriFast-ready, v0 supports only blocks)')
-            .action(async (fileName: string, opts: { destination?: string }) => {
-                const services = createPseudo2Services(NodeFileSystem).Pseudo2;
-                const programAst = await extractAstNode<Program>(fileName, services);
-
-                const generatedFilePath = generateC(programAst, fileName, opts.destination);
-                console.log(chalk.green(`C code generated successfully: ${generatedFilePath}`));
-            });
+            .description('generates VeriFast-ready C code from a Pseudo2 source file')
+            .action(generateCAction);
         program.parse(process.argv);
+}
+
+function selectedGraphvizKinds(opts: GenerateOptions): Array<'ast' | 'dep' | 'cfg'> | undefined {
+    const selected: Array<'ast' | 'dep' | 'cfg'> = [];
+    if (opts.ast) selected.push('ast');
+    if (opts.dep) selected.push('dep');
+    if (opts.cfg) selected.push('cfg');
+    return selected.length > 0 ? selected : undefined;
 }

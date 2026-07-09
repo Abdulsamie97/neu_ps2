@@ -1,17 +1,28 @@
-# Command-line interface (CLI)
+# Pseudo2 CLI
 
-Check [this part](https://langium.org/docs/learn/minilogo/customizing_cli/) of the Langium Minilogo Tutorial as a useful guide to the CLI.
+Build the workspace first:
 
-## What's in the folder?
+```powershell
+npm run build
+```
 
-- [package.json](./package.json) - The manifest file of your cli package.
-- [tsconfig.src.json](./tsconfig.src.json) - The package specific TypeScript compiler configuration extending the [base config](../../tsconfig.json).
-- [tsconfig.json](./tsconfig.json) - TypeScript compiler configuration options required for proper functionality of VSCode.
-- [bin/cli.js](bin/cli/cli.js) - Script referenced in the [package.json](./package.json) and used to execute the command-line interface.
-- [src/cli/main.ts](src/cli/main.ts) - The entry point of the command line interface (CLI) of your language.
-- [src/cli/generator.ts](src/cli/generator.ts) - The code generator used by the CLI to write output files from DSL documents.
-- [src/cli/util.ts](src/cli/util.ts) - Utility code for the CLI.
+Generate JavaScript plus Graphviz artifacts:
 
-## Instructions
+```powershell
+node .\packages\cli\bin\cli.js generate .\examples\test1.pseudo2 -d .\out
+```
 
-Run `node ./bin/cli` to see options for the CLI; `node ./bin/cli generate <file>` generates code for a given DSL file.
+Generate C for VeriFast:
+
+```powershell
+node .\packages\cli\bin\cli.js generate-c .\examples\test1.pseudo2 -d .\out
+```
+
+Run VeriFast:
+
+```powershell
+$env:VERIFAST_EXE="G:\Uni\Master\Masterarbeit\Verifast\verifast-26.01\bin\verifast.exe"
+node .\packages\cli\bin\cli.js verifast .\out\test1.c
+```
+
+`verifast` uses VeriFast `-c` by default, because generated C relies on external Pseudo2 runtime contracts. Use `--link` only when concrete runtime manifests/implementations are provided.

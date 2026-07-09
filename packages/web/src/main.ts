@@ -17,6 +17,7 @@ import { EmptyFileSystem, URI } from 'langium';
 
 import {
     createPseudo2Services,
+    generateCProgram,
     generateProgram,
     getSummaryFromCode,
     type Program
@@ -27,6 +28,9 @@ let editorApp: EditorApp | undefined;
 let lcWrapper: LanguageClientWrapper;
 let executionDocCounter = 0;
 let executionServices: ReturnType<typeof createPseudo2Services> | undefined;
+let lastGeneratedCCode = '';
+
+const DEFAULT_VERIFAST_EXE = 'G:\\Uni\\Master\\Masterarbeit\\Verifast\\verifast-26.01\\bin\\verifast.exe';
 
 type SaveFilePicker = (options: {
     suggestedName?: string;
@@ -196,6 +200,82 @@ const updateExecution = async () => {
     }
 };
 
+const updateCGeneration = async () => {
+    setTextContent('#cspan', 'Generating C...');
+    setTextContent('#verifastspan', '');
+
+    if (!editorApp?.getEditor()) {
+        setTextContent('#cspan', 'Editor is not started yet.');
+        return;
+    }
+
+    const currentCode = getCurrentCode();
+    if (currentCode.trim().length === 0) {
+        setTextContent('#cspan', 'No Pseudo2 code to generate.');
+        return;
+    }
+
+    try {
+        const { program, errors } = await parsePseudo2(currentCode);
+        if (errors.length > 0 || !program) {
+            setTextContent('#cspan', `Validation failed:\n${errors.join('\n')}`);
+            return;
+        }
+
+        lastGeneratedCCode = generateCProgram(program);
+        setTextContent('#cspan', lastGeneratedCCode);
+        setTextContent('#verifastspan', buildVeriFastHelp(getSuggestedCFileName()));
+    } catch (error) {
+        setTextContent('#cspan', `C generation failed:\n${formatError(error)}`);
+    }
+};
+
+const saveCurrentCCode = async () => {
+    if (!lastGeneratedCCode) {
+        await updateCGeneration();
+    }
+
+    if (!lastGeneratedCCode) {
+        setSaveStatus('No C code generated.');
+        return;
+    }
+
+    const suggestedName = getSuggestedCFileName();
+
+    try {
+        const saveFilePicker = (window as Window & { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
+        if (saveFilePicker) {
+            const fileHandle = await saveFilePicker({
+                suggestedName,
+                types: [
+                    {
+                        description: 'C file',
+                        accept: {
+                            'text/plain': ['.c']
+                        }
+                    }
+                ]
+            });
+            const writable = await fileHandle.createWritable();
+            await writable.write(lastGeneratedCCode);
+            await writable.close();
+            setSaveStatus(`Saved: ${fileHandle.name}`);
+            setTextContent('#verifastspan', buildVeriFastHelp(fileHandle.name));
+            return;
+        }
+
+        downloadCode(lastGeneratedCCode, suggestedName);
+        setSaveStatus(`Downloaded: ${suggestedName}`);
+        setTextContent('#verifastspan', buildVeriFastHelp(suggestedName));
+    } catch (error) {
+        if (isAbortError(error)) {
+            setSaveStatus('Save canceled.');
+            return;
+        }
+        setSaveStatus(`Save failed: ${formatError(error)}`);
+    }
+};
+
 function getCurrentCode(): string {
     return editorApp?.getEditor()?.getModel()?.getValue() ?? "";
 }
@@ -205,6 +285,26 @@ function getSuggestedFileName(): string {
     const parts = path.split('/').filter(Boolean);
     const fileName = parts[parts.length - 1] ?? '';
     return fileName.endsWith('.pseudo2') ? fileName : 'program.pseudo2';
+}
+
+function getSuggestedCFileName(): string {
+    return getSuggestedFileName().replace(/\.pseudo2$/i, '.c');
+}
+
+function buildVeriFastHelp(cFileName: string): string {
+    const outFile = `.\\out\\${cFileName}`;
+    return [
+        'VeriFast runs locally through the CLI, because the browser cannot start local executables.',
+        '',
+        'Generate and verify from PowerShell:',
+        `npm run build`,
+        `node .\\packages\\cli\\bin\\cli.js generate-c .\\examples\\test1.pseudo2 -d .\\out`,
+        `$env:VERIFAST_EXE="${DEFAULT_VERIFAST_EXE}"`,
+        `node .\\packages\\cli\\bin\\cli.js verifast ${outFile}`,
+        '',
+        'The CLI uses VeriFast compile-only mode (-c) by default for generated C runtime contracts.',
+        'Use --link only if you provide concrete runtime manifests/implementations.'
+    ].join('\n');
 }
 
 function getExecutionServices(): ReturnType<typeof createPseudo2Services> {
@@ -321,11 +421,16 @@ export const runDsl = async () => {
         document.querySelector('#button-code')?.addEventListener('click', updateCode);
         document.querySelector('#button-save')?.addEventListener('click', saveCurrentCode);
         document.querySelector('#button-execute')?.addEventListener('click', updateExecution);
+        document.querySelector('#button-generate-c')?.addEventListener('click', updateCGeneration);
+        document.querySelector('#button-save-c')?.addEventListener('click', saveCurrentCCode);
+        setTextContent('#verifastspan', buildVeriFastHelp(getSuggestedCFileName()));
 
     } catch (e) {
         console.error(e);
     }
 };
+
+export const runPseudo2 = runDsl;
 
 
 const loadWorkerRegular = () => {

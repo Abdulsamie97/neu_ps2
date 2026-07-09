@@ -525,4 +525,64 @@ describe('RuntimeTestsStruct', () => {
           return this.S[1]
     `, '1');
   });
+
+  test('old struct_tmp blueprint keeps nested struct stack behavior', async () => {
+    await assertExecResult(`
+      var N = 5
+      var r = new Ring
+
+      var p = new Place
+      call p.init()
+      call p.s.push(r)
+
+      print 2
+      print "finished"
+
+      struct Ring
+        num size
+
+      struct Place
+        RingStack s
+        init()
+          this.s = new RingStack
+          call this.s.init()
+
+      struct RingStack
+        Ring[] S
+        num top
+
+        init()
+          var help[N] = new Ring
+          this.S = help
+          this.top = 1
+
+        isEmpty()
+          if this.top == 1
+            return true
+          else
+            return false
+
+        isFull()
+          if this.top > N
+            return true
+          return false
+
+        push(x)
+          if this.isFull()
+            throw "ERROR: stack is already full"
+          this.S[this.top] = x
+          this.top = this.top + 1
+
+        pop()
+          if this.isEmpty()
+            throw "ERROR: stack is empty"
+          this.top = this.top - 1
+          return this.S[this.top]
+
+        getSizeOfIthRing(i)
+          if i >= this.top
+            return 0
+          return this.S[i].size
+    `, '2 finished');
+  });
 });

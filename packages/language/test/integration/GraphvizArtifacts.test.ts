@@ -38,6 +38,35 @@ describe('GraphvizArtifacts', () => {
     expect(cfg).toContain('label="[(x > 0)]"');
     expect(cfg).toContain('label="/return x"');
     expect(cfg).toContain('label="/return 0"');
+
+    expect(dep).toBe([
+      'digraph G {',
+      '  graph [compound=true];',
+      '  edge [arrowhead="vee"];',
+      '  n0 [label="", shape="tripleoctagon"];',
+      '  n1 [label="m", shape="hexagon"];',
+      '  n0 -> n1 [style="solid", color="black"];',
+      '}'
+    ].join('\n'));
+
+    expect(cfg).toBe([
+      'digraph G {',
+      '  subgraph cluster_cfg {',
+      '    graph [style="filled", color="lightgrey", label="m()", fontsize=16];',
+      '    node [style="filled", color="white"];',
+      '    n0 [label="", shape="circle", style="filled", color="black"];',
+      '    n1 [label="", shape="doublecircle", style="filled", color="black"];',
+      '    n2 [label="", shape="ellipse"];',
+      '    n3 [label="", shape="diamond"];',
+      '    n4 [label="", shape="ellipse"];',
+      '    n0 -> n3 [label=""];',
+      '    n3 -> n4 [label="[(x > 0)]"];',
+      '    n4 -> n1 [label="/return x"];',
+      '    n3 -> n2 [label="[else]"];',
+      '    n2 -> n1 [label="/return 0"];',
+      '  }',
+      '}'
+    ].join('\n'));
   });
 
   test('dependency graph contains struct attributes and methods', async () => {
@@ -62,6 +91,19 @@ describe('GraphvizArtifacts', () => {
     expect(dep).toContain('style="dashed", color="red"');
     expect(dep).toContain('style="dashed", color="green"');
     expect(dep).toContain('style="solid", color="black"');
+  });
+
+  test('can generate a selected Graphviz artifact subset', async () => {
+    const { model, document } = await parseRuntimeProgram(`
+      func add(a, b)
+        return a + b
+    `);
+
+    expectErrors(document);
+
+    const artifacts = generateGraphvizArtifacts(model, { kinds: ['dep'] });
+    expect(artifacts.map(artifact => artifact.fileName)).toEqual(['graphvizDep.dot']);
+    expect(artifacts[0].code).toContain('label="add", shape="hexagon"');
   });
 });
 

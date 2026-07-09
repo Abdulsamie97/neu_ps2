@@ -25,11 +25,13 @@ export async function runVeriFast(args: {
   verifastExe: string;
   file: string;
   extraArgs?: string[];
+  compileOnly?: boolean;
 }): Promise<VeriFastResult> {
-  const { verifastExe, file, extraArgs = [] } = args;
+  const { verifastExe, file, extraArgs = [], compileOnly = true } = args;
+  const vfArgs = [...(compileOnly ? ['-c'] : []), ...extraArgs, file];
 
   return await new Promise((resolve) => {
-    const child = spawn(verifastExe, [...extraArgs, file], {
+    const child = spawn(verifastExe, vfArgs, {
       windowsHide: true,
       shell: false,
     });

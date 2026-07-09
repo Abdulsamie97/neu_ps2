@@ -155,7 +155,7 @@ function generateInstruction(
   if (isThrowCommand(instruction)) return generateThrowCommand(instruction, context, indent, state);
   if (isCallCommand(instruction)) return generateCallCommand(instruction, context, indent, state);
 
-  return `${indent}// TODO: instruction`;
+  throw new Error(`Unsupported instruction type: ${(instruction as AstNode).$type}`);
 }
 
 function generateBlock(block: Block, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {

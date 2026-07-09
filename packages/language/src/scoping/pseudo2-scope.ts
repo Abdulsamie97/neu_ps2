@@ -52,6 +52,13 @@ import {
 import { Pseudo2TypeComputer, TypeComputationContext } from '../typing/pseudo2-type-computer.js';
 
 type Named = { name: string };
+const DEBUG_SCOPE = false;
+
+function debugScope(...values: unknown[]): void {
+  if (DEBUG_SCOPE) {
+    console.log(...values);
+  }
+}
 
 function isGlobalFunctionDecl(fn: FunctionDeclaration): boolean {
   return fn.keyword === true;
@@ -74,17 +81,17 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
   override getScope(context: ReferenceInfo): Scope {
     const c = context.container;
     const r = context.reference;
-      console.log('CUSTOM SCOPE PROVIDER ACTIVE', context.container.$type, context.property);
+      debugScope('CUSTOM SCOPE PROVIDER ACTIVE', context.container.$type, context.property);
     //console.log('[SCOPE] container=', c.$type, 'refText=', (r as any).$refText ?? 'n/a');
 
     // VarRef.ref
     if (isVarRef(c) && r === c.ref) {
-      console.log('--- VARREF SCOPE START ---');
-      console.log('VarRef text =', c.ref?.$refText ?? c.ref?.ref?.name ?? 'n/a');
+      debugScope('--- VARREF SCOPE START ---');
+      debugScope('VarRef text =', c.ref?.$refText ?? c.ref?.ref?.name ?? 'n/a');
 
       const vars = this.scopeForVarRef(c);
-      console.log('Final vars =', vars.map(v => v.name));
-      console.log('--- VARREF SCOPE END ---');
+      debugScope('Final vars =', vars.map(v => v.name));
+      debugScope('--- VARREF SCOPE END ---');
       return this.scopeFromNamed(vars);
     }
 
@@ -182,12 +189,12 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
   private scopeForVarRef(node: AstNode): Named[] {
     const currentInstr = this.getEnclosingInstruction(node);
 
-    console.log('[scopeForVarRef] node type =', node.$type);
-    console.log('[scopeForVarRef] currentInstr =', currentInstr?.$type);
+    debugScope('[scopeForVarRef] node type =', node.$type);
+    debugScope('[scopeForVarRef] currentInstr =', currentInstr?.$type);
 
     if (currentInstr) {
       const container = currentInstr.$container;
-      console.log('[scopeForVarRef] container =', container?.$type);
+      debugScope('[scopeForVarRef] container =', container?.$type);
 
       if (isBracedBlock(container) || isIndentedBlock(container)) {
         const locals = this.extractVarDeclsBeforeCurrent(container.instructions ?? [], currentInstr);
@@ -200,9 +207,9 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
       }
 
       if (isIfStatement(container)) {
-        console.log('[scopeForVarRef] entered IF branch');
+        debugScope('[scopeForVarRef] entered IF branch');
         const locals = this.handleIfStatement(container, currentInstr);
-        console.log('[scopeForVarRef] IF locals =', locals.map(v => v.name));
+        debugScope('[scopeForVarRef] IF locals =', locals.map(v => v.name));
 
         return this.dedupByName(locals);
       }
@@ -320,19 +327,19 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     const thenInstrs: Instruction[] = ifStmt.thenBlock?.instructions ?? [];
     const elseInstrs: Instruction[] = ifStmt.elseBlock?.instructions ?? [];
 
-    console.log('[handleIfStatement] currentInstr =', currentInstr.$type);
-    console.log('[handleIfStatement] thenInstrs =', thenInstrs.map(i => i.$type));
-    console.log('[handleIfStatement] elseInstrs =', elseInstrs.map(i => i.$type));  
+    debugScope('[handleIfStatement] currentInstr =', currentInstr.$type);
+    debugScope('[handleIfStatement] thenInstrs =', thenInstrs.map(i => i.$type));
+    debugScope('[handleIfStatement] elseInstrs =', elseInstrs.map(i => i.$type));  
 
 
     const inThen = thenInstrs.includes(currentInstr);
     const list = inThen ? thenInstrs : elseInstrs;
 
-    console.log('[handleIfStatement] inThen =', inThen);
-    console.log('[handleIfStatement] chosen list =', list.map(i => i.$type));
+    debugScope('[handleIfStatement] inThen =', inThen);
+    debugScope('[handleIfStatement] chosen list =', list.map(i => i.$type));
 
     const locals = this.extractVarDeclsBeforeCurrent(list, currentInstr);
-    console.log('[handleIfStatement] extracted locals =', locals.map(v => v.name));
+    debugScope('[handleIfStatement] extracted locals =', locals.map(v => v.name));
   
     return [...locals, ...this.scopeForVarRefFrom(ifStmt.$container)];
     
@@ -341,17 +348,17 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
   private extractVarDeclsBeforeCurrent(instrs: Instruction[], current: Instruction): VarDecl[] {
     const out: VarDecl[] = [];
 
-    console.log('[extractVarDeclsBeforeCurrent] current =', current.$type);
-    console.log('[extractVarDeclsBeforeCurrent] instrs =', instrs.map(i => i.$type));
+    debugScope('[extractVarDeclsBeforeCurrent] current =', current.$type);
+    debugScope('[extractVarDeclsBeforeCurrent] instrs =', instrs.map(i => i.$type));
 
     for (const i of instrs) {
-      console.log('[extractVarDeclsBeforeCurrent] visiting =', i.$type);
+      debugScope('[extractVarDeclsBeforeCurrent] visiting =', i.$type);
       if (i === current) {
-        console.log('[extractVarDeclsBeforeCurrent] reached current -> stop');
+        debugScope('[extractVarDeclsBeforeCurrent] reached current -> stop');
         break;
       }
       if (isVarDecl(i)) {
-        console.log('[extractVarDeclsBeforeCurrent] found varDecl =', i.name);
+        debugScope('[extractVarDeclsBeforeCurrent] found varDecl =', i.name);
         out.push(i);
       }
     }

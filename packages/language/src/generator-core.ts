@@ -247,7 +247,7 @@ function generateStructDeclaration(
   const fields = attributes
     .map((att, index) => {
       const comma = index < attributes.length - 1 ? ',' : '';
-      return `${indent}    ${context.getVarName(att)}: null${comma}`;
+      return `${indent}    ${context.getVarName(att)}: undefined${comma}`;
     })
     .join('\n');
   const factory = attributes.length > 0

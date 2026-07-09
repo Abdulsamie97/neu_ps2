@@ -1,0 +1,353 @@
+/*
+Iris View Shifts
+
+In Iris, the mask mechanism prevents one from re-opening an invariant and duplicating its resources. Mask-changing view shifts which reduce the mask,
+imply the possibility of opened invariants in the state after the view shift. So, mask-changing view shifts can just be used
+in the context of the proof for a triple around an atomic expression (see HOARE-VS-ATOMIC) or another view shift (VS-TRANS).
+let us call these contexts atomic contexts.
+
+Mask-preserving view shifts, on the other hand, imply that in the proof of the view shift an invariant under the mask might have been opened and closed,
+i.e. the mask is needed but no newly opened invariant after the view shift.
+Mask-preserving view shifts are allowed around any Hoare triple with the same mask (see HOARE-VS).
+
+Here, in VeriFast, view shifts are represented as lemmas. To represent Iris's rules our design needs the following properties:
+1- All forms of view shifts cannot be used when their mask is not available.
+2- Mask-changing view shifts are only allowed in atomic contexts
+
+To spare users some burden when working with mask-preserving view shifts in non-atomic contexts, the mechanism is as follows:
+a- Mask-preserving view shifts are represented as a pair of lemmas:
+    - First a `nonghost_callers_only` lemma without any notion of mask in its contract. Intuitively, we assume an imaginary `mask(Top)` token is provided
+    at the beginning of the verification of each function. A mask-preserving view shift can be satisfied as we always have all masks available.
+    No other view shift has opened any mask because mask-changing ones are not applicable here as we will see soon.
+    These maskless lemmas are not usable in an atomic context where a mask might have been opened because those contexts are all ghost contexts.
+    - Second, another mask-aware version of the lemma with specs like `req atomic_mask(Nlft) ...; ens atomic_mask(Nlft);` which is not `nonghost_callers_only`.
+    These are usable in atomic contexts where masks might have been opened. In such a context, `atomic_mask(m)` tokens are provided,
+    showing the mask `m` is available and witnessing we are in an atomic context at the same time. As mentioned earlier,
+    these mask-aware lemmas are not usable in real function bodies as there is no explicit `atomic_mask(m)` available there.
+b- Mask-changing view shifts will only have the second form naturally.
+*/
+
+/*@
+pred atomic_space(mask: mask_t, inv_: pred(););
+/* This would be the existentially quantified `R` in the derived rule on Ralf Jung's thesis in the middle of page 67.
+See https://research.ralfj.de/phd/thesis-screen.pdf */
+pred close_atomic_space_token(spaceMask: mask_t, inv_: pred());
+
+lem create_atomic_space(mask: mask_t, inv_: pred());
+    req !mask_is_empty(mask) &*& inv_();
+    ens atomic_space(mask, inv_);
+
+lem destroy_atomic_space(mask: mask_t, inv_: pred());
+    nonghost_callers_only
+    req atomic_space(mask, inv_);
+    ens inv_();
+
+lem open_atomic_space(spaceMask: mask_t, inv_: pred());
+    req [?f]atomic_space(spaceMask, inv_) &*& atomic_mask(?currentMask) &*& mask_le(spaceMask, currentMask) == true;
+    ens [f]atomic_space(spaceMask, inv_) &*& atomic_mask(mask_diff(currentMask, spaceMask))
+            &*& close_atomic_space_token(spaceMask, inv_) &*& inv_();
+
+lem close_atomic_space(spaceMask: mask_t);
+    req atomic_mask(?currentMask) &*& close_atomic_space_token(spaceMask, ?inv_) &*& inv_();
+    ens atomic_mask(mask_union(currentMask, spaceMask));
+
+lem_type atomic_block(pre: pred(), post: pred()) = lem();
+    req atomic_mask(MaskTop) &*& pre();
+    ens atomic_mask(MaskTop) &*& post();
+
+lem perform_atomically();
+    nonghost_callers_only
+    req is_atomic_block(?block, ?pre, ?post) &*& pre();
+    ens is_atomic_block(block, pre, post) &*& post();
+@*/
+
+/*@
+
+pred_ctor simple_share(frac_borrow_content: fix(thread_id_t, *_, pred(;)))(k: lifetime_t, t: thread_id_t, l: *_) =
+    frac_borrow(k, frac_borrow_content(t, l));
+pred_ctor shared_ref_own(pointee_shr: pred(lifetime_t, thread_id_t, *_), k: lifetime_t)(t: thread_id_t, l: *_) = [_]pointee_shr(k, t, l);
+
+pred na_inv(t: thread_id_t, m: mask_t, p: pred());
+//NAInv-new-inv
+lem na_inv_new(t: thread_id_t, m: mask_t, p: pred());
+    nonghost_callers_only
+    req p() &*& !mask_is_empty(m);
+    ens [_]na_inv(t, m, p);
+//NAInv-acc
+pred close_na_inv_token(t: thread_id_t, m: mask_t, p: pred());
+
+lem open_na_inv(t: thread_id_t, m: mask_t, p: pred());
+    nonghost_callers_only
+    req [_]na_inv(t, m, p) &*& partial_thread_token(t, ?m0) &*& mask_le(m, m0) == true;
+    ens partial_thread_token(t, mask_diff(m0, m)) &*& p() &*& close_na_inv_token(t, m, p);
+
+lem close_na_inv(t: thread_id_t, m: mask_t);
+    nonghost_callers_only
+    req close_na_inv_token(t, m, ?p) &*& p();
+    ens partial_thread_token(t, m);
+
+//Mask preserving view-shifts. Mask aware versions
+//NAInv-new-inv
+lem na_inv_new_m(t: thread_id_t, m: mask_t, p: pred());
+    req atomic_mask(?m0) &*& mask_le(m, m0) == true &*& p() &*& !mask_is_empty(m);
+    ens atomic_mask(m0) &*& [_]na_inv(t, m, p);
+//NAInv-acc
+lem open_na_inv_m(t: thread_id_t, m: mask_t, p: pred());
+    req atomic_mask(?am0) &*& mask_le(m, am0) == true &*& [_]na_inv(t, m, p) &*& partial_thread_token(t, ?m0) &*& mask_le(m, m0) == true;
+    ens atomic_mask(am0) &*& partial_thread_token(t, mask_diff(m0, m)) &*& p() &*& close_na_inv_token(t, m, p);
+
+lem close_na_inv_m(t: thread_id_t, m: mask_t);
+    req atomic_mask(?am0) &*& mask_le(m, am0) == true &*& close_na_inv_token(t, m, ?p) &*& p();
+    ens atomic_mask(am0) &*& partial_thread_token(t, m);
+
+@*/
+
+/*@
+
+pred bool_own(t: thread_id_t, v: bool;) = true;
+pred char_own(t: thread_id_t, v: char;) = 0 <= v as u32 && v as u32 <= 0xD7FF || 0xE000 <= v as u32 && v as u32 <= 0x10FFFF;
+pred_ctor raw_ptr_own<T>()(t: thread_id_t, v: *T;) = true;
+
+pred i8_own(t: thread_id_t, v: i8;) = true;
+pred i16_own(t: thread_id_t, v: i16;) = true;
+pred i32_own(t: thread_id_t, v: i32;) = true;
+pred i64_own(t: thread_id_t, v: i64;) = true;
+pred i128_own(t: thread_id_t, v: i128;) = true;
+pred isize_own(t: thread_id_t, v: isize;) = true;
+
+pred u8_own(t: thread_id_t, v: u8;) = true;
+pred u16_own(t: thread_id_t, v: u16;) = true;
+pred u32_own(t: thread_id_t, v: u32;) = true;
+pred u64_own(t: thread_id_t, v: u64;) = true;
+pred u128_own(t: thread_id_t, v: u128;) = true;
+pred usize_own(t: thread_id_t, v: usize;) = true;
+
+pred_ctor bool_full_borrow_content(t: thread_id_t, l: *bool)(;) = *l |-> ?_;
+pred_ctor char_full_borrow_content(t: thread_id_t, l: *char)(;) = *l |-> ?c &*& char_own(t, c);
+pred_ctor raw_ptr_full_borrow_content(t: thread_id_t, l: **_)(;) = *l |-> ?_;
+
+pred_ctor i8_full_borrow_content(t: thread_id_t, l: *i8)(;) = *l |-> ?_;
+pred_ctor i16_full_borrow_content(t: thread_id_t, l: *i16)(;) = *l |-> ?_;
+pred_ctor i32_full_borrow_content(t: thread_id_t, l: *i32)(;) = *l |-> ?_;
+pred_ctor i64_full_borrow_content(t: thread_id_t, l: *i64)(;) = *l |-> ?_;
+pred_ctor i128_full_borrow_content(t: thread_id_t, l: *i128)(;) = *l |-> ?_;
+pred_ctor isize_full_borrow_content(t: thread_id_t, l: *isize)(;) = *l |-> ?_;
+
+pred_ctor u8_full_borrow_content(t: thread_id_t, l: *u8)(;) = *l |-> ?_;
+pred_ctor u16_full_borrow_content(t: thread_id_t, l: *u16)(;) = *l |-> ?_;
+pred_ctor u32_full_borrow_content(t: thread_id_t, l: *u32)(;) = *l |-> ?_;
+pred_ctor u64_full_borrow_content(t: thread_id_t, l: *u64)(;) = *l |-> ?_;
+pred_ctor u128_full_borrow_content(t: thread_id_t, l: *u128)(;) = *l |-> ?_;
+pred_ctor usize_full_borrow_content(t: thread_id_t, l: *usize)(;) = *l |-> ?_;
+
+pred u32_share(k: lifetime_t, t: thread_id_t, l: *u32) = [_]frac_borrow(k, u32_full_borrow_content(t, l));
+
+type_pred_decl <Self>.own : pred(thread_id_t, Self);
+type_pred_decl <Self>.full_borrow_content : fix(thread_id_t, *_, pred());
+type_pred_decl <Self>.share : pred(lifetime_t, thread_id_t, *Self);
+
+pred_ctor own<T>(t: thread_id_t)(v: T) = (<T>.own)(t, v);
+
+type_pred_def <bool>.own = bool_own;
+//TODO: How to deal with Rust type `char`? Distinct Rust types should be mapped to distinct VF types, with distinct typeids.
+type_pred_def for <T> <*T>.own = raw_ptr_own::<T>;
+
+type_pred_def <i8>.own = i8_own;
+type_pred_def <i16>.own = i16_own;
+type_pred_def <i32>.own = i32_own;
+type_pred_def <i64>.own = i64_own;
+type_pred_def <i128>.own = i128_own;
+type_pred_def <isize>.own = isize_own;
+
+type_pred_def <u8>.own = u8_own;
+type_pred_def <u16>.own = u16_own;
+type_pred_def <u32>.own = u32_own;
+type_pred_def <u64>.own = u64_own;
+type_pred_def <u128>.own = u128_own;
+type_pred_def <usize>.own = usize_own;
+
+pred_ctor slice_own<T>()(t: thread_id_t, v: [T]) = foreach(slice_elems(v), (own)(t));
+
+type_pred_def for<T> <[T]>.own = slice_own::<T>;
+
+type_pred_def <bool>.full_borrow_content = bool_full_borrow_content;
+type_pred_def <*_>.full_borrow_content = raw_ptr_full_borrow_content;
+
+type_pred_def <i8>.full_borrow_content = i8_full_borrow_content;
+type_pred_def <i16>.full_borrow_content = i16_full_borrow_content;
+type_pred_def <i32>.full_borrow_content = i32_full_borrow_content;
+type_pred_def <i64>.full_borrow_content = i64_full_borrow_content;
+type_pred_def <i128>.full_borrow_content = i128_full_borrow_content;
+type_pred_def <isize>.full_borrow_content = isize_full_borrow_content;
+
+type_pred_def <u8>.full_borrow_content = u8_full_borrow_content;
+type_pred_def <u16>.full_borrow_content = u16_full_borrow_content;
+type_pred_def <u32>.full_borrow_content = u32_full_borrow_content;
+type_pred_def <u64>.full_borrow_content = u64_full_borrow_content;
+type_pred_def <u128>.full_borrow_content = u128_full_borrow_content;
+type_pred_def <usize>.full_borrow_content = usize_full_borrow_content;
+
+lem close_ref_mut_own<'a, T>(t: thread_id_t, l: &'a mut T);
+    req full_borrow('a, <T>.full_borrow_content(t, l));
+    ens <&'a mut T>.own(t, l);
+
+lem close_ref_own<'a, T>(l: &'a T);
+    req thread_token(?t) &*& [_](<T>.share('a, t, l));
+    ens thread_token(t) &*& <&'a T>.own(t, l);
+
+lem open_full_borrow_content<T>(t: thread_id_t, l: *T);
+    req ((<T>.full_borrow_content)(t, l))();
+    ens *l |-> ?v &*& (<T>.own)(t, v);
+
+lem close_full_borrow_content<T>(t: thread_id_t, l: *T);
+    req *l |-> ?v &*& (<T>.own)(t, v);
+    ens ((<T>.full_borrow_content)(t, l))();
+
+fix type_depth(typeId: *_) -> i32;
+
+pred type_interp<T>(;) = ghost_rec_perm(type_depth(typeid(T)));
+
+// The intersection of the lifetimes that appear in type T, or 'static if no lifetimes appear in T
+fix lft_of_type<T>() -> lifetime_t;
+
+lem share_mono<T>(k: lifetime_t, k1: lifetime_t, t: thread_id_t, l: *T);
+    req type_interp::<T>() &*& lifetime_inclusion(k1, k) == true &*& [_](<T>.share)(k, t, l);
+    ens type_interp::<T>() &*& [_](<T>.share)(k1, t, l);
+
+lem share_full_borrow<T>(k: lifetime_t, t: thread_id_t, l: *_);
+    nonghost_callers_only
+    req full_borrow(k, (<T>.full_borrow_content)(t, l)) &*& [?q]lifetime_token(k);
+    ens [_](<T>.share)(k, t, l) &*& [q]lifetime_token(k);
+
+lem share_full_borrow_m<T>(k: lifetime_t, t: thread_id_t, l: *_);
+    req type_interp::<T>() &*& atomic_mask(MaskTop) &*& full_borrow(k, (<T>.full_borrow_content)(t, l)) &*& [?q]lifetime_token(k);
+    ens type_interp::<T>() &*& atomic_mask(MaskTop) &*& [_](<T>.share)(k, t, l) &*& [q]lifetime_token(k);
+
+lem init_ref_share<T>(k: lifetime_t, t: thread_id_t, p: *T);
+    nonghost_callers_only
+    req type_interp::<T>() &*& ref_init_perm(p, ?x) &*& [_](<T>.share)(k, t, x) &*& [?q]lifetime_token(k);
+    ens type_interp::<T>() &*& [q]lifetime_token(k) &*& [_](<T>.share)(k, t, p) &*& [_]frac_borrow(k, ref_initialized_(p));
+
+lem init_ref_share_m<T>(k: lifetime_t, t: thread_id_t, p: *T);
+    req type_interp::<T>() &*& atomic_mask(?mask) &*& mask_le(Nlft, mask) == true &*& ref_init_perm(p, ?x) &*& [_](<T>.share)(k, t, x) &*& [?q]lifetime_token(k);
+    ens type_interp::<T>() &*& atomic_mask(mask) &*& [q]lifetime_token(k) &*& [_](<T>.share)(k, t, p) &*& [_]frac_borrow(k, ref_initialized_(p));
+
+fix is_Send(type_id: *_) -> bool;
+
+lem_auto is_Send_u8_def();
+    req true;
+    ens is_Send(typeid(u8)) == true;
+
+lem_auto is_Send_u16_def();
+    req true;
+    ens is_Send(typeid(u16)) == true;
+
+lem_auto is_Send_u32_def();
+    req true;
+    ens is_Send(typeid(u32)) == true;
+
+lem_auto is_Send_u64_def();
+    req true;
+    ens is_Send(typeid(u64)) == true;
+
+lem_auto is_Send_u128_def();
+    req true;
+    ens is_Send(typeid(u128)) == true;
+
+lem_auto is_Send_i8_def();
+    req true;
+    ens is_Send(typeid(i8)) == true;
+
+lem_auto is_Send_i16_def();
+    req true;
+    ens is_Send(typeid(i16)) == true;
+
+lem_auto is_Send_i32_def();
+    req true;
+    ens is_Send(typeid(i32)) == true;
+
+lem_auto is_Send_i64_def();
+    req true;
+    ens is_Send(typeid(i64)) == true;
+
+lem_auto is_Send_i128_def();
+    req true;
+    ens is_Send(typeid(i128)) == true;
+
+lem Send::send<T>(t0: thread_id_t, t1: thread_id_t, v: T);
+    req type_interp::<T>() &*& is_Send(typeid(T)) == true &*& (<T>.own)(t0, v);
+    ens type_interp::<T>() &*& (<T>.own)(t1, v);
+
+fix is_Sync(type_id: *_) -> bool;
+
+lem_auto is_Sync_u8_def();
+    req true;
+    ens is_Sync(typeid(u8)) == true;
+
+lem_auto is_Sync_u16_def();
+    req true;
+    ens is_Sync(typeid(u16)) == true;
+
+lem_auto is_Sync_u32_def();
+    req true;
+    ens is_Sync(typeid(u32)) == true;
+
+lem_auto is_Sync_u64_def();
+    req true;
+    ens is_Sync(typeid(u64)) == true;
+
+lem_auto is_Sync_u128_def();
+    req true;
+    ens is_Sync(typeid(u128)) == true;
+
+lem_auto is_Sync_i8_def();
+    req true;
+    ens is_Sync(typeid(i8)) == true;
+
+lem_auto is_Sync_i16_def();
+    req true;
+    ens is_Sync(typeid(i16)) == true;
+
+lem_auto is_Sync_i32_def();
+    req true;
+    ens is_Sync(typeid(i32)) == true;
+
+lem_auto is_Sync_i64_def();
+    req true;
+    ens is_Sync(typeid(i64)) == true;
+
+lem_auto is_Sync_i128_def();
+    req true;
+    ens is_Sync(typeid(i128)) == true;
+
+lem Sync::sync<T>(k: lifetime_t, t0: thread_id_t, t1: thread_id_t, l: *T);
+    req type_interp::<T>() &*& is_Sync(typeid(T)) == true &*& [_](<T>.share)(k, t0, l);
+    ens type_interp::<T>() &*& [_](<T>.share)(k, t1, l);
+
+fix typeid_of_lft(k: lifetime_t) -> *_;
+fix lft_of(type_id: *_) -> lifetime_t; // Lifetime value of a lifetime generic parameter
+
+lem_auto lft_of_typeid_of_lft(k: lifetime_t);
+    req true;
+    ens lft_of(typeid_of_lft(k)) == k;
+
+fix is_subtype_of<T0, T1>() -> bool; // T0 is a subtype of T1
+
+fix upcast<t0, t1>(x: t0) -> t1; // Cast a value of type t0 to a supertype t1 of t0
+
+lem own_mono<T0, T1>(t: thread_id_t, v: T0);
+    req type_interp::<T0>() &*& type_interp::<T1>() &*& <T0>.own(t, v) &*& is_subtype_of::<T0, T1>() == true;
+    ens type_interp::<T0>() &*& type_interp::<T1>() &*& <T1>.own(t, upcast::<T0, T1>(v));
+
+lem_type to_own<T>(R: pred(), t: thread_id_t, x: T) = lem();
+    req R();
+    ens <T>.own(t, x);
+
+pred drop_perm<T>(charged: bool, R: pred(), t: thread_id_t, x: T) =
+    if charged {
+        R() &*& is_to_own::<T>(_, R, t, x)
+    } else {
+        ignore_unwind_paths
+    };
+
+@*/

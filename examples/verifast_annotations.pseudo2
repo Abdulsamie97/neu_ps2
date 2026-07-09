@@ -1,0 +1,7 @@
+@requires true
+@ensures "true"
+func verified()
+  @assert true
+  return 5
+
+print verified()

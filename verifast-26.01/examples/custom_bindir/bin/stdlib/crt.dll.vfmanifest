@@ -1,0 +1,6 @@
+.provides ./prelude.h#field_ptr_provenance_injective
+.predicate @./prelude.h#cutom_chars
+.provides ./prelude.h#custom_chars_inv
+.predicate @./prelude.h#malloc_block
+.provides ./malloc.h#malloc
+.provides ./malloc.h#free

@@ -1,0 +1,403 @@
+include!{"prelude_core_core.rsspec"}
+include!{"list.rsspec"}
+include!{"nat.rsspec"}
+include!{"listex.rsspec"}
+
+/*@
+
+inductive fn_outcome<T> = returning(result: T) | unwinding;
+
+fix fn_outcome_result<t>(outcome: fn_outcome<t>) -> t {
+    match outcome {
+        returning(result) => result,
+        unwinding => default_value,
+    }
+}
+
+fix ignore_unwind_paths() -> bool;
+
+lem assume(b: bool);
+    req true;
+    ens b;
+
+lem note(b: bool);
+    req b;
+    ens b;
+
+pred True(;) = true;
+
+pred exists<t>(x: t;) = true;
+pred exists_np<t>(x: t) = true;
+
+fix truncate_unsigned(x: i32, nbBits: i32) -> i32;
+fix truncate_signed(x: i32, nbBits: i32) -> i32; // nbBits does not include the sign bit
+
+fix abs(x: i32) -> i32 { if x < 0 { -x } else { x } }
+
+fix is_power_of_2(n: i32) -> bool;
+
+lem_auto is_power_of_2_lem();
+    req true;
+    ens is_power_of_2(1) && is_power_of_2(2) && is_power_of_2(4) && is_power_of_2(8) && is_power_of_2(16) && is_power_of_2(32);
+
+lem_auto is_power_of_2_pos(n: i32);
+    req is_power_of_2(n) == true;
+    ens 1 <= n;
+
+lem_auto align_of_u8();
+    req true;
+    ens std::mem::align_of::<u8>() == 1;
+
+lem size_align<T>();
+    req true;
+    ens std::mem::size_of::<T>() % std::mem::align_of::<T>() == 0;
+
+lem mul_mono_l(x: i32, y: i32, z: i32);
+    req x <= y &*& 0 <= z;
+    ens x * z <= y * z;
+
+lem div_rem(D: i32, d: i32);
+    req d != 0;
+    ens D == D / d * d + D % d &*& abs(D % d) < abs(d) &*& abs(D / d * d) <= abs(D);
+
+lem div_rem_nonneg(D: i32, d: i32);
+    req 0 <= D &*& 0 < d;
+    ens D == D / d * d + D % d &*& 0 <= D / d &*& D / d <= D &*& 0 <= D % d &*& D % d < d;
+
+lem div_rem_nonneg_unique(D: i32, d: i32, q: i32, r: i32);
+    req 0 <= D &*& 0 <= r &*& r < d &*& D == d * q + r;
+    ens D / d == q &*& D % d == r;
+
+inductive pointer_provenance =
+    pointer_provenance_ctor(i32); // Do not rely on this definition; it is subject to change.
+inductive pointer_metadata =
+    pointer_metadata_ctor(i32); // Do not rely on this definition; it is subject to change.
+inductive pointer = pointer_ctor(provenance: pointer_provenance, address: usize, metadata: pointer_metadata);
+
+fix pointer_metadata_none() -> pointer_metadata;
+
+fix strip_pointer_metadata(p: pointer) -> pointer {
+    pointer_ctor(p.provenance, p.address, pointer_metadata_none)
+}
+
+// - If from_typeid and to_typeid have the same kind of metadata (e.g. they are both slice-based types), this preserves it
+// - If to_typeid has no metadata, this strips it
+// - Otherwise, the result is unspecified
+fix cast_pointer_metadata(from_typeid: *_, to_typeid: *_, metadata: pointer_metadata) -> pointer_metadata;
+
+fix pointer_cast(from_typeid: *_, to_typeid: *_, p: pointer) -> pointer {
+    pointer_ctor(p.provenance, p.address, cast_pointer_metadata(from_typeid, to_typeid, p.metadata))
+}
+
+fix ptr_cast<T, U>(p: *T) -> *U { pointer_cast(typeid(T), typeid(U), p as pointer) as *U }
+
+fix pointer_metadata_as_usize(metadata: pointer_metadata) -> usize;
+fix ptr_len<t>(p: *t) -> usize { pointer_metadata_as_usize((p as pointer).metadata) }
+
+fix null_pointer_provenance() -> pointer_provenance;
+fix null_pointer() -> pointer { pointer_ctor(null_pointer_provenance, 0, pointer_metadata_none) }
+
+// Retain only the data that is definitely used for pointer equality tests
+fix strip_pointer_provenance(p: pointer) -> pointer {
+    pointer_ctor(null_pointer_provenance, p.address, p.metadata)
+}
+
+fix ptr_add(p: pointer, offset: i32) -> pointer {
+    pointer_ctor(p.provenance, p.address + offset, p.metadata)
+}
+
+fix ptr_add_strip_metadata(p: pointer, offset: i32) -> pointer {
+    pointer_ctor(p.provenance, p.address + offset, pointer_metadata_none)
+}
+
+fix field_ptr_provenance(p: pointer, structTypeid: *_, fieldOffset: i32) -> pointer_provenance;
+fix field_ptr_provenance_parent(pr: pointer_provenance, fieldOffset: i32) -> pointer;
+
+lem_auto(field_ptr_provenance(p, structTypeid, fieldOffset)) field_ptr_provenance_injective(p: pointer, structTypeid: *_, fieldOffset: i32);
+    req true;
+    ens field_ptr_provenance_parent(field_ptr_provenance(p, structTypeid, fieldOffset), fieldOffset) == p;
+
+fix field_ptr(p: pointer, structTypeid: *_, fieldOffset: i32) -> pointer {
+    pointer_ctor(field_ptr_provenance(p, structTypeid, fieldOffset), p.address + fieldOffset, pointer_metadata_none)
+}
+
+fix last_field_ptr(p: pointer, structTypeid: *_, fieldOffset: i32) -> pointer {
+    pointer_ctor(field_ptr_provenance(p, structTypeid, fieldOffset), p.address + fieldOffset, p.metadata)
+}
+
+fix ptr_provenance_min_addr(pr: pointer_provenance) -> usize;
+fix ptr_provenance_max_addr(pr: pointer_provenance) -> usize;
+
+lem_auto ptr_provenance_min_addr_limits(pr: pointer_provenance);
+    req true;
+    ens 0 <= ptr_provenance_min_addr(pr);
+
+lem_auto ptr_provenance_max_addr_limits(pr: pointer_provenance);
+    req true;
+    ens ptr_provenance_max_addr(pr) <= usize::MAX;
+
+lem_auto null_pointer_provenance_min_addr();
+    req true;
+    ens ptr_provenance_min_addr(null_pointer_provenance) == 0;
+
+lem_auto null_pointer_provenance_max_addr();
+    req true;
+    ens ptr_provenance_max_addr(null_pointer_provenance) == usize::MAX;
+
+lem_auto field_ptr_provenance_min_addr(p: pointer, structTypeid: *_, fieldOffset: i32);
+    req true;
+    ens ptr_provenance_min_addr(p.provenance) <= ptr_provenance_min_addr(field_ptr_provenance(p, structTypeid, fieldOffset));
+
+lem_auto field_ptr_provenance_max_addr(p: pointer, structTypeid: *_, fieldOffset: i32);
+    req true;
+    ens ptr_provenance_max_addr(field_ptr_provenance(p, structTypeid, fieldOffset)) <= ptr_provenance_max_addr(p.provenance);
+
+lem ptr_provenance_min_addr_zero(pr: pointer_provenance);
+    req ptr_provenance_min_addr(pr) <= 0;
+    ens pr == null_pointer_provenance;
+
+fix ptr_within_limits(p: pointer) -> bool { ptr_provenance_min_addr(p.provenance) <= p.address && p.address <= ptr_provenance_max_addr(p.provenance) }
+
+fix pointer_within_limits(p: *_) -> bool { ptr_within_limits(p as pointer) }
+
+fix object_pointer_within_limits(p: *_, size: i32) -> bool {
+    pointer_within_limits(p) && pointer_within_limits(p + size) && p as usize != 0 && size >= 0
+}
+
+// When producing a field chunk, VeriFast produces a field_pointer_within_limits fact
+// instead of a pointer_within_limits fact to avoid producing too many linear inequalities.
+fix field_pointer_within_limits(p: *_, fieldOffset: i32) -> bool;
+
+lem_auto(pointer_within_limits(field_ptr(p as pointer, structTypeid, fieldOffset) as *_)) field_pointer_within_limits_def(p: *_, structTypeid: *_, fieldOffset: i32);
+    req true;
+    ens field_pointer_within_limits(p, fieldOffset) == pointer_within_limits(field_ptr(p as pointer, structTypeid, fieldOffset) as *_);
+
+lem_auto(pointer_within_limits(last_field_ptr(p as pointer, structTypeid, fieldOffset) as *_)) last_field_pointer_within_limits_def(p: *_, structTypeid: *_, fieldOffset: i32);
+    req true;
+    ens field_pointer_within_limits(p, fieldOffset) == pointer_within_limits(last_field_ptr(p as pointer, structTypeid, fieldOffset) as *_);
+
+lem_auto(field_pointer_within_limits(field_ptr(p as pointer, structTypeid, fieldOffset) as *_, 0)) first_field_pointer_within_limits_elim(p: *_, structTypeid: *_, fieldOffset: i32);
+    req true;
+    ens field_pointer_within_limits(field_ptr(p as pointer, structTypeid, fieldOffset) as *_, 0) == field_pointer_within_limits(p, fieldOffset);
+
+lem_auto(ptr_within_limits(field_ptr(p, structTypeid, 0))) ptr_within_limits_field_ptr_0(p: pointer, structTypeid: *_);
+    req true;
+    ens ptr_within_limits(field_ptr(p, structTypeid, 0)) == ptr_within_limits(p);
+
+fix has_type(p: *_, typeid_: *_) -> bool;
+
+fix ptr_add_(p: pointer, offset: i32, elemTypeid: *_) -> pointer {
+    ptr_add(p, offset * std::mem::size_of(elemTypeid))
+}
+
+fix transmute_uint<T>(n: u128) -> T;
+
+fix u8s__of<T>(v: T) -> list<option<u8>>;
+
+// Note: `std::mem::size_of::<Infallible>() == 0`, so `of_u8s_::<Infallible>([]) == none`
+// For an inhabited ZST T with a value v: `of_u8s_::<T>([]) == some(v)`
+
+fix of_u8s_<T>(cs: list<option<u8>>) -> option<T>;
+
+lem_auto(of_u8s_::<T>(u8s__of::<T>(v as T))) of_u8s__u8s__of<T: ?Sized>(v: T);
+req true;
+ens of_u8s_::<T>(u8s__of::<T>(v)) == some(v);
+
+fix vals__of_u8s_<T>(bs: list<option<u8>>, count: usize) -> list<option<T>>;
+
+lem vals__of_u8s__take<T>(count0: usize, bs: list<option<u8>>, count: usize);
+    req length(bs) == count * std::mem::size_of::<T>() &*& 0 <= count0 &*& count0 <= count;
+    ens vals__of_u8s_::<T>(take(count0 * std::mem::size_of::<T>(), bs), count0) == take(count0, vals__of_u8s_::<T>(bs, count));
+
+pred points_to_<t>(p: *t; v: option<t>);
+pred points_to<t>(p: *t; v: t) = points_to_::<t>(p, some(v));
+
+pred_ctor mk_points_to<T>(p: *T, v: T)(;) = points_to(p, v);
+
+lem points_to_bool_to_u8(p: *bool);
+    req *p |-> ?b;
+    ens *(p as *u8) |-> b;
+
+lem points_to_u8_to_bool(p: *u8);
+    req *p |-> ?v &*& v == 0 || v == 1;
+    ens *(p as *bool) |-> v == 1;
+
+lem points_to__limits<T>(p: *T);
+    req [?f]points_to_(p, ?v);
+    ens [f]points_to_(p, v) &*& f <= 1 &*& object_pointer_within_limits(p, std::mem::size_of::<T>()) == true;
+
+lem points_to_limits<T>(p: *T);
+    req [?f]points_to(p, ?v);
+    ens [f]points_to(p, v) &*& f <= 1 &*& object_pointer_within_limits(p, std::mem::size_of::<T>()) == true;
+
+pred array_<T>(p: *T, count: usize; values: list<option<T>>) =
+    pointer_within_limits(p) == true &*&
+    if count == 0 {
+        values == nil
+    } else {
+        points_to_(p, ?value) &*& array_(p + 1, count - 1, ?values0) &*& values == cons(value, values0)
+    };
+
+pred array<T>(p: *T, count: usize; values: list<T>) =
+    pointer_within_limits(p) == true &*&
+    if count == 0 {
+        values == nil
+    } else {
+        *p |-> ?value &*& array(p + 1, count - 1, ?values0) &*& values == cons(value, values0)
+    };
+
+pred_ctor mk_array<T>(l: *T, n: usize, vs: list<T>)(;) = l[..n] |-> vs;
+
+lem_auto array__inv<T: ?Sized>();
+    req [?f]array_::<T>(?p, ?count, ?elems);
+    ens [f]array_::<T>(p, count, elems) &*& count == length(elems) &*& count * std::mem::size_of::<T>() <= isize::MAX &*& pointer_within_limits(p) == true &*& pointer_within_limits(p + count) == true;
+    
+lem_auto array_inv<T: ?Sized>();
+    req [?f]array::<T>(?p, ?count, ?elems);
+    ens [f]array::<T>(p, count, elems) &*& count == length(elems) &*& count * std::mem::size_of::<T>() <= isize::MAX &*& pointer_within_limits(p) == true &*& pointer_within_limits(p + count) == true;
+
+
+lem array_split<T>(p: *T, offset: i32);
+    req [?f]p[..?count] |-> ?vs &*& 0 <= offset &*& offset <= count;
+    ens
+        [f]p[..offset] |-> take(offset, vs) &*& [f]p[offset..count] |-> drop(offset, vs) &*&
+        vs == append(take(offset, vs), drop(offset, vs));
+
+lem array__split<T>(p: *T, offset: i32);
+    req [?f]array_(p, ?count, ?vs) &*& 0 <= offset &*& offset <= count;
+    ens
+        [f]array_(p, offset, take(offset, vs)) &*&
+        [f]array_(p + offset, count - offset, drop(offset, vs)) &*&
+        vs == append(take(offset, vs), drop(offset, vs));
+
+lem array_join<T>(p: *T);
+    req
+        [?f]array(p, ?count1, ?vs1) &*&
+        [f]array(p + count1, ?count2, ?vs2);
+    ens [f]array(p, count1 + count2, append(vs1, vs2));
+
+lem array__join<T>(p: *T);
+    req
+        [?f]array_(p, ?count1, ?vs1) &*&
+        [f]array_(p + count1, ?count2, ?vs2);
+    ens [f]array_(p, count1 + count2, append(vs1, vs2));
+
+lem array_to_array_<T>(p: *T);
+    req [?f]array(p, ?count, ?vs);
+    ens [f]array_(p, count, map(some, vs));
+
+lem array__to_array<T>(p: *T, vs: list<T>);
+    req [?f]array_(p, ?count, map(some, vs));
+    ens [f]array(p, count, vs);
+
+fix const_of_usize(n: usize) -> *_;
+fix usize_of_const(type_id: *_) -> usize;
+
+lem_auto usize_of_const_of_usize(n: usize);
+    req true;
+    ens usize_of_const(const_of_usize(n)) == n;
+
+fix Array_elems<T, N>(array: [T; N]) -> list<T>;
+// If `length(elems)` is not `usize_of_const(typeid(N))` then the result is unspecified.
+fix Array_of_elems<T, N>(elems: list<T>) -> [T; N];
+
+fix slice_elems<T>(slice: [T]) -> list<T>;
+fix slice_of_elems<T>(elems: list<T>) -> [T];
+
+lem_auto slice_elems_slice_of_elems<T: ?Sized>(elems: list<T>);
+    req true;
+    ens slice_elems(slice_of_elems(elems)) == elems;
+
+lem_auto slice_of_elems_slice_elems<T: ?Sized>(slice: [T]);
+    req true;
+    ens slice_of_elems(slice_elems(slice)) == slice;
+
+lem Array__to_array_<T, N>(p: *[T; N]);
+    req [?f](*p |-?-> ?array_);
+    ens [f](p as *T)[..usize_of_const(typeid(N))] |-?-> match array_ { none => repeat(nat_of_int(usize_of_const(typeid(N))), none), some(array) => map(some, Array_elems(array)) };
+
+lem Array_to_array<T, N>(p: *[T; N]);
+    req [?f](*p |-> ?array);
+    ens [f](p as *T)[..usize_of_const(typeid(N))] |-> Array_elems(array);
+
+lem array_to_Array<T, N>(p: *[T; N]);
+    req [?f](p as *T)[..usize_of_const(typeid(N))] |-> ?elems;
+    ens [f](*p |-> Array_of_elems(elems));
+
+lem from_u8s_<T>(p: *T);
+    req [?f](p as *u8)[..std::mem::size_of::<T>()] |-?-> ?bs &*& p as usize % std::mem::align_of::<T>() == 0;
+    ens [f](*p |-?-> of_u8s_(bs));
+
+lem to_u8s_<T>(p: *T);
+    req [?f](*p |-?-> ?v);
+    ens [f](p as *u8)[..std::mem::size_of::<T>()] |-?-> ?bs &*& p as usize % std::mem::align_of::<T>() == 0 &*& v == of_u8s_(bs);
+
+lem u8s__to_array_<T>(p: *T, size: usize);
+    req [?f](p as *u8)[..size * std::mem::size_of::<T>()] |-> _ &*& p as usize % std::mem::align_of::<T>() == 0;
+    ens [f]p[..size] |-> _;
+
+lem array__to_u8s_<T>(p: *T, size: usize);
+    req [?f]p[..size] |-> _;
+    ens [f](p as *u8)[..size * std::mem::size_of::<T>()] |-> _ &*& p as usize % std::mem::align_of::<T>() == 0;
+
+fix is_utf8_tail(b: u8) -> bool {
+    0x80 <= b && b <= 0xBF
+}
+
+fix is_valid_utf8(bs: list<u8>) -> bool {
+    match bs {
+        nil => true,
+        cons(b0, rest0) =>
+            if b0 <= 0x7F {
+                is_valid_utf8(rest0)
+            } else {
+                match rest0 {
+                    nil => false,
+                    cons(b1, rest1) =>
+                        is_utf8_tail(b1) &&
+                        if b0 <= 0xDF {
+                            0xC2 <= b0 && // Not overlong
+                            is_valid_utf8(rest1)
+                        } else {
+                            match rest1 {
+                                nil => false,
+                                cons(b2, rest2) =>
+                                    is_utf8_tail(b2) &&
+                                    if b0 <= 0xEF {
+                                        (0xE1 <= b0 || 0xA0 <= b1) && // Not overlong
+                                        (b0 != 0xED || b1 < 0x9F) && // Not a surrogate
+                                        is_valid_utf8(rest2)
+                                    } else {
+                                        match rest2 {
+                                            nil => false,
+                                            cons(b3, rest3) =>
+                                                is_utf8_tail(b3) &&
+                                                (b0 != 0xF0 || 0x90 <= b0) && // Not overlong
+                                                (b0 < 0xF4 || b0 == 0xF4 && b1 <= 0x8F) && // Max. codepoint = 0x10FFFF
+                                                is_valid_utf8(rest3)
+                                        }
+                                    }
+                            }
+                        }
+                }
+            }
+    }
+}
+
+pred str_share(k: lifetime_t, t: thread_id_t, l: *str) = exists(?bs) &*& [_]frac_borrow(k, mk_array(l as *u8, l.len(), bs)) &*& is_valid_utf8(bs) == true;
+type_pred_def <str>.share = str_share;
+
+pred ghost_rec_perm(depth: i32;); // Permission to perform `depth` nested lemma function pointer calls.
+
+pred ghost_rec_perm_top();
+pred ghost_rec_perm_top_unweaken_token(depth: i32);
+    
+lem ghost_rec_perm_top_weaken(depth: i32);
+    req ghost_rec_perm_top();
+    ens ghost_rec_perm(depth) &*& ghost_rec_perm_top_unweaken_token(depth);
+    
+lem ghost_rec_perm_top_unweaken();
+    req ghost_rec_perm_top_unweaken_token(?depth) &*& ghost_rec_perm(depth);
+    ens ghost_rec_perm_top();
+
+@*/

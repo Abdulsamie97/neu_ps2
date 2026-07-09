@@ -54,13 +54,15 @@ button:disabled {
 }
 
 #button-generate-c,
-#button-save-c {
+#button-save-c,
+#button-run-verifast {
     background-color: #604b1f;
     border-color: #80642a;
 }
 
 #button-generate-c:hover:not(:disabled),
-#button-save-c:hover:not(:disabled) {
+#button-save-c:hover:not(:disabled),
+#button-run-verifast:hover:not(:disabled) {
     background-color: #765d27;
 }
 

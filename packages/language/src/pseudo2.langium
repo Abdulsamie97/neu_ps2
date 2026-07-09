@@ -25,6 +25,7 @@ SimpleStatement:
     VarDeclaration
   | Assignment
   | StructDeclaration
+  | VerificationStatementRule
   //| FunctionCall
   | ReturnStatement
   | ExprStatement
@@ -204,7 +205,26 @@ StructTypeRule returns StructType:
 // ======================================================
 // Functions
 // ======================================================
+interface VerificationAnnotation {
+  kind: string
+  condition: Expr
+}
+
+interface VerificationStatement {
+  kind: string
+  condition: Expr
+}
+
+VerificationAnnotationRule returns VerificationAnnotation:
+  '@' kind=('requires' | 'ensures') condition=Expression
+;
+
+VerificationStatementRule returns VerificationStatement:
+  '@' kind=('assert') condition=Expression
+;
+
 interface FunctionDeclaration {
+  annotations: VerificationAnnotation[]
   keyword: boolean
   name: string
   params: ParameterDecl[]
@@ -212,6 +232,7 @@ interface FunctionDeclaration {
 }
 
 FunctionDeclaration returns FunctionDeclaration:
+  annotations+=VerificationAnnotationRule*
   (keyword?='func')?
   name=ID
   '(' (params+=Parameter (',' params+=Parameter)*)? ')'

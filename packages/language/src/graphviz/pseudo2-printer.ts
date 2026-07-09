@@ -52,6 +52,7 @@ import {
   isThrowCommand,
   isVarDecl,
   isVarRef,
+  isVerificationStatement,
   isWhileLoop
 } from '../generated/ast.js';
 
@@ -87,6 +88,7 @@ export function printInstruction(instruction: Instruction): string {
   if (isPrintCommand(instruction)) return printPrint(instruction);
   if (isThrowCommand(instruction)) return printThrow(instruction);
   if (isCallCommand(instruction)) return printCall(instruction);
+  if (isVerificationStatement(instruction)) return `@${instruction.kind} ${printExpr(instruction.condition)}`;
   if (isIfStatement(instruction)) return printIf(instruction);
   if (isWhileLoop(instruction)) return printWhile(instruction);
   if (isDoWhileLoop(instruction)) return printDoWhile(instruction);

@@ -65,6 +65,7 @@ import {
   isThrowCommand,
   isVarDecl,
   isVarRef,
+  isVerificationStatement,
   isWhileLoop
 } from './generated/ast.js';
 import { Pseudo2GeneratorContext } from './generator-context.js';
@@ -154,6 +155,7 @@ function generateInstruction(
   if (isPrintCommand(instruction)) return generatePrintCommand(instruction, context, indent, state);
   if (isThrowCommand(instruction)) return generateThrowCommand(instruction, context, indent, state);
   if (isCallCommand(instruction)) return generateCallCommand(instruction, context, indent, state);
+  if (isVerificationStatement(instruction)) return '';
 
   throw new Error(`Unsupported instruction type: ${(instruction as AstNode).$type}`);
 }

@@ -15,6 +15,8 @@ const __dirname = url.fileURLToPath(new URL('.', import.meta.url));
 
 const packagePath = path.resolve(__dirname, '..', 'package.json');
 const packageContent = await fs.readFile(packagePath, 'utf-8');
+const workspaceRoot = path.resolve(__dirname, '..', '..', '..');
+const DEFAULT_VERIFAST_EXE = path.join(workspaceRoot, 'verifast-26.01', 'bin', 'verifast.exe');
 
 export type GenerateOptions = {
     destination?: string;
@@ -68,28 +70,30 @@ export default function(): void {
     program
         .command('verifast')
         .argument('<file>', 'C file to verify (e.g. out/generated.c)')
-        .option('--vf <path>', 'path to verifast.exe (or use VERIFAST_EXE env var)')
+        .option('--vf <path>', 'path to verifast.exe; defaults to VERIFAST_EXE or repo-local verifast-26.01')
         .option('--extra <args...>', 'extra args passed to verifast (optional)')
         .option('--link', 'enable VeriFast link checking; default verifies generated C only with -c')
         .description('runs VeriFast on a C file and prints JSON result')
         .action(async (file: string, opts: { vf?: string; extra?: string[]; link?: boolean }) => {
-            const verifastExe = opts.vf ?? process.env.VERIFAST_EXE;
-            if (!verifastExe) {
-            console.error(
-                JSON.stringify({
-                ok: false,
-                error:
-                    'Missing verifast path. Use --vf <path> or set VERIFAST_EXE.',
-                })
-            );
-            process.exit(2);
+            const verifastExe = opts.vf ?? process.env.VERIFAST_EXE ?? DEFAULT_VERIFAST_EXE;
+            try {
+                await fs.access(verifastExe);
+            } catch {
+                console.error(
+                    JSON.stringify({
+                        ok: false,
+                        error:
+                            `VeriFast executable not found: ${verifastExe}. Use --vf <path>, set VERIFAST_EXE, or place VeriFast at ${DEFAULT_VERIFAST_EXE}.`,
+                    })
+                );
+                process.exit(2);
             }
 
             const result = await runVeriFast({
-            verifastExe,
-            file,
-            extraArgs: opts.extra ?? [],
-            compileOnly: opts.link !== true,
+                verifastExe,
+                file,
+                extraArgs: opts.extra ?? [],
+                compileOnly: opts.link !== true,
             });
 
             // JSON auf stdout (ideal für Web-UI)

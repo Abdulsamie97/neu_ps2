@@ -30,7 +30,7 @@ let executionDocCounter = 0;
 let executionServices: ReturnType<typeof createPseudo2Services> | undefined;
 let lastGeneratedCCode = '';
 
-const DEFAULT_VERIFAST_EXE = 'G:\\Uni\\Master\\Masterarbeit\\Verifast\\verifast-26.01\\bin\\verifast.exe';
+const DEFAULT_VERIFAST_EXE = '.\\verifast-26.01\\bin\\verifast.exe';
 
 type SaveFilePicker = (options: {
     suggestedName?: string;
@@ -45,6 +45,24 @@ type SaveFilePicker = (options: {
         close: () => Promise<void>;
     }>;
 }>;
+
+type VeriFastApiResult = {
+    ok: boolean;
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+    errors?: Array<{
+        file: string;
+        line: number;
+        colFrom: number;
+        colTo: number;
+        kind: 'error' | 'note';
+        message: string;
+    }>;
+    file?: string;
+    command?: string;
+    verifastExe?: string;
+};
 
 const startEditor = async () => {
     disableElement('button-start', true);
@@ -203,6 +221,7 @@ const updateExecution = async () => {
 const updateCGeneration = async () => {
     setTextContent('#cspan', 'Generating C...');
     setTextContent('#verifastspan', '');
+    lastGeneratedCCode = '';
 
     if (!editorApp?.getEditor()) {
         setTextContent('#cspan', 'Editor is not started yet.');
@@ -227,6 +246,47 @@ const updateCGeneration = async () => {
         setTextContent('#verifastspan', buildVeriFastHelp(getSuggestedCFileName()));
     } catch (error) {
         setTextContent('#cspan', `C generation failed:\n${formatError(error)}`);
+    }
+};
+
+const runVeriFastFromWeb = async () => {
+    if (!lastGeneratedCCode) {
+        await updateCGeneration();
+    }
+
+    if (!lastGeneratedCCode) {
+        setTextContent('#verifastspan', 'No C code generated.');
+        return;
+    }
+
+    setTextContent('#verifastspan', 'Running VeriFast...');
+
+    try {
+        const response = await fetch('/api/verifast', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                code: lastGeneratedCCode,
+                fileName: getSuggestedCFileName()
+            })
+        });
+        const text = await response.text();
+        const result = JSON.parse(text) as VeriFastApiResult;
+
+        if (!response.ok) {
+            setTextContent('#verifastspan', `VeriFast request failed (${response.status}):\n${formatValue(result)}`);
+            return;
+        }
+
+        setTextContent('#verifastspan', formatVeriFastResult(result));
+    } catch (error) {
+        setTextContent('#verifastspan', [
+            `VeriFast request failed: ${formatError(error)}`,
+            '',
+            buildVeriFastHelp(getSuggestedCFileName())
+        ].join('\n'));
     }
 };
 
@@ -294,17 +354,41 @@ function getSuggestedCFileName(): string {
 function buildVeriFastHelp(cFileName: string): string {
     const outFile = `.\\out\\${cFileName}`;
     return [
-        'VeriFast runs locally through the CLI, because the browser cannot start local executables.',
+        'Run VeriFast uses the local Vite/Node endpoint /api/verifast.',
+        'If the web app is served without that endpoint, use the CLI fallback below.',
         '',
         'Generate and verify from PowerShell:',
         `npm run build`,
         `node .\\packages\\cli\\bin\\cli.js generate-c .\\examples\\test1.pseudo2 -d .\\out`,
-        `$env:VERIFAST_EXE="${DEFAULT_VERIFAST_EXE}"`,
         `node .\\packages\\cli\\bin\\cli.js verifast ${outFile}`,
+        '',
+        `Default VeriFast path: ${DEFAULT_VERIFAST_EXE}`,
+        'Override with VERIFAST_EXE only if you want a different VeriFast installation.',
         '',
         'The CLI uses VeriFast compile-only mode (-c) by default for generated C runtime contracts.',
         'Use --link only if you provide concrete runtime manifests/implementations.'
     ].join('\n');
+}
+
+function formatVeriFastResult(result: VeriFastApiResult): string {
+    const diagnostics = result.errors && result.errors.length > 0
+        ? result.errors.map(error =>
+            `${error.kind}: ${error.file}(${error.line},${error.colFrom}-${error.colTo}): ${error.message}`
+        ).join('\n')
+        : '(no parsed diagnostics)';
+
+    return [
+        result.ok ? 'VeriFast OK' : 'VeriFast failed',
+        `Exit code: ${result.exitCode}`,
+        result.command ? `Command: ${result.command}` : undefined,
+        result.file ? `Temporary file: ${result.file}` : undefined,
+        result.verifastExe ? `VeriFast: ${result.verifastExe}` : undefined,
+        '',
+        'Diagnostics:',
+        diagnostics,
+        result.stdout.trim().length > 0 ? `\nstdout:\n${result.stdout.trim()}` : undefined,
+        result.stderr.trim().length > 0 ? `\nstderr:\n${result.stderr.trim()}` : undefined
+    ].filter((line): line is string => line !== undefined).join('\n');
 }
 
 function getExecutionServices(): ReturnType<typeof createPseudo2Services> {
@@ -423,6 +507,7 @@ export const runDsl = async () => {
         document.querySelector('#button-execute')?.addEventListener('click', updateExecution);
         document.querySelector('#button-generate-c')?.addEventListener('click', updateCGeneration);
         document.querySelector('#button-save-c')?.addEventListener('click', saveCurrentCCode);
+        document.querySelector('#button-run-verifast')?.addEventListener('click', runVeriFastFromWeb);
         setTextContent('#verifastspan', buildVeriFastHelp(getSuggestedCFileName()));
 
     } catch (e) {

@@ -21,6 +21,7 @@ import {
   isStructDeclaration,
   isThrowCommand,
   isVarDecl,
+  isVerificationStatement,
   isWhileLoop
 } from '../generated/ast.js';
 import { dotAttributes, dotId } from './dot-utils.js';
@@ -118,7 +119,13 @@ function connect(ctx: ConnectContext, statements: Instruction[]): void {
 }
 
 function connectStmt(ctx: ConnectContext, statement: Instruction): void {
-  if (isVarDecl(statement) || isAssignment(statement) || isPrintCommand(statement) || isCallCommand(statement)) {
+  if (
+    isVarDecl(statement) ||
+    isAssignment(statement) ||
+    isPrintCommand(statement) ||
+    isCallCommand(statement) ||
+    isVerificationStatement(statement)
+  ) {
     ctx.builder.addEdge(new CfgEdge(ctx.from, ctx.to, statement));
     return;
   }

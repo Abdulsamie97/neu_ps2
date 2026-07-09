@@ -50,6 +50,23 @@ describe('CGenerator', () => {
     expect(c).toContain('func_first_0(A_2, ps2_num((double)ps2_array_length(A_2)))');
   });
 
+  test('maps Pseudo2 verification annotations to VeriFast comments', async () => {
+    const c = await generateC(`
+      @requires true
+      @ensures "true"
+      func verified()
+        @assert true
+        return 5
+
+      print verified()
+    `);
+
+    expect(c).toContain('Ps2Value* func_verified_0(void)');
+    expect(c).toContain('//@ requires true;');
+    expect(c).toContain('//@ ensures true;');
+    expect(c).toContain('//@ assert true;');
+  });
+
   test('emits control flow constructs and throw support', async () => {
     const c = await generateC(`
       var x = 0

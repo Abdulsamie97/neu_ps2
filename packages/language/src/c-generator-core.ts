@@ -19,6 +19,8 @@ import type {
   ReturnStmt,
   StructDeclaration,
   ThrowCommand,
+  VerificationAnnotation,
+  VerificationStatement,
   VarDecl,
   VarRef
 } from './generated/ast.js';
@@ -59,6 +61,7 @@ import {
   isThrowCommand,
   isVarDecl,
   isVarRef,
+  isVerificationStatement,
   isWhileLoop
 } from './generated/ast.js';
 import { Pseudo2GeneratorContext } from './generator-context.js';
@@ -168,6 +171,7 @@ function generateInstruction(
   if (isPrintCommand(instruction)) return generatePrintCommand(instruction, context, indent, state);
   if (isThrowCommand(instruction)) return generateThrowCommand(instruction, context, indent, state);
   if (isCallCommand(instruction)) return generateCallCommand(instruction, context, indent, state);
+  if (isVerificationStatement(instruction)) return generateVerificationStatement(instruction, context, indent, state);
 
   throw new Error(`Unsupported instruction type for C generator: ${(instruction as unknown as { $type: string }).$type}`);
 }
@@ -310,6 +314,7 @@ function generateFunctionBody(
   const body = fn.body.instructions ?? [];
   const inner = `${indent}  `;
   const prelude = generateParameterPrelude(fn, context, inner);
+  const contracts = generateFunctionContracts(fn, context, indent, state);
   const nested = [
     ...prelude,
     ...body.map(instruction => generateInstruction(instruction, context, inner, state)),
@@ -317,12 +322,43 @@ function generateFunctionBody(
   ].filter(Boolean);
 
   return [
-    `${indent}//@ requires true;`,
-    `${indent}//@ ensures true;`,
+    ...contracts,
     `${indent}{`,
     nested.join('\n'),
     `${indent}}`
   ].join('\n');
+}
+
+function generateFunctionContracts(
+  fn: FunctionDeclaration,
+  context: Pseudo2GeneratorContext,
+  indent = '',
+  state = DEFAULT_STATE
+): string[] {
+  const annotations = fn.annotations ?? [];
+  const requires = annotations.filter(annotation => annotation.kind === 'requires');
+  const ensures = annotations.filter(annotation => annotation.kind === 'ensures');
+
+  return [
+    ...generateContractLines('requires', requires, context, indent, state),
+    ...generateContractLines('ensures', ensures, context, indent, state)
+  ];
+}
+
+function generateContractLines(
+  kind: 'requires' | 'ensures',
+  annotations: VerificationAnnotation[],
+  context: Pseudo2GeneratorContext,
+  indent: string,
+  state: CGeneratorState
+): string[] {
+  if (annotations.length === 0) {
+    return [`${indent}//@ ${kind} true;`];
+  }
+
+  return annotations.map(annotation =>
+    `${indent}//@ ${kind} ${genSpecExpr(annotation.condition, context, state)};`
+  );
 }
 
 function containsReturn(instructions: Instruction[]): boolean {
@@ -461,6 +497,15 @@ function generateCallCommand(cmd: CallCommand, context: Pseudo2GeneratorContext,
   return `${indent}${genExpr(cmd.param, context, state)};`;
 }
 
+function generateVerificationStatement(
+  statement: VerificationStatement,
+  context: Pseudo2GeneratorContext,
+  indent = '',
+  state = DEFAULT_STATE
+): string {
+  return `${indent}//@ ${statement.kind} ${genSpecExpr(statement.condition, context, state)};`;
+}
+
 function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_STATE): string {
   if (isIntLiteral(expr)) return `ps2_num(${expr.value})`;
   if (isBoolLiteral(expr)) return `ps2_bool(${expr.value === 'true' ? 1 : 0})`;
@@ -516,6 +561,60 @@ function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_S
   }
 
   throw new Error(`Unsupported expression type for C generator: ${expr.$type}`);
+}
+
+function genSpecExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_STATE): string {
+  if (isStringLiteral(expr)) return expr.value;
+  if (isIntLiteral(expr)) return String(expr.value);
+  if (isBoolLiteral(expr)) return expr.value;
+  if (isNullLiteral(expr)) return '0';
+  if (isThisExpr(expr)) return state.thisName;
+  if (isVarRef(expr)) {
+    if (expr.index) {
+      throw new Error('Array access in VeriFast annotations is not supported yet. Use a raw string annotation for C-specific specs.');
+    }
+    const target = expr.ref?.ref;
+    return target ? context.getVarName(target) : '/* unresolved */';
+  }
+  if (isGrouping(expr)) return `(${genSpecExpr(expr.value, context, state)})`;
+  if (isNot(expr)) return `(!${genSpecExpr(expr.value, context, state)})`;
+  if (isNeg(expr)) return `(-${genSpecExpr(expr.value, context, state)})`;
+
+  if (isOr(expr)) return genSpecRepeated(expr.left, ['||'], expr.right ?? [], context, state);
+  if (isAnd(expr)) return genSpecRepeated(expr.left, ['&&'], expr.right ?? [], context, state);
+  if (isEquality(expr) || isComparison(expr) || isAddition(expr) || isMultiplication(expr) || isExponentiation(expr)) {
+    return genSpecRepeated(expr.left, expr.op ?? [], expr.right ?? [], context, state);
+  }
+
+  throw new Error(`Unsupported VeriFast annotation expression: ${expr.$type}. Use a string literal for raw C/VeriFast specs.`);
+}
+
+function genSpecRepeated(
+  left: Expr,
+  ops: string[],
+  rights: Expr[],
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): string {
+  if (rights.length === 0) {
+    return genSpecExpr(left, context, state);
+  }
+
+  let out = `(${genSpecExpr(left, context, state)}`;
+  for (let i = 0; i < rights.length; i++) {
+    out += ` ${specOperator(ops[i] ?? ops[0] ?? '?')} ${genSpecExpr(rights[i], context, state)}`;
+  }
+  return `${out})`;
+}
+
+function specOperator(op: string): string {
+  if (op === 'mod') {
+    return '%';
+  }
+  if (op === '^') {
+    throw new Error('Exponentiation in VeriFast annotations is not supported yet. Use a raw string annotation for C-specific specs.');
+  }
+  return op;
 }
 
 function genFunctionCall(expr: FunctionCall, context: Pseudo2GeneratorContext, state: CGeneratorState): string {

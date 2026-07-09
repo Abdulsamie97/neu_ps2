@@ -1,20 +1,20 @@
 func mini( A[1..n], i, max )
     var j = i
     for k = i+1 to max
-		if A[k] < A[j]
-			j = k
+        if A[k] < A[j]
+            j = k
     return j
 
 func tausche( A[1..n], i, j )
-	var t = A[i]
-	A[i] = A[j]
-	A[j] = t
+    var t = A[i]
+    A[i] = A[j]
+    A[j] = t
 
 
 func selection_sort( A[1..n] )
-	for i = 1 to n-1
-		var j = mini( A, i, n )
-		tausche( A, i, j ) 	  
+    for i = 1 to n-1
+        var j = mini( A, i, n )
+        tausche( A, i, j )
 
 
 var B[4] = 3
@@ -22,6 +22,6 @@ B[1] = 76
 B[2] = 16
 B[3] = 25
 B[4] = 36
- 
+
 
 selection_sort(B)

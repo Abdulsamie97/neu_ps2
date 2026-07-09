@@ -3,7 +3,7 @@ struct Datum
    num monat
    num jahr
 
-   
+
 var heute = new Datum
 
 heute.tag = 31
@@ -19,13 +19,13 @@ struct Student
    num matrikelnummer
    Datum immatrikulationsdatum
    Studiengang studiengang
-   
+
 struct Studiengang
    string name
    num regelstudienzeit
    string fachbereich
    string sprecher
-   
+
 var ce = new Studiengang
 ce.name="CE"
 ce.regelstudienzeit=6
@@ -47,7 +47,7 @@ s3.studiengang=ce
 
 for i=1 to 40
     var s = new Student
-   
+
     s.studiengang = ce
 
 

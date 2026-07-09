@@ -1,6 +1,6 @@
-struct evlElem 
-	num key
-	evlElem next
+struct evlElem
+    num key
+    evlElem next
 
 
 var e4 = new evlElem
@@ -31,18 +31,18 @@ func printAllElements(first)
     if first==null
         print "Got empty list"
         return
-            
+
     var res = ""
     res = res + first.key
     while first.next != null
-        res = res + " " 
+        res = res + " "
         res = res + first.next.key
         first = first.next
-        
-    
+
+
     print res
- 
- 
+
+
 
 var L = e5  // set to first element
 

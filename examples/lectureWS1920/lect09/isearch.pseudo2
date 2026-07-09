@@ -1,20 +1,19 @@
 struct treeElem
-	num key
-	treeElem left
-	treeElem right
-	
+    num key
+    treeElem left
+    treeElem right
+
 var root = new treeElem
 
- 
+
 func isearch(node, key)
-	while node!=null && key!= node.key
-		if key < node.key
-			node=node.left
-		else
-			node=node.right
-	return node
-			
-// we need function call to resolve types of parameters				
-isearch(root, 4)	
-	
-	
+    while node!=null && key!= node.key
+        if key < node.key
+            node=node.left
+        else
+            node=node.right
+    return node
+
+// we need function call to resolve types of parameters
+isearch(root, 4)
+

@@ -1,9 +1,9 @@
 var x=5
-x=6  
-    
+x=6
 
 
-if true 
+
+if true
     if 5>=4
     {
         var x = 4
@@ -29,12 +29,12 @@ print(10 mod 3)
 print 10 % 3
 
 
-func sum(arr[0 .. n]) {
+func sum(arr[1 .. n]) {
   print(n)
 }
 
 
-func f(xs[0 .. len], ys[0 .. len2]) {
+func f(xs[1 .. len], ys[1 .. len2]) {
   print(len)
   print(len2)
 }
@@ -42,9 +42,9 @@ func f(xs[0 .. len], ys[0 .. len2]) {
 struct Person {
   num age
 
-  func setAge(x) {
-    age = x
-    return age
+  setAge(x) {
+    this.age = x
+    return this.age
   }
 }
 

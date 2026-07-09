@@ -11,8 +11,8 @@ print(1 + 2)
 //2. Struct + Methode + Attribut
 struct A {
   num age
-  func getAge() {
-    return age
+  getAge() {
+    return this.age
   }
 }
 
@@ -23,7 +23,7 @@ print(a.getAge())
 
 //3. Array-Parameter
 func first(x[1..n]) {
-  return x[0]
+  return x[1]
 }
 
 var A = [7,8,9]
@@ -47,5 +47,4 @@ func g(y) {
 }
 
 print(g(5))
-
 

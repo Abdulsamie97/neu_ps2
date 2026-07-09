@@ -10,11 +10,11 @@ func empty()
         return 1
     else
         return 0
-        
+
 func push(x)
     S[top] = x
     top = top + 1
-        
+
 func pop()
     if empty()==1
         throw "pop() cannot be invoked on empty stack"
@@ -22,13 +22,13 @@ func pop()
     var x = S[top]
     return x
 
-	
+
 print empty()
 push(4)
 push(22)
 push(8)
 print  pop()   // prints 8
-print  empty()	
+print  empty()
 print  pop()   // prints 22
 print  pop()   // prints 4
 print  pop()   // causes exception

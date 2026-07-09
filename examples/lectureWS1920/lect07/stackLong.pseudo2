@@ -10,11 +10,11 @@ func empty()
         return 1
     else
         return 0
-        
+
 func push(x)
     S[top] = x
     top = top + 1
-        
+
 func pop()
     if empty()==1
         throw "Unexpected Situation"
@@ -27,7 +27,7 @@ func pop()
 
 func addOpenTag(tag)
     push(tag)
-    
+
 func addCloseTag(tag)
     var expected = pop()
     if tag!=expected
@@ -36,7 +36,8 @@ func addCloseTag(tag)
 
 func addContent(text)
     // do nothing
-    
+    return
+
 func processExample()
     addOpenTag("html")
     addOpenTag("head")
@@ -45,8 +46,7 @@ func processExample()
     addCloseTag("title")
     addCloseTag("head")
     addCloseTag("body")  // generates a warning
-    
+
 
 
 processExample()
-

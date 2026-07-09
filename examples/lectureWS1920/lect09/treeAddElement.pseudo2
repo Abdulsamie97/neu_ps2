@@ -6,12 +6,12 @@
 // general debug-flag for printing out DEBUG-messages
 //var debug=true
 var debug=false
- 
-struct treeElem 
-	num key
-	treeElem left
-	treeElem right
-  
+
+struct treeElem
+    num key
+    treeElem left
+    treeElem right
+
 var root = new treeElem
 root.key=5
 root.left=null
@@ -34,7 +34,7 @@ print(root.right.right.key) // 7
 //
 // functions
 //
- 
+
 
 func printDebug(msg)
     if (debug)
@@ -51,14 +51,14 @@ func add(r, A[1..n])
         throw ("r must not be null")
     if n == 0
         // empty array -> do nothing
-        return 
-    printDebug("add(): Array has " + n + " elements")  
+        return
+    printDebug("add(): Array has " + n + " elements")
     printDebug(" The elements are :")
     for j=1 to n
         printDebug(""+A[j])
         var kj = A[j]
         addElement(r, kj)
-    
+
 func addElement(r, k)
     if r.key==k
         printDebug("addElement: " + k + " is already member")
@@ -89,8 +89,8 @@ func addElement(r, k)
             elem1.left = null
             elem1.right = null
             r.right = elem1
-       
-        
+
+
 
 
 

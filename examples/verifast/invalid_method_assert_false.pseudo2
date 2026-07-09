@@ -1,0 +1,9 @@
+struct BrokenBox
+  num value
+  read()
+    @assert false
+    return this.value
+
+var b = new BrokenBox
+b.value = 3
+print b.read()

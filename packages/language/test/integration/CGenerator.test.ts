@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { generateCProgram } from '../../src/c-generator-core.js';
+import { generateCProgram, generateCProgramWithSourceMap } from '../../src/c-generator-core.js';
 import { parseRuntimeProgram } from '../helpers/runtime-test-utils.js';
 
 describe('CGenerator', () => {
@@ -67,6 +67,29 @@ describe('CGenerator', () => {
     expect(c).toContain('//@ assert true;');
   });
 
+  test('creates a C-to-Pseudo2 source map for verification statements', async () => {
+    const source = [
+      '@requires true',
+      '@ensures true',
+      'func verified()',
+      '  @assert false',
+      '  return 5',
+      '',
+      'print verified()'
+    ].join('\n');
+    const { model, document } = await parseRuntimeProgram(source);
+    const errors = (document.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1);
+    expect(errors.map(error => error.message).join('\n')).toBe('');
+
+    const generated = generateCProgramWithSourceMap(model);
+    expect(generated.code).not.toContain('@@pseudo2-source-line');
+
+    const cLines = generated.code.split(/\r?\n/);
+    const assertLine = cLines.findIndex(line => line.includes('//@ assert false;')) + 1;
+    expect(assertLine).toBeGreaterThan(0);
+    expect(generated.sourceMap.find(entry => entry.generatedLine === assertLine)?.sourceLine).toBe(4);
+  });
+
   test('emits control flow constructs and throw support', async () => {
     const c = await generateC(`
       var x = 0
@@ -87,7 +110,8 @@ describe('CGenerator', () => {
     `);
 
     expect(c).toContain('while (ps2_truthy(ps2_bool(ps2_compare("<", x_0, ps2_num(2)))))');
-    expect(c).toMatch(/do\s+\{/);
+    expect(c).toContain('//@ invariant x_0 |-> _;');
+    expect(c).toMatch(/do\s+\/\/@ invariant/);
     expect(c).toContain('for (; ps2_as_num(i_1) <= ps2_as_num(');
     expect(c).toContain('if (ps2_truthy(ps2_bool(ps2_equals(x_0, ps2_num(0)))))');
     expect(c).toContain('ps2_throw(ps2_string("bad"));');

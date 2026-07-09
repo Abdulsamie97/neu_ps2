@@ -1,0 +1,7 @@
+@requires "true"
+@ensures "true"
+func rawOk()
+  @assert "true"
+  return 1
+
+print rawOk()

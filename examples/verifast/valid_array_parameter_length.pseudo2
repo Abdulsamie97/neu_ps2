@@ -1,0 +1,8 @@
+@requires true
+@ensures true
+func lengthOk(A[1..n])
+  @assert true
+  return n
+
+var A[3] = 0
+print lengthOk(A)

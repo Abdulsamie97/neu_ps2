@@ -1,0 +1,9 @@
+struct Box
+  num value
+  read()
+    @assert true
+    return this.value
+
+var b = new Box
+b.value = 3
+print b.read()

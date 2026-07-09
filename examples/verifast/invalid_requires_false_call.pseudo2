@@ -1,0 +1,6 @@
+@requires false
+@ensures true
+func impossible()
+  return 1
+
+print impossible()

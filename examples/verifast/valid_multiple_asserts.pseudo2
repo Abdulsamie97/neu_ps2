@@ -1,0 +1,9 @@
+@requires true
+@ensures true
+func checked()
+  @assert true
+  @assert 1 < 2
+  @assert 3 == 3
+  return 7
+
+print checked()

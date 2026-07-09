@@ -8,7 +8,7 @@ import { NodeFileSystem } from 'langium/node';
 import * as url from 'node:url';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { runVeriFast } from './verifast.js';
+import { applyCSourceMapToVeriFastResult, runVeriFast, type CSourceMapFile } from './verifast.js';
 import { generateC } from './generator-c.js';
 
 const __dirname = url.fileURLToPath(new URL('.', import.meta.url));
@@ -70,12 +70,12 @@ export default function(): void {
     program
         .command('verifast')
         .argument('<file>', 'C file to verify (e.g. out/generated.c)')
-        .option('--vf <path>', 'path to verifast.exe; defaults to VERIFAST_EXE or repo-local verifast-26.01')
+        .option('--vf <path>', 'path to verifast.exe; defaults to repo-local verifast-26.01')
         .option('--extra <args...>', 'extra args passed to verifast (optional)')
         .option('--link', 'enable VeriFast link checking; default verifies generated C only with -c')
         .description('runs VeriFast on a C file and prints JSON result')
         .action(async (file: string, opts: { vf?: string; extra?: string[]; link?: boolean }) => {
-            const verifastExe = opts.vf ?? process.env.VERIFAST_EXE ?? DEFAULT_VERIFAST_EXE;
+            const verifastExe = opts.vf ?? DEFAULT_VERIFAST_EXE;
             try {
                 await fs.access(verifastExe);
             } catch {
@@ -83,7 +83,7 @@ export default function(): void {
                     JSON.stringify({
                         ok: false,
                         error:
-                            `VeriFast executable not found: ${verifastExe}. Use --vf <path>, set VERIFAST_EXE, or place VeriFast at ${DEFAULT_VERIFAST_EXE}.`,
+                            `VeriFast executable not found: ${verifastExe}. Use --vf <path> or place VeriFast at ${DEFAULT_VERIFAST_EXE}.`,
                     })
                 );
                 process.exit(2);
@@ -95,10 +95,12 @@ export default function(): void {
                 extraArgs: opts.extra ?? [],
                 compileOnly: opts.link !== true,
             });
+            const sourceMap = await readCSourceMap(file);
+            const mappedResult = sourceMap ? applyCSourceMapToVeriFastResult(result, sourceMap) : result;
 
             // JSON auf stdout (ideal für Web-UI)
-            console.log(JSON.stringify(result, null, 2));
-            process.exit(result.ok ? 0 : 1);
+            console.log(JSON.stringify(mappedResult, null, 2));
+            process.exit(mappedResult.ok ? 0 : 1);
         });
 
         program
@@ -108,6 +110,17 @@ export default function(): void {
             .description('generates VeriFast-ready C code from a Pseudo2 source file')
             .action(generateCAction);
         program.parse(process.argv);
+}
+
+async function readCSourceMap(cFile: string): Promise<CSourceMapFile | undefined> {
+    const mapFile = `${cFile}.map.json`;
+    try {
+        const text = await fs.readFile(mapFile, 'utf-8');
+        const parsed = JSON.parse(text) as CSourceMapFile;
+        return Array.isArray(parsed.mappings) ? parsed : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 function selectedGraphvizKinds(opts: GenerateOptions): Array<'ast' | 'dep' | 'cfg'> | undefined {

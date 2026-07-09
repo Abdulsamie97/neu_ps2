@@ -18,7 +18,8 @@ Der standardmaessig verwendete VeriFast-Pfad ist repo-lokal:
 ```
 
 Wenn ausnahmsweise ein anderer VeriFast verwendet werden soll, kann der Pfad
-ueber `VERIFAST_EXE` oder ueber die CLI-Option `--vf` ueberschrieben werden.
+bei der CLI explizit ueber `--vf` ueberschrieben werden. Die Weboberflaeche
+verwendet bewusst den repo-lokalen VeriFast.
 
 ## Projektstruktur
 
@@ -159,6 +160,7 @@ Ergebnis:
 
 ```powershell
 .\out\test1.c
+.\out\test1.c.map.json
 ```
 
 Der erzeugte C-Code enthaelt:
@@ -168,6 +170,12 @@ Der erzeugte C-Code enthaelt:
 - eindeutige generierte Namen fuer Pseudo2-Deklarationen.
 - freie Funktionen fuer Methoden mit explizitem `mythis`-Parameter.
 - 1-basige Pseudo2-Arrayzugriffe ueber Runtime-Helfer.
+- automatische VeriFast-Modulvertraege fuer Top-Level-Variablen.
+- triviale VeriFast-Loop-Invarianten fuer generierte C-Schleifen.
+
+Die zusaetzliche Datei `.c.map.json` enthaelt das Mapping von generierten
+C-Zeilen zur urspruenglichen Pseudo2-Zeile. Sie wird von `verifast` automatisch
+gelesen, wenn sie neben der `.c`-Datei liegt.
 
 ### VeriFast ueber CLI ausfuehren
 
@@ -196,6 +204,29 @@ Die Ausgabe ist JSON, z. B.:
   "errors": []
 }
 ```
+
+Bei Fehlern versucht die CLI, VeriFast-Diagnosen auf Pseudo2-Zeilen
+zurueckzufuehren. Beispielstruktur:
+
+```json
+{
+  "ok": false,
+  "errors": [
+    {
+      "file": "out\\invalid_assert_false.c",
+      "line": 98,
+      "kind": "error",
+      "message": "Assertion might not hold.",
+      "sourceFile": "examples\\verifast\\invalid_assert_false.pseudo2",
+      "sourceLine": 4
+    }
+  ]
+}
+```
+
+`line` bleibt die VeriFast-Zeile in der generierten C-Datei.
+`sourceLine` ist die relevante Zeile im Pseudo2-Editor bzw. in der
+Pseudo2-Quelldatei.
 
 Weitere Optionen:
 
@@ -281,7 +312,7 @@ npm run dev
 Danach im Browser oeffnen:
 
 ```text
-http://localhost:20002/packages/web/helloworld.html
+http://localhost:20002/pseudo2-workbench
 ```
 
 Falls der Port bereits belegt ist, meldet Vite den tatsaechlichen Port in der
@@ -289,8 +320,9 @@ Konsole.
 
 Hinweis: `http://localhost:20002` oeffnet die Root-`index.html`, die als
 einfacherer Runner ohne alle C-/VeriFast-Controls aufgebaut ist. Fuer den
-vollstaendigen Workflow mit `Generate C`, `Save C` und `Run VeriFast` die
-`packages/web/helloworld.html`-Adresse verwenden.
+vollstaendigen Workflow mit `Generate C + Verify`, `Save C` und `Verify C` die
+`/pseudo2-workbench`-Adresse verwenden. Die eigentliche HTML-Datei liegt unter
+`packages/web/pseudo2-workbench.html`.
 
 ### VeriFast-Pfad fuer die Weboberflaeche
 
@@ -298,30 +330,27 @@ Die Weboberflaeche kann VeriFast nur starten, wenn sie ueber den lokalen
 Vite/Node-Server laeuft. Der Browser selbst startet keine lokalen `.exe`-Dateien;
 stattdessen ruft die Oberflaeche den lokalen Endpoint `/api/verifast` auf.
 
-Der Server verwendet zuerst `VERIFAST_EXE`. Wenn die Variable nicht gesetzt ist,
-nutzt er den repo-lokalen Standardpfad:
+Der Server nutzt den repo-lokalen Standardpfad:
 
 ```powershell
 .\verifast-26.01\bin\verifast.exe
-```
-
-Wenn ein anderer VeriFast-Pfad verwendet werden soll:
-
-```powershell
-$env:VERIFAST_EXE="C:\Pfad\zu\verifast.exe"
-npm run dev
 ```
 
 ### Bedienung der Weboberflaeche
 
 1. `Start` startet den Monaco-Editor und den Langium-Language-Client.
 2. `Save Pseudo2` speichert oder laedt den aktuellen Pseudo2-Code herunter.
-3. `Run JS` generiert JavaScript und fuehrt es direkt im Browser aus.
-4. `Generate C` erzeugt C-Code im C-Ausgabefenster.
+3. `Run JavaScript` generiert JavaScript und fuehrt es direkt im Browser aus.
+4. `Generate C + Verify` erzeugt C-Code im C-Ausgabefenster und startet danach VeriFast.
 5. `Save C` speichert oder laedt den zuletzt erzeugten C-Code herunter.
-6. `Run VeriFast` sendet den erzeugten C-Code an `/api/verifast` und zeigt das Ergebnis im VeriFast-Fenster.
+6. `Verify C` sendet den zuletzt erzeugten C-Code erneut an `/api/verifast` und zeigt das Ergebnis im VeriFast-Fenster.
 7. `Summary` erzeugt eine kurze Strukturuebersicht des Programms.
 8. `Show Source` zeigt den aktuellen Pseudo2-Quelltext im Ausgabefenster.
+
+Wenn VeriFast einen Fehler meldet und das Source-Mapping vorhanden ist, zeigt
+das VeriFast-Fenster die Pseudo2-Zeile statt nur der generierten C-Zeile. Die
+Weboberflaeche springt zusaetzlich zur ersten gemappten Pseudo2-Diagnose im
+Monaco-Editor.
 
 Der VeriFast-Button funktioniert nur im lokalen Dev-Server-Kontext. Wenn die UI
 statisch ohne Node/Vite-Backend ausgeliefert wird, muss VeriFast ueber die CLI
@@ -352,13 +381,32 @@ Nuetzliche Beispiele:
 
 - `examples/test1.pseudo2`: allgemeines Beispiel fuer Generierung.
 - `examples/verifast_annotations.pseudo2`: kleines Beispiel fuer Pseudo2-VeriFast-Annotationen.
+- `examples/verifast/valid_*.pseudo2`: positive VeriFast-Beispiele, die mit dem repo-lokalen VeriFast erfolgreich verifiziert werden.
+- `examples/verifast/invalid_*.pseudo2`: negative VeriFast-Beispiele, die absichtlich scheitern und Pseudo2-Zeilen in den Diagnosen liefern.
 - `examples/serverExamples`: groessere Beispielprogramme fuer Sprache, Arrays, Structs, Funktionen, Listen, Queues, Stacks, Suche und Sortierung.
+
+Die aktuelle VeriFast-Beispielgruppe deckt u. a. ab:
+
+- einfache `@assert true`-/`@assert false`-Faelle.
+- boolesche Spezifikationsausdruecke.
+- rohe VeriFast-Strings wie `@assert "true"` und `@assert "false"`.
+- Top-Level-Assertions.
+- Array-Parameter inklusive automatisch uebergebener Laenge.
+- Struct-Methoden mit explizitem `mythis` im generierten C.
+- Schleifen mit automatisch generierten Invarianten.
 
 Alle Beispielprogramme werden durch den File-Validation-Test geparst und
 validiert:
 
 ```powershell
 npm run --workspace packages/language test -- test/integration/FileValidation.test.ts
+```
+
+Die echten VeriFast-Beispiele werden im CLI-Test ausgefuehrt, wenn
+`.\verifast-26.01\bin\verifast.exe` vorhanden ist:
+
+```powershell
+npm run --workspace packages/cli test -- test/verifast/VeriFastSourceMap.test.ts
 ```
 
 ## Typische Arbeitsablaeufe
@@ -387,8 +435,8 @@ npm run build --workspace packages/web
 npm run dev
 ```
 
-Dann im Browser `http://localhost:20002/packages/web/helloworld.html` oeffnen
-und die Buttons `Run JS`, `Generate C` und `Run VeriFast` pruefen.
+Dann im Browser `http://localhost:20002/pseudo2-workbench` oeffnen
+und die Buttons `Run JavaScript`, `Generate C + Verify` und `Verify C` pruefen.
 
 ### Nach einer C-/VeriFast-Aenderung
 

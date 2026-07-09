@@ -3,25 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pseudo2 in the Web</title>
-    <link rel="stylesheet" href="style.css" />
+    <title>Pseudo2 Workbench</title>
+    <link rel="stylesheet" href="/packages/web/style.css" />
   </head>
 
   <body>
     <div class="app-shell">
       <header class="toolbar">
         <div class="brand">
-          <b>Pseudo2</b>
+          <b>Pseudo2 Workbench</b>
           <span>Editor, JavaScript, C und VeriFast</span>
         </div>
         <div class="toolbar-actions">
           <button type="button" id="button-start">Start</button>
           <button type="button" id="button-dispose" disabled>Dispose</button>
           <button type="button" id="button-save">Save Pseudo2</button>
-          <button type="button" id="button-execute">Run JS</button>
-          <button type="button" id="button-generate-c">Generate C</button>
+          <button type="button" id="button-execute">Run JavaScript</button>
+          <button type="button" id="button-generate-c">Generate C + Verify</button>
           <button type="button" id="button-save-c">Save C</button>
-          <button type="button" id="button-run-verifast">Run VeriFast</button>
+          <button type="button" id="button-run-verifast">Verify C</button>
           <button type="button" id="button-summary">Summary</button>
           <button type="button" id="button-code">Show Source</button>
         </div>
@@ -78,7 +78,7 @@
       </main>
     </div>
     <script type="module">
-      import { runPseudo2 } from "./src/main.ts";
+      import { runPseudo2 } from "/packages/web/src/main.ts";
 
       runPseudo2();
     </script>

@@ -8,6 +8,8 @@ export type VeriFastError = {
   colTo: number;
   kind: 'error' | 'note';
   message: string;
+  sourceFile?: string;
+  sourceLine?: number;
 };
 
 export type VeriFastResult = {
@@ -16,6 +18,16 @@ export type VeriFastResult = {
   stdout: string;
   stderr: string;
   errors: VeriFastError[];
+};
+
+export type CSourceMapEntry = {
+  generatedLine: number;
+  sourceLine: number;
+};
+
+export type CSourceMapFile = {
+  sourceFile?: string;
+  mappings: CSourceMapEntry[];
 };
 
 const VF_LINE_RE =
@@ -70,4 +82,27 @@ export async function runVeriFast(args: {
       });
     });
   });
+}
+
+export function applyCSourceMapToVeriFastResult(result: VeriFastResult, sourceMap: CSourceMapFile): VeriFastResult {
+  const byGeneratedLine = new Map<number, CSourceMapEntry>();
+  for (const entry of sourceMap.mappings ?? []) {
+    byGeneratedLine.set(entry.generatedLine, entry);
+  }
+
+  return {
+    ...result,
+    errors: result.errors.map(error => {
+      const mapped = byGeneratedLine.get(error.line);
+      if (!mapped) {
+        return error;
+      }
+
+      return {
+        ...error,
+        sourceFile: sourceMap.sourceFile,
+        sourceLine: mapped.sourceLine
+      };
+    })
+  };
 }

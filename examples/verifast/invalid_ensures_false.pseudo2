@@ -1,0 +1,6 @@
+@requires true
+@ensures false
+func impossibleResult()
+  return 1
+
+print impossibleResult()

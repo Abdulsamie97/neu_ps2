@@ -1,0 +1,7 @@
+@requires true
+@ensures true
+func brokenAssert()
+  @assert false
+  return 5
+
+print brokenAssert()

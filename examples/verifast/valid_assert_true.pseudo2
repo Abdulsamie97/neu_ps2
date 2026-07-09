@@ -1,0 +1,7 @@
+@requires true
+@ensures true
+func mainValue()
+  @assert true
+  return 5
+
+print mainValue()

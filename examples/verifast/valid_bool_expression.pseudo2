@@ -1,0 +1,7 @@
+@requires true
+@ensures true
+func boolOk()
+  @assert true && !false
+  return 2
+
+print boolOk()

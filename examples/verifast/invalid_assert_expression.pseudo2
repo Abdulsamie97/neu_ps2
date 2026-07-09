@@ -1,0 +1,7 @@
+@requires true
+@ensures true
+func brokenExpression()
+  @assert 1 == 2
+  return 5
+
+print brokenExpression()

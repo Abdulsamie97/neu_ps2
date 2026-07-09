@@ -1,3 +1,4 @@
+import type { AstNode } from 'langium';
 import type {
   ArrayLiteral,
   Assignment,
@@ -69,13 +70,28 @@ import { Pseudo2GeneratorContext } from './generator-context.js';
 type CGeneratorState = {
   thisName: string;
   topLevel: boolean;
+  sourceMap: boolean;
+  globalNames: string[];
 };
 
-const DEFAULT_STATE: CGeneratorState = { thisName: 'this', topLevel: false };
+const DEFAULT_STATE: CGeneratorState = { thisName: 'this', topLevel: false, sourceMap: false, globalNames: [] };
 const METHOD_THIS_NAME = 'mythis';
+const SOURCE_MAP_MARKER_RE = /^\/\*@@pseudo2-source-line:(\d+)\*\/$/;
+const SOURCE_MAP_END_MARKER = '/*@@pseudo2-source-line:end*/';
 
 export type GenerateCProgramOptions = {
   runtime?: 'contracts' | 'implementation';
+  moduleName?: string;
+};
+
+export type CSourceMapEntry = {
+  generatedLine: number;
+  sourceLine: number;
+};
+
+export type GeneratedCProgram = {
+  code: string;
+  sourceMap: CSourceMapEntry[];
 };
 
 export function generateCProgram(
@@ -83,9 +99,29 @@ export function generateCProgram(
   context = Pseudo2GeneratorContext.fromProgram(program),
   options: GenerateCProgramOptions = {}
 ): string {
+  return generateCProgramInternal(program, context, options, false);
+}
+
+export function generateCProgramWithSourceMap(
+  program: Program,
+  context = Pseudo2GeneratorContext.fromProgram(program),
+  options: GenerateCProgramOptions = {}
+): GeneratedCProgram {
+  return stripSourceMapMarkers(generateCProgramInternal(program, context, options, true));
+}
+
+function generateCProgramInternal(
+  program: Program,
+  context: Pseudo2GeneratorContext,
+  options: GenerateCProgramOptions,
+  sourceMap: boolean
+): string {
   const runtimePrelude = options.runtime === 'implementation' ? C_RUNTIME_IMPLEMENTATION : C_RUNTIME_PRELUDE;
+  const moduleName = toCModuleName(options.moduleName ?? 'pseudo2_program');
   const declarations = program.instructions.filter(isTopLevelDeclaration);
   const globalVariables = program.instructions.filter(isVarDecl);
+  const globalNames = globalVariables.map(variable => context.getVarName(variable));
+  const rootState = { ...DEFAULT_STATE, sourceMap, globalNames };
   const statements = program.instructions.filter(instruction => !isTopLevelDeclaration(instruction) && !isVarDecl(instruction));
 
   const prototypes = [
@@ -95,12 +131,12 @@ export function generateCProgram(
     .map(variable => `static Ps2Value* ${context.getVarName(variable)};`)
     .join('\n');
   const definitions = declarations
-    .map(declaration => generateInstruction(declaration, context, '', DEFAULT_STATE))
+    .map(declaration => generateInstruction(declaration, context, '', rootState))
     .filter(Boolean)
     .join('\n\n');
   const mainBody = [
-    ...globalVariables.map(variable => generateGlobalVarInit(variable, context, '  ')),
-    ...statements.map(statement => generateInstruction(statement, context, '  ', { ...DEFAULT_STATE, topLevel: true }))
+    ...globalVariables.map(variable => generateGlobalVarInit(variable, context, '  ', { ...rootState, topLevel: true })),
+    ...statements.map(statement => generateInstruction(statement, context, '  ', { ...rootState, topLevel: true }))
   ].filter(Boolean).join('\n');
 
   return [
@@ -108,8 +144,55 @@ export function generateCProgram(
     prototypes,
     globals,
     definitions,
-    generateMain(mainBody)
+    generateMain(mainBody, globalNames, moduleName)
   ].filter(Boolean).join('\n\n');
+}
+
+function stripSourceMapMarkers(markedCode: string): GeneratedCProgram {
+  const codeLines: string[] = [];
+  const sourceMap: CSourceMapEntry[] = [];
+  const sourceLineStack: number[] = [];
+
+  for (const line of markedCode.split(/\r?\n/)) {
+    const marker = line.match(SOURCE_MAP_MARKER_RE);
+    if (marker) {
+      sourceLineStack.push(Number(marker[1]));
+      continue;
+    }
+    if (line === SOURCE_MAP_END_MARKER) {
+      sourceLineStack.pop();
+      continue;
+    }
+
+    codeLines.push(line);
+
+    const currentSourceLine = sourceLineStack[sourceLineStack.length - 1];
+    if (currentSourceLine !== undefined) {
+      sourceMap.push({
+        generatedLine: codeLines.length,
+        sourceLine: currentSourceLine
+      });
+    }
+  }
+
+  return {
+    code: codeLines.join('\n'),
+    sourceMap
+  };
+}
+
+function sourceMapped(node: AstNode, code: string, state: CGeneratorState): string {
+  const sourceLine = sourceLineFor(node);
+  if (!state.sourceMap || sourceLine === undefined || code.length === 0) {
+    return code;
+  }
+
+  return `/*@@pseudo2-source-line:${sourceLine}*/\n${code}\n${SOURCE_MAP_END_MARKER}`;
+}
+
+function sourceLineFor(node: AstNode): number | undefined {
+  const line = node.$cstNode?.range.start.line;
+  return line === undefined ? undefined : line + 1;
 }
 
 function isTopLevelDeclaration(instruction: Instruction): boolean {
@@ -135,16 +218,47 @@ function generatePrototype(instruction: Instruction, context: Pseudo2GeneratorCo
   return [];
 }
 
-function generateMain(body: string): string {
+function generateMain(body: string, globalNames: string[], moduleName: string): string {
+  const usesGlobals = globalNames.length > 0;
+  const mainSignature = usesGlobals
+    ? `int main(void) //@ : main_full(${moduleName})`
+    : 'int main(void)';
+  const contracts = usesGlobals
+    ? [
+        `//@ requires module(${moduleName}, true);`,
+        '//@ ensures true;'
+      ]
+    : [
+        '//@ requires true;',
+        '//@ ensures true;'
+      ];
+  const moduleOpen = usesGlobals ? ['  //@ open_module();'] : [];
+  const globalLeak = usesGlobals
+    ? [`  //@ leak ${globalNames.map(name => `${name} |-> _`).join(' &*& ')};`]
+    : [];
+
   return [
-    'int main(void)',
-    '//@ requires true;',
-    '//@ ensures true;',
+    mainSignature,
+    ...contracts,
     '{',
+    ...moduleOpen,
     body,
+    ...globalLeak,
     '  return 0;',
     '}'
   ].filter(line => line.length > 0).join('\n');
+}
+
+function toCModuleName(name: string): string {
+  const baseName = name
+    .split(/[\\/]/)
+    .pop()
+    ?.replace(/\.[^.]*$/, '') ?? '';
+  const sanitized = baseName.replace(/[^a-zA-Z0-9_]/g, '_');
+  if (sanitized.length === 0) {
+    return 'pseudo2_program';
+  }
+  return /^[a-zA-Z_]/.test(sanitized) ? sanitized : `_${sanitized}`;
 }
 
 function generateInstruction(
@@ -153,27 +267,45 @@ function generateInstruction(
   indent = '',
   state = DEFAULT_STATE
 ): string {
+  let generated: string;
+
   if (isBracedBlock(instruction) || isIndentedBlock(instruction)) {
-    return generateBlock(instruction, context, indent, state);
+    generated = generateBlock(instruction, context, indent, state);
+  } else if (isIfStatement(instruction)) {
+    generated = generateIfStatement(instruction, context, indent, state);
+  } else if (isWhileLoop(instruction)) {
+    generated = generateWhileLoop(instruction, context, indent, state);
+  } else if (isForLoop(instruction)) {
+    generated = generateForLoop(instruction, context, indent, state);
+  } else if (isDoWhileLoop(instruction)) {
+    generated = generateDoWhileLoop(instruction, context, indent, state);
+  } else if (isStructDeclaration(instruction)) {
+    generated = generateStructDeclaration(instruction, context, indent, state);
+  } else if (isFunctionDeclaration(instruction)) {
+    generated = generateFunctionDeclaration(instruction, context, indent, state);
+  } else if (isVarDecl(instruction)) {
+    generated = generateVarDecl(instruction, context, indent, state);
+  } else if (isAssignment(instruction)) {
+    generated = generateAssignment(instruction, context, indent, state);
+  } else if (isFunctionCall(instruction)) {
+    generated = `${indent}${genFunctionCall(instruction, context, state)};`;
+  } else if (isReturnStmt(instruction)) {
+    generated = generateReturnStatement(instruction, context, indent, state);
+  } else if (isExprStatement(instruction)) {
+    generated = generateExprStatement(instruction, context, indent, state);
+  } else if (isPrintCommand(instruction)) {
+    generated = generatePrintCommand(instruction, context, indent, state);
+  } else if (isThrowCommand(instruction)) {
+    generated = generateThrowCommand(instruction, context, indent, state);
+  } else if (isCallCommand(instruction)) {
+    generated = generateCallCommand(instruction, context, indent, state);
+  } else if (isVerificationStatement(instruction)) {
+    generated = generateVerificationStatement(instruction, context, indent, state);
+  } else {
+    throw new Error(`Unsupported instruction type for C generator: ${(instruction as unknown as { $type: string }).$type}`);
   }
 
-  if (isIfStatement(instruction)) return generateIfStatement(instruction, context, indent, state);
-  if (isWhileLoop(instruction)) return generateWhileLoop(instruction, context, indent, state);
-  if (isForLoop(instruction)) return generateForLoop(instruction, context, indent, state);
-  if (isDoWhileLoop(instruction)) return generateDoWhileLoop(instruction, context, indent, state);
-  if (isStructDeclaration(instruction)) return generateStructDeclaration(instruction, context, indent);
-  if (isFunctionDeclaration(instruction)) return generateFunctionDeclaration(instruction, context, indent);
-  if (isVarDecl(instruction)) return generateVarDecl(instruction, context, indent, state);
-  if (isAssignment(instruction)) return generateAssignment(instruction, context, indent, state);
-  if (isFunctionCall(instruction)) return `${indent}${genFunctionCall(instruction, context, state)};`;
-  if (isReturnStmt(instruction)) return generateReturnStatement(instruction, context, indent, state);
-  if (isExprStatement(instruction)) return generateExprStatement(instruction, context, indent, state);
-  if (isPrintCommand(instruction)) return generatePrintCommand(instruction, context, indent, state);
-  if (isThrowCommand(instruction)) return generateThrowCommand(instruction, context, indent, state);
-  if (isCallCommand(instruction)) return generateCallCommand(instruction, context, indent, state);
-  if (isVerificationStatement(instruction)) return generateVerificationStatement(instruction, context, indent, state);
-
-  throw new Error(`Unsupported instruction type for C generator: ${(instruction as unknown as { $type: string }).$type}`);
+  return sourceMapped(instruction, generated, state);
 }
 
 function generateBlock(block: Block, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
@@ -215,7 +347,11 @@ function generateWhileLoop(
 ): string {
   const condition = genExpr(loop.condition, context, state);
   const body = generateBlock(loop.body, context, indent, state);
-  return `${indent}while (ps2_truthy(${condition})) ${body}`;
+  return [
+    `${indent}while (ps2_truthy(${condition}))`,
+    generateLoopInvariant(indent, state),
+    body
+  ].join('\n');
 }
 
 function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
@@ -236,7 +372,9 @@ function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent
     `${indent}if (ps2_as_num(${stepName}) <= 0) {`,
     `${indent}  ps2_throw(ps2_string("Invoked for-loop with negative step-size"));`,
     `${indent}}`,
-    `${indent}for (; ps2_as_num(${iterName}) ${directionOp} ps2_as_num(${endName}); ${iterName} = ps2_num(ps2_as_num(${iterName}) ${stepOp} ps2_as_num(${stepName}))) ${body}`
+    `${indent}for (; ps2_as_num(${iterName}) ${directionOp} ps2_as_num(${endName}); ${iterName} = ps2_num(ps2_as_num(${iterName}) ${stepOp} ps2_as_num(${stepName})))`,
+    generateLoopInvariant(indent, state),
+    body
   ].join('\n');
 }
 
@@ -248,13 +386,18 @@ function generateDoWhileLoop(
 ): string {
   const body = generateBlock(loop.body, context, indent, state);
   const condition = genExpr(loop.condition, context, state);
-  return `${indent}do ${body} while (ps2_truthy(${condition}));`;
+  return [
+    `${indent}do`,
+    generateLoopInvariant(indent, state),
+    `${body} while (ps2_truthy(${condition}));`
+  ].join('\n');
 }
 
 function generateStructDeclaration(
   structDecl: StructDeclaration,
   context: Pseudo2GeneratorContext,
-  indent = ''
+  indent = '',
+  state = DEFAULT_STATE
 ): string {
   const attributes = (structDecl.children ?? []).filter(isStructAttDeclaration);
   const methods = (structDecl.children ?? [])
@@ -275,7 +418,7 @@ function generateStructDeclaration(
     `${indent}}`
   ].join('\n');
   const methodText = methods
-    .map(method => generateMethodDeclaration(method, context, indent))
+    .map(method => generateMethodDeclaration(method, context, indent, state))
     .join('\n\n');
 
   return methodText ? `${factory}\n\n${methodText}` : factory;
@@ -288,20 +431,22 @@ function isMethodDecl(fn: FunctionDeclaration): boolean {
 function generateMethodDeclaration(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext,
-  indent = ''
+  indent = '',
+  state = DEFAULT_STATE
 ): string {
   const params = collectMethodCParams(fn, context).join(', ');
-  const body = generateFunctionBody(fn, context, indent, { thisName: METHOD_THIS_NAME, topLevel: false });
+  const body = generateFunctionBody(fn, context, indent, { ...state, thisName: METHOD_THIS_NAME });
   return `${indent}Ps2Value* ${context.getFunctionName(fn)}(${params})\n${body}`;
 }
 
 function generateFunctionDeclaration(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext,
-  indent = ''
+  indent = '',
+  state = DEFAULT_STATE
 ): string {
   const params = collectCParams(fn, context).join(', ');
-  const body = generateFunctionBody(fn, context, indent, DEFAULT_STATE);
+  const body = generateFunctionBody(fn, context, indent, state);
   return `${indent}Ps2Value* ${context.getFunctionName(fn)}(${params})\n${body}`;
 }
 
@@ -340,24 +485,25 @@ function generateFunctionContracts(
   const ensures = annotations.filter(annotation => annotation.kind === 'ensures');
 
   return [
-    ...generateContractLines('requires', requires, context, indent, state),
-    ...generateContractLines('ensures', ensures, context, indent, state)
+    ...generateContractLines('requires', requires, fn, context, indent, state),
+    ...generateContractLines('ensures', ensures, fn, context, indent, state)
   ];
 }
 
 function generateContractLines(
   kind: 'requires' | 'ensures',
   annotations: VerificationAnnotation[],
+  fallbackNode: AstNode,
   context: Pseudo2GeneratorContext,
   indent: string,
   state: CGeneratorState
 ): string[] {
   if (annotations.length === 0) {
-    return [`${indent}//@ ${kind} true;`];
+    return [sourceMapped(fallbackNode, `${indent}//@ ${kind} true;`, state)];
   }
 
   return annotations.map(annotation =>
-    `${indent}//@ ${kind} ${genSpecExpr(annotation.condition, context, state)};`
+    sourceMapped(annotation, `${indent}//@ ${kind} ${genSpecExpr(annotation.condition, context, state)};`, state)
   );
 }
 
@@ -447,8 +593,13 @@ function buildExpandedCall(
   return `${callee}(${expandedArgs.join(', ')})`;
 }
 
-function generateGlobalVarInit(decl: VarDecl, context: Pseudo2GeneratorContext, indent = ''): string {
-  return generateVarDecl(decl, context, indent, { ...DEFAULT_STATE, topLevel: true });
+function generateGlobalVarInit(
+  decl: VarDecl,
+  context: Pseudo2GeneratorContext,
+  indent = '',
+  state = DEFAULT_STATE
+): string {
+  return sourceMapped(decl, generateVarDecl(decl, context, indent, { ...state, topLevel: true }), state);
 }
 
 function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
@@ -461,7 +612,9 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
     const indexName = context.getAnonymousVarName('__arrInit');
     return [
       `${indent}${prefix}${name} = ps2_array_create(ps2_as_int(${sizeExpr}));`,
-      `${indent}for (int ${indexName} = 0; ${indexName} < ps2_array_length(${name}); ${indexName}++) {`,
+      `${indent}for (int ${indexName} = 0; ${indexName} < ps2_array_length(${name}); ${indexName}++)`,
+      generateLoopInvariant(indent, state),
+      `${indent}{`,
       `${indent}  ps2_array_set_zero_based(${name}, ${indexName}, ${initExpr});`,
       `${indent}}`
     ].join('\n');
@@ -702,6 +855,13 @@ function genStructGet(receiver: string, field: string): string {
 
 function genStructSet(receiver: string, field: string, value: string): string {
   return `ps2_struct_set(${receiver}, ${JSON.stringify(field)}, ${value})`;
+}
+
+function generateLoopInvariant(indent: string, state: CGeneratorState): string {
+  const invariant = state.topLevel && state.globalNames.length > 0
+    ? state.globalNames.map(name => `${name} |-> _`).join(' &*& ')
+    : 'true';
+  return `${indent}  //@ invariant ${invariant};`;
 }
 
 function genBooleanChain(left: Expr, op: '&&' | '||', rights: Expr[], context: Pseudo2GeneratorContext, state: CGeneratorState): string {

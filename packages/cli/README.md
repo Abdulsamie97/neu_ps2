@@ -18,12 +18,22 @@ Generate C for VeriFast:
 node .\packages\cli\bin\cli.js generate-c .\examples\test1.pseudo2 -d .\out
 ```
 
+This writes both `out\test1.c` and `out\test1.c.map.json`. The map file is used
+to translate VeriFast diagnostics from generated C lines back to Pseudo2 source
+lines.
+
 Run VeriFast:
 
 ```powershell
 node .\packages\cli\bin\cli.js verifast .\out\test1.c
 ```
 
-`verifast` uses `.\verifast-26.01\bin\verifast.exe` from the repo by default. Override it with `VERIFAST_EXE` or `--vf <path>` if needed.
+`verifast` uses `.\verifast-26.01\bin\verifast.exe` from the repo by default. Override it with `--vf <path>` if needed.
 
 `verifast` uses VeriFast `-c` by default, because generated C relies on external Pseudo2 runtime contracts. Use `--link` only when concrete runtime manifests/implementations are provided.
+
+Run the positive and negative VeriFast examples:
+
+```powershell
+npm run --workspace packages/cli test -- test/verifast/VeriFastSourceMap.test.ts
+```

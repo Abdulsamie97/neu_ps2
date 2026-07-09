@@ -80,12 +80,21 @@ describe('CLI generator', () => {
     await generateCAction(sourcePath, { destination });
 
     const cPath = path.join(destination, 'samplec.c');
+    const mapPath = `${cPath}.map.json`;
     expect(fs.existsSync(cPath)).toBe(true);
+    expect(fs.existsSync(mapPath)).toBe(true);
     const c = fs.readFileSync(cPath, 'utf8');
+    const sourceMap = JSON.parse(fs.readFileSync(mapPath, 'utf8')) as {
+      sourceFile?: string;
+      mappings?: Array<{ generatedLine: number; sourceLine: number }>;
+    };
     expect(c).toContain('typedef struct Ps2Value { int _; } Ps2Value;');
     expect(c).toContain('//@ requires true;');
     expect(c).toContain('Ps2Value* func_add_0(Ps2Value* a_0, Ps2Value* b_1);');
     expect(c).toContain('ps2_print(func_add_0(ps2_num(2), ps2_num(3)));');
+    expect(sourceMap.sourceFile).toBe(path.resolve(sourcePath));
+    expect(sourceMap.mappings?.some(entry => entry.sourceLine === 2)).toBe(true);
+    expect(sourceMap.mappings?.some(entry => entry.sourceLine === 5)).toBe(true);
   });
 });
 

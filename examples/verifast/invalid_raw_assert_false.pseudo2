@@ -1,0 +1,7 @@
+@requires true
+@ensures true
+func rawBroken()
+  @assert "false"
+  return 1
+
+print rawBroken()

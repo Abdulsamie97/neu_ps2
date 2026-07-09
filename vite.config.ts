@@ -23,11 +23,11 @@ export const definedViteConfig = defineConfig({
         rollupOptions: {
             input: {
                 index: path.resolve(__dirname, 'index.html'),
+                pseudo2Workbench: path.resolve(__dirname, 'packages/web/pseudo2-workbench.html'),
                 // json_classic: path.resolve(__dirname, 'packages/examples/json_classic.html'),
                 // json: path.resolve(__dirname, 'packages/examples/json.html'),
                 // browser: path.resolve(__dirname, 'packages/examples/browser.html'),
                 // langium_extended: path.resolve(__dirname, 'packages/examples/langium_extended.html'),
-                // helloworld: path.resolve(__dirname, 'web/helloworld.html'),
                 // python: path.resolve(__dirname, 'packages/examples/python.html'),
                 // groovy: path.resolve(__dirname, 'packages/examples/groovy.html'),
                 // clangd: path.resolve(__dirname, 'packages/examples/clangd.html'),
@@ -60,6 +60,9 @@ export const definedViteConfig = defineConfig({
         }
     },
     optimizeDeps: {
+        exclude: [
+            '@codingame/monaco-vscode-textmate-service-override'
+        ],
         esbuildOptions: {
             plugins: [
                 importMetaUrlPlugin
@@ -87,6 +90,7 @@ export const definedViteConfig = defineConfig({
         ]
     },
     plugins: [
+        pseudo2WorkbenchRoutePlugin(),
         pseudo2VeriFastApiPlugin(),
         vsixPlugin()  // Enable to load VS Code extensions packaged as .vsix files,
         //    react()
@@ -106,7 +110,8 @@ export default definedViteConfig;
 type VeriFastApiRequest = {
     code?: unknown;
     fileName?: unknown;
-    verifastExe?: unknown;
+    sourceFile?: unknown;
+    sourceMap?: unknown;
     extraArgs?: unknown;
 };
 
@@ -117,6 +122,8 @@ type VeriFastError = {
     colTo: number;
     kind: 'error' | 'note';
     message: string;
+    sourceFile?: string;
+    sourceLine?: number;
 };
 
 type VeriFastProcessResult = {
@@ -126,6 +133,36 @@ type VeriFastProcessResult = {
     stderr: string;
     errors: VeriFastError[];
 };
+
+type CSourceMapEntry = {
+    generatedLine: number;
+    sourceLine: number;
+};
+
+function pseudo2WorkbenchRoutePlugin(): Plugin {
+    return {
+        name: 'pseudo2-workbench-route',
+        configureServer(server) {
+            server.middlewares.use((req, _res, next) => {
+                const requestPath = req.url?.split('?')[0];
+                if (requestPath === '/pseudo2-workbench' || requestPath === '/pseudo2-workbench/') {
+                    req.url = '/packages/web/pseudo2-workbench.html';
+                }
+                next();
+            });
+
+            server.httpServer?.once('listening', () => {
+                setTimeout(() => {
+                    const localUrls = server.resolvedUrls?.local ?? [];
+                    const baseUrl = localUrls[0] ?? `http://localhost:${server.config.server.port ?? 20002}/`;
+                    const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+                    server.config.logger.info(`  -> Pseudo2 Workbench: ${normalizedBaseUrl}pseudo2-workbench`);
+                    server.config.logger.info('     Full editor with JavaScript/C generation and VeriFast verification.');
+                }, 0);
+            });
+        }
+    };
+}
 
 function pseudo2VeriFastApiPlugin(): Plugin {
     return {
@@ -157,9 +194,7 @@ async function handleVeriFastApi(req: IncomingMessage, res: ServerResponse): Pro
         return;
     }
 
-    const verifastExe = typeof body.verifastExe === 'string' && body.verifastExe.trim().length > 0
-        ? body.verifastExe
-        : process.env.VERIFAST_EXE ?? DEFAULT_VERIFAST_EXE;
+    const verifastExe = DEFAULT_VERIFAST_EXE;
     const extraArgs = Array.isArray(body.extraArgs) ? body.extraArgs.filter((arg): arg is string => typeof arg === 'string') : [];
     const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'pseudo2-verifast-'));
     const file = path.join(tempDir, sanitizeCFileName(typeof body.fileName === 'string' ? body.fileName : 'program.c'));
@@ -179,7 +214,11 @@ async function handleVeriFastApi(req: IncomingMessage, res: ServerResponse): Pro
         return;
     }
 
-    const result = await runVeriFastProcess(verifastExe, file, extraArgs);
+    const result = mapVeriFastResultToSource(
+        await runVeriFastProcess(verifastExe, file, extraArgs),
+        parseSourceMap(body.sourceMap),
+        typeof body.sourceFile === 'string' ? body.sourceFile : undefined
+    );
     sendJson(res, 200, {
         ...result,
         file,
@@ -188,7 +227,54 @@ async function handleVeriFastApi(req: IncomingMessage, res: ServerResponse): Pro
     });
 }
 
-function readJsonBody(req: NodeJS.ReadableStream): Promise<VeriFastApiRequest> {
+function parseSourceMap(value: unknown): CSourceMapEntry[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+
+    return value.flatMap(entry => {
+        if (
+            typeof entry === 'object' &&
+            entry !== null &&
+            typeof (entry as Partial<CSourceMapEntry>).generatedLine === 'number' &&
+            typeof (entry as Partial<CSourceMapEntry>).sourceLine === 'number'
+        ) {
+            return [{
+                generatedLine: (entry as CSourceMapEntry).generatedLine,
+                sourceLine: (entry as CSourceMapEntry).sourceLine
+            }];
+        }
+        return [];
+    });
+}
+
+function mapVeriFastResultToSource(
+    result: VeriFastProcessResult,
+    sourceMap: CSourceMapEntry[],
+    sourceFile: string | undefined
+): VeriFastProcessResult {
+    if (sourceMap.length === 0) {
+        return result;
+    }
+
+    const byGeneratedLine = new Map(sourceMap.map(entry => [entry.generatedLine, entry]));
+    return {
+        ...result,
+        errors: result.errors.map(error => {
+            const mapped = byGeneratedLine.get(error.line);
+            if (!mapped) {
+                return error;
+            }
+            return {
+                ...error,
+                sourceFile,
+                sourceLine: mapped.sourceLine
+            };
+        })
+    };
+}
+
+function readJsonBody(req: IncomingMessage): Promise<VeriFastApiRequest> {
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
         let size = 0;
@@ -197,7 +283,7 @@ function readJsonBody(req: NodeJS.ReadableStream): Promise<VeriFastApiRequest> {
             size += chunk.length;
             if (size > MAX_VERIFAST_BODY_BYTES) {
                 reject(new Error('Request body is too large.'));
-                req.destroy();
+                destroyReadable(req);
                 return;
             }
             chunks.push(chunk);
@@ -212,6 +298,10 @@ function readJsonBody(req: NodeJS.ReadableStream): Promise<VeriFastApiRequest> {
             }
         });
     });
+}
+
+function destroyReadable(stream: IncomingMessage): void {
+    stream.destroy();
 }
 
 function runVeriFastProcess(verifastExe: string, file: string, extraArgs: string[]): Promise<VeriFastProcessResult> {

@@ -1,7 +1,8 @@
 import { AstUtils } from 'langium';
-import type { FunctionDeclaration, Program, Variable } from './generated/ast.js';
+import type { FunctionDeclaration, Program, StructDeclaration, Variable } from './generated/ast.js';
 import {
   isFunctionDeclaration,
+  isStructDeclaration,
   isVariable
 } from './generated/ast.js';
 
@@ -13,8 +14,10 @@ function targetIdentifier(name: string): string {
 export class Pseudo2GeneratorContext {
   private readonly variableNames = new Map<Variable, string>();
   private readonly functionNames = new Map<FunctionDeclaration, string>();
+  private readonly structFactoryNames = new Map<StructDeclaration, string>();
   private variableCounter = 0;
   private functionCounter = 0;
+  private structCounter = 0;
 
   static fromProgram(program: Program): Pseudo2GeneratorContext {
     const context = new Pseudo2GeneratorContext();
@@ -29,6 +32,9 @@ export class Pseudo2GeneratorContext {
       }
       if (isFunctionDeclaration(node)) {
         this.addFunctionName(node);
+      }
+      if (isStructDeclaration(node)) {
+        this.addStructFactoryName(node);
       }
     }
   }
@@ -69,5 +75,20 @@ export class Pseudo2GeneratorContext {
 
   getAnonymousFunctionName(prefix = 'anonym'): string {
     return `${targetIdentifier(prefix)}_${this.functionCounter++}`;
+  }
+
+  addStructFactoryName(structDecl: StructDeclaration): void {
+    if (this.structFactoryNames.has(structDecl)) {
+      throw new Error(`Struct '${structDecl.name}' is already registered.`);
+    }
+    this.structFactoryNames.set(structDecl, `create_${targetIdentifier(structDecl.name)}_${this.structCounter++}`);
+  }
+
+  getStructFactoryName(structDecl: StructDeclaration): string {
+    const name = this.structFactoryNames.get(structDecl);
+    if (!name) {
+      throw new Error(`Could not find generated factory name for struct '${structDecl.name}'.`);
+    }
+    return name;
   }
 }

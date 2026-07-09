@@ -1,6 +1,7 @@
 export * from './pseudo2-module.js';
 export * from './pseudo2-validator.js';
 export * from './langenerator.js';
+export * from './generator-context.js';
 export * from './generated/ast.js';
 export * from './generated/grammar.js';
 export * from './generated/module.js';

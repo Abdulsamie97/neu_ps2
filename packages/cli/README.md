@@ -12,6 +12,18 @@ Generate JavaScript plus Graphviz artifacts:
 node .\packages\cli\bin\cli.js generate .\examples\test1.pseudo2 -d .\out
 ```
 
+Generate a braced pretty-printed Pseudo2 copy:
+
+```powershell
+node .\packages\cli\bin\cli.js generate-pretty .\examples\test1.pseudo2 -d .\out
+```
+
+Or include it in the normal generator run:
+
+```powershell
+node .\packages\cli\bin\cli.js generate .\examples\test1.pseudo2 -d .\out --pretty
+```
+
 Generate C for VeriFast:
 
 ```powershell

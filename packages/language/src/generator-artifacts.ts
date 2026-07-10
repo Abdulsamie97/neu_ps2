@@ -1,4 +1,5 @@
 import type { Program } from './generated/ast.js';
+import { generatePrettyPseudo2 } from './generator-pretty.js';
 import { generateProgram } from './langenerator.js';
 import { generateGraphvizAst } from './graphviz/generator-graphviz-ast.js';
 import { generateGraphvizCfgArtifacts } from './graphviz/generator-graphviz-cfg.js';
@@ -17,6 +18,7 @@ export type GenerateGraphvizArtifactsOptions = {
 
 export type GenerateAllArtifactsOptions = GenerateGraphvizArtifactsOptions & {
   includeJavaScript?: boolean;
+  includePrettyPseudo2?: boolean;
 };
 
 export function generateGraphvizArtifacts(program: Program, options: GenerateGraphvizArtifactsOptions = {}): GeneratedArtifact[] {
@@ -43,6 +45,10 @@ export function generateAllArtifacts(program: Program, options: GenerateAllArtif
 
   if (options.includeJavaScript !== false) {
     artifacts.push({ fileName: 'generated_code.js', code: generateProgram(program) });
+  }
+
+  if (options.includePrettyPseudo2 === true) {
+    artifacts.push({ fileName: 'pretty.pseudo2', code: generatePrettyPseudo2(program) });
   }
 
   artifacts.push(...generateGraphvizArtifacts(program, options));

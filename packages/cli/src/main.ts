@@ -3,7 +3,7 @@ import { createPseudo2Services, Pseudo2LanguageMetaData } from 'pseudo2-language
 import chalk from 'chalk';
 import { Command } from 'commander';
 import { extractAstNode } from './util.js';
-import { generate } from './generator.js';
+import { generate, generatePretty } from './generator.js';
 import { NodeFileSystem } from 'langium/node';
 import * as url from 'node:url';
 import * as fs from 'node:fs/promises';
@@ -23,6 +23,7 @@ export type GenerateOptions = {
     js?: boolean;
     graphviz?: boolean;
     onlyJs?: boolean;
+    pretty?: boolean;
     ast?: boolean;
     dep?: boolean;
     cfg?: boolean;
@@ -34,6 +35,7 @@ export const generateAction = async (fileName: string, opts: GenerateOptions): P
     const writtenFiles = generate(programAst, fileName, {
         destination: opts.destination,
         emitJavaScript: opts.js !== false,
+        emitPrettyPseudo2: opts.onlyJs ? false : opts.pretty === true,
         emitGraphviz: opts.onlyJs ? false : opts.graphviz !== false,
         graphvizKinds: selectedGraphvizKinds(opts)
     });
@@ -45,6 +47,13 @@ export const generateCAction = async (fileName: string, opts: { destination?: st
     const programAst = await extractAstNode<Program>(fileName, services);
     const generatedFilePath = generateC(programAst, fileName, opts.destination);
     console.log(chalk.green(`C code generated successfully: ${generatedFilePath}`));
+};
+
+export const generatePrettyAction = async (fileName: string, opts: { destination?: string }): Promise<void> => {
+    const services = createPseudo2Services(NodeFileSystem).Pseudo2;
+    const programAst = await extractAstNode<Program>(fileName, services);
+    const generatedFilePath = generatePretty(programAst, fileName, opts.destination);
+    console.log(chalk.green(`Braced Pseudo2 generated successfully: ${generatedFilePath}`));
 };
 
 export default function(): void {
@@ -60,6 +69,7 @@ export default function(): void {
         .option('--no-js', 'skip JavaScript output')
         .option('--no-graphviz', 'skip Graphviz artifacts')
         .option('--only-js', 'write only JavaScript output')
+        .option('--pretty', 'write a braced pretty-printed Pseudo2 copy')
         .option('--ast', 'write AST Graphviz artifact')
         .option('--dep', 'write dependency Graphviz artifact')
         .option('--cfg', 'write CFG Graphviz artifacts')
@@ -109,6 +119,13 @@ export default function(): void {
             .option('-d, --destination <dir>', 'destination directory of generating')
             .description('generates VeriFast-ready C code from a Pseudo2 source file')
             .action(generateCAction);
+
+        program
+            .command('generate-pretty')
+            .argument('<file>', `source file (possible file extensions: ${fileExtensions})`)
+            .option('-d, --destination <dir>', 'destination directory of generating')
+            .description('generates a braced pretty-printed Pseudo2 copy')
+            .action(generatePrettyAction);
         program.parse(process.argv);
 }
 

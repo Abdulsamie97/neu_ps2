@@ -243,6 +243,7 @@ const updateCGeneration = async () => {
 const generateCCodeFromEditor = async (): Promise<boolean> => {
     setTextContent('#cspan', 'Generating C...');
     setTextContent('#verifastspan', '');
+    clearVeriFastEditorDiagnostics();
     lastGeneratedCCode = '';
     lastGeneratedCSourceMap = [];
 
@@ -315,6 +316,7 @@ const verifyLastGeneratedCCode = async () => {
             return;
         }
 
+        updateVeriFastEditorDiagnostics(result);
         focusFirstVeriFastDiagnostic(result);
         setTextContent('#verifastspan', formatVeriFastResult(result));
     } catch (error) {
@@ -386,23 +388,43 @@ function getSuggestedCFileName(): string {
 }
 
 function formatVeriFastResult(result: VeriFastApiResult): string {
-    const diagnostics = result.errors && result.errors.length > 0
-        ? result.errors.map(error =>
-            error.sourceLine
-                ? `${error.kind}: ${formatSourceLocation(error)}: ${error.message} (generated C line ${error.line})`
-                : `${error.kind}: ${error.file}(${error.line},${error.colFrom}-${error.colTo}): ${error.message}`
-        ).join('\n')
-        : '(no parsed diagnostics)';
+    const diagnostics = formatVeriFastDiagnostics(result);
 
     return [
         result.ok ? 'VeriFast OK' : 'VeriFast failed',
         `Exit code: ${result.exitCode}`,
-        result.stdout.trim().length > 0 ? `\nstdout:\n${result.stdout.trim()}` : undefined,
-        result.stderr.trim().length > 0 ? `\nstderr:\n${result.stderr.trim()}` : undefined,
         '',
         'Diagnostics:',
         diagnostics
     ].filter((line): line is string => line !== undefined).join('\n');
+}
+
+function formatVeriFastDiagnostics(result: VeriFastApiResult): string {
+    const errors = result.errors ?? [];
+    if (errors.length === 0) {
+        return result.ok
+            ? 'No errors found.'
+            : 'VeriFast failed, but no Pseudo2 diagnostic could be mapped.';
+    }
+
+    const mappedDiagnostics = errors.filter(error => typeof error.sourceLine === 'number');
+    const diagnostics = mappedDiagnostics.length > 0
+        ? mappedDiagnostics
+        : errors.filter(error => error.kind === 'error');
+
+    if (diagnostics.length === 0) {
+        return 'VeriFast reported notes only. No Pseudo2 error line was mapped.';
+    }
+
+    return diagnostics.map(formatVeriFastDiagnostic).join('\n');
+}
+
+function formatVeriFastDiagnostic(error: NonNullable<VeriFastApiResult['errors']>[number]): string {
+    if (typeof error.sourceLine === 'number') {
+        return `${error.kind}: Pseudo2 line ${error.sourceLine}: ${error.message}`;
+    }
+
+    return `${error.kind}: ${error.message}`;
 }
 
 function focusFirstVeriFastDiagnostic(result: VeriFastApiResult): void {
@@ -417,10 +439,35 @@ function focusFirstVeriFastDiagnostic(result: VeriFastApiResult): void {
     editor?.focus();
 }
 
-function formatSourceLocation(error: NonNullable<VeriFastApiResult['errors']>[number]): string {
-    return error.sourceFile
-        ? `${error.sourceFile}:${error.sourceLine}`
-        : `Pseudo2 line ${error.sourceLine}`;
+function updateVeriFastEditorDiagnostics(result: VeriFastApiResult): void {
+    const editor = editorApp?.getEditor();
+    const model = editor?.getModel();
+    if (!model) {
+        return;
+    }
+
+    const markers = (result.errors ?? [])
+        .filter(error => error.kind === 'error' && typeof error.sourceLine === 'number')
+        .map(error => {
+            const lineNumber = error.sourceLine ?? 1;
+            return {
+                severity: monaco.MarkerSeverity.Error,
+                message: error.message,
+                startLineNumber: lineNumber,
+                startColumn: 1,
+                endLineNumber: lineNumber,
+                endColumn: model.getLineMaxColumn(lineNumber)
+            };
+        });
+
+    monaco.editor.setModelMarkers(model, 'verifast', markers);
+}
+
+function clearVeriFastEditorDiagnostics(): void {
+    const model = editorApp?.getEditor()?.getModel();
+    if (model) {
+        monaco.editor.setModelMarkers(model, 'verifast', []);
+    }
 }
 
 function installPseudo2KeywordDecorations(editor: monaco.editor.IStandaloneCodeEditor | undefined): void {

@@ -12,6 +12,7 @@ export * from './pseudo2-module.js';
 export * from './pseudo2-validator.js';
 export * from './langenerator.js';
 export * from './c-generator-core.js';
+export * from './generator-pretty.js';
 export * from './generator-context.js';
 export * from './generator-artifacts.js';
 export * from './graphviz/generator-graphviz-ast.js';

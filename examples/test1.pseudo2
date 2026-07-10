@@ -4,5 +4,13 @@
 }
 
 func m(){
-  return 5
+return 5
+}
+
+var f=true
+var x=5
+while true{
+x=8
+x=3
+f=false
 }

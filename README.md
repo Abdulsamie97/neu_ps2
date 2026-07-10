@@ -24,7 +24,7 @@ verwendet bewusst den repo-lokalen VeriFast.
 ## Projektstruktur
 
 - `packages/language`: Grammatik, AST, Scoping, Validator, Typing und alle Generator-Kernfunktionen.
-- `packages/cli`: Kommandozeilenwerkzeug fuer JS-, Graphviz-, C-Generierung und VeriFast.
+- `packages/cli`: Kommandozeilenwerkzeug fuer JS-, Pretty-Pseudo2-, Graphviz-, C-Generierung und VeriFast.
 - `packages/web`: Monaco/Langium-Weboberflaeche mit JS-Ausfuehrung, C-Ausgabe und VeriFast-Button.
 - `packages/extension`: VS-Code-Erweiterung.
 - `examples`: Pseudo2-Beispielprogramme.
@@ -34,8 +34,9 @@ Wichtige Generator-Dateien:
 
 - `packages/language/src/generator-core.ts`: JavaScript-Generator.
 - `packages/language/src/c-generator-core.ts`: C-/VeriFast-Generator.
+- `packages/language/src/generator-pretty.ts`: Pretty-Printer, der Pseudo2 mit geschweiften Klammern ausgibt.
 - `packages/language/src/generator-context.ts`: eindeutige Zielnamen fuer Variablen, Funktionen und Structs.
-- `packages/language/src/generator-artifacts.ts`: gemeinsamer Einstieg fuer JS- und Graphviz-Artefakte.
+- `packages/language/src/generator-artifacts.ts`: gemeinsamer Einstieg fuer JS-, Pretty-Pseudo2- und Graphviz-Artefakte.
 - `packages/language/src/graphviz/*`: AST-, Dependency- und CFG-Graphviz-Generatoren.
 
 ## Installation
@@ -139,6 +140,9 @@ node .\packages\cli\bin\cli.js generate .\examples\test1.pseudo2 -d .\out --no-j
 node .\packages\cli\bin\cli.js generate .\examples\test1.pseudo2 -d .\out --no-js --ast
 node .\packages\cli\bin\cli.js generate .\examples\test1.pseudo2 -d .\out --no-js --dep
 node .\packages\cli\bin\cli.js generate .\examples\test1.pseudo2 -d .\out --no-js --cfg
+
+# Zusaetzlich eine geklammerte Pretty-Pseudo2-Version erzeugen
+node .\packages\cli\bin\cli.js generate .\examples\test1.pseudo2 -d .\out --pretty
 ```
 
 Die Graphviz-Dateien sind `.dot`-Dateien. Sie koennen mit Graphviz weiter in
@@ -147,6 +151,28 @@ PDF, SVG oder PNG umgewandelt werden, z. B.:
 ```powershell
 dot -Tsvg .\out\graphvizAST.dot -o .\out\graphvizAST.svg
 ```
+
+### Pretty-Pseudo2 erzeugen
+
+Der Pretty-Pseudo2-Generator erzeugt eine zweite Pseudo2-Version mit
+geschweiften Klammern statt Einrueckungsbloecken. Das ist hilfreich, wenn der
+AST in eine kanonische, explizit geklammerte Schreibweise zurueckgeschrieben
+werden soll.
+
+Nur diese Pretty-Ausgabe erzeugen:
+
+```powershell
+node .\packages\cli\bin\cli.js generate-pretty .\examples\test1.pseudo2 -d .\out
+```
+
+Ergebnis:
+
+```powershell
+.\out\test1.braced.pseudo2
+```
+
+Die Ausgabe bleibt Pseudo2-Code und kann wieder vom Parser gelesen werden.
+Kommentare werden dabei nicht erhalten, weil sie nicht Teil des AST sind.
 
 ### C-Code erzeugen
 
@@ -364,12 +390,14 @@ Die wichtigsten Generatorfunktionen werden aus `pseudo2-language` exportiert:
 import {
   generateProgram,
   generateCProgram,
+  generatePrettyPseudo2,
   generateGraphvizArtifacts
 } from 'pseudo2-language';
 ```
 
 - `generateProgram(program)` erzeugt JavaScript.
 - `generateCProgram(program)` erzeugt C-Code mit VeriFast-Kommentaren.
+- `generatePrettyPseudo2(program)` erzeugt Pseudo2-Code mit geschweiften Klammern.
 - `generateGraphvizArtifacts(program)` erzeugt AST-, Dependency- und CFG-DOT-Artefakte.
 
 Die CLI und die Weboberflaeche verwenden dieselben Kernfunktionen. Dadurch

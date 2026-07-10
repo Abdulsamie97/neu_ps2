@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as vm from 'node:vm';
 import { describe, expect, test } from 'vitest';
 
-import { generateAction, generateCAction } from '../../src/main.js';
+import { generateAction, generateCAction, generatePrettyAction } from '../../src/main.js';
 
 describe('CLI generator', () => {
   test('generateAction writes JavaScript and Graphviz artifacts to explicit destination', async () => {
@@ -68,6 +68,34 @@ describe('CLI generator', () => {
     expect(fs.existsSync(path.join(destination, 'graphvizAST.dot'))).toBe(true);
     expect(fs.existsSync(path.join(destination, 'graphvizDep.dot'))).toBe(false);
     expect(fs.existsSync(path.join(destination, 'graphvizCfg_add.dot'))).toBe(false);
+  });
+
+  test('generateAction can also write a braced Pseudo2 pretty-print artifact', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-cli-pretty-'));
+    const sourcePath = path.join(tmp, 'pretty-sample.pseudo2');
+    const destination = path.join(tmp, 'out');
+
+    fs.writeFileSync(sourcePath, sampleProgram(), 'utf8');
+
+    await generateAction(sourcePath, { destination, pretty: true });
+
+    const prettyPath = path.join(destination, 'prettysample.braced.pseudo2');
+    expect(fs.existsSync(prettyPath)).toBe(true);
+    expect(fs.readFileSync(prettyPath, 'utf8')).toContain('func add(a, b) {');
+  });
+
+  test('generatePrettyAction writes only the braced Pseudo2 pretty-print artifact', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-cli-pretty-only-'));
+    const sourcePath = path.join(tmp, 'pretty-only.pseudo2');
+    const destination = path.join(tmp, 'out');
+
+    fs.writeFileSync(sourcePath, sampleProgram(), 'utf8');
+
+    await generatePrettyAction(sourcePath, { destination });
+
+    expect(fs.existsSync(path.join(destination, 'prettyonly.braced.pseudo2'))).toBe(true);
+    expect(fs.existsSync(path.join(destination, 'prettyonly.js'))).toBe(false);
+    expect(fs.existsSync(path.join(destination, 'graphvizAST.dot'))).toBe(false);
   });
 
   test('generateCAction writes a C file with VeriFast annotations', async () => {

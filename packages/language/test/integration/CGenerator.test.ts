@@ -112,9 +112,38 @@ describe('CGenerator', () => {
     expect(c).toContain('while (ps2_truthy(ps2_bool(ps2_compare("<", x_0, ps2_num(2)))))');
     expect(c).toContain('//@ invariant x_0 |-> _;');
     expect(c).toMatch(/do\s+\/\/@ invariant/);
-    expect(c).toContain('for (; ps2_as_num(i_1) <= ps2_as_num(');
+    expect(c).toContain('while (ps2_as_num(i_1) <= ps2_as_num(');
     expect(c).toContain('if (ps2_truthy(ps2_bool(ps2_equals(x_0, ps2_num(0)))))');
     expect(c).toContain('ps2_throw(ps2_string("bad"));');
+  });
+
+  test('maps loop invariant annotations to VeriFast comments', async () => {
+    const source = [
+      'var i = 1',
+      '@invariant false',
+      'while i < 2',
+      '  i = i + 1',
+      '',
+      '@invariant true',
+      'for j = 1 to 2',
+      '  @assert true'
+    ].join('\n');
+    const { model, document } = await parseRuntimeProgram(source);
+    const errors = (document.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1);
+    expect(errors.map(error => error.message).join('\n')).toBe('');
+
+    const generated = generateCProgramWithSourceMap(model);
+    expect(generated.code).toContain('//@ invariant (false)');
+    expect(generated.code).toContain('//@ invariant (true)');
+
+    const cLines = generated.code.split(/\r?\n/);
+    const falseInvariantLine = cLines.findIndex(line => line.includes('//@ invariant (false)')) + 1;
+    const trueInvariantLine = cLines.findIndex(line => line.includes('//@ invariant (true)')) + 1;
+
+    expect(falseInvariantLine).toBeGreaterThan(0);
+    expect(trueInvariantLine).toBeGreaterThan(0);
+    expect(generated.sourceMap.find(entry => entry.generatedLine === falseInvariantLine)?.sourceLine).toBe(2);
+    expect(generated.sourceMap.find(entry => entry.generatedLine === trueInvariantLine)?.sourceLine).toBe(6);
   });
 });
 

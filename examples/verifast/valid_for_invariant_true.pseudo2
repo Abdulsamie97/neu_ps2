@@ -1,0 +1,5 @@
+@invariant true
+for i = 1 to 2
+  @assert true
+
+print "done"

@@ -13,6 +13,7 @@ import type {
   FunctionDeclaration,
   IfStatement,
   Instruction,
+  LoopInvariantAnnotation,
   MethSelection,
   ParameterDecl,
   PrintCommand,
@@ -349,7 +350,7 @@ function generateWhileLoop(
   const body = generateBlock(loop.body, context, indent, state);
   return [
     `${indent}while (ps2_truthy(${condition}))`,
-    generateLoopInvariant(indent, state),
+    ...generateLoopInvariants(loop.annotations ?? [], context, indent, state),
     body
   ].join('\n');
 }
@@ -363,7 +364,7 @@ function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent
   const step = loop.step ? genExpr(loop.step, context, state) : 'ps2_num(1)';
   const directionOp = loop.direction === 'to' ? '<=' : '>=';
   const stepOp = loop.direction === 'to' ? '+' : '-';
-  const body = generateBlock(loop.body, context, indent, state);
+  const body = generateForLoopBody(loop, context, indent, state, iterName, stepName, stepOp);
 
   return [
     `${indent}Ps2Value* ${iterName} = ps2_copy_value(${from});`,
@@ -372,10 +373,29 @@ function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent
     `${indent}if (ps2_as_num(${stepName}) <= 0) {`,
     `${indent}  ps2_throw(ps2_string("Invoked for-loop with negative step-size"));`,
     `${indent}}`,
-    `${indent}for (; ps2_as_num(${iterName}) ${directionOp} ps2_as_num(${endName}); ${iterName} = ps2_num(ps2_as_num(${iterName}) ${stepOp} ps2_as_num(${stepName})))`,
-    generateLoopInvariant(indent, state),
+    `${indent}while (ps2_as_num(${iterName}) ${directionOp} ps2_as_num(${endName}))`,
+    ...generateLoopInvariants(loop.annotations ?? [], context, indent, state),
     body
   ].join('\n');
+}
+
+function generateForLoopBody(
+  loop: ForLoop,
+  context: Pseudo2GeneratorContext,
+  indent: string,
+  state: CGeneratorState,
+  iterName: string,
+  stepName: string,
+  stepOp: string
+): string {
+  const body = loop.body.instructions ?? [];
+  const inner = `${indent}  `;
+  const nested = body
+    .map(instruction => generateInstruction(instruction, context, inner, state))
+    .filter(Boolean);
+  const update = `${inner}${iterName} = ps2_num(ps2_as_num(${iterName}) ${stepOp} ps2_as_num(${stepName}));`;
+
+  return `${indent}{\n${[...nested, update].join('\n')}\n${indent}}`;
 }
 
 function generateDoWhileLoop(
@@ -388,7 +408,7 @@ function generateDoWhileLoop(
   const condition = genExpr(loop.condition, context, state);
   return [
     `${indent}do`,
-    generateLoopInvariant(indent, state),
+    ...generateLoopInvariants(loop.annotations ?? [], context, indent, state),
     `${body} while (ps2_truthy(${condition}));`
   ].join('\n');
 }
@@ -613,7 +633,7 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
     return [
       `${indent}${prefix}${name} = ps2_array_create(ps2_as_int(${sizeExpr}));`,
       `${indent}for (int ${indexName} = 0; ${indexName} < ps2_array_length(${name}); ${indexName}++)`,
-      generateLoopInvariant(indent, state),
+      ...generateLoopInvariants([], context, indent, state),
       `${indent}{`,
       `${indent}  ps2_array_set_zero_based(${name}, ${indexName}, ${initExpr});`,
       `${indent}}`
@@ -857,11 +877,25 @@ function genStructSet(receiver: string, field: string, value: string): string {
   return `ps2_struct_set(${receiver}, ${JSON.stringify(field)}, ${value})`;
 }
 
-function generateLoopInvariant(indent: string, state: CGeneratorState): string {
-  const invariant = state.topLevel && state.globalNames.length > 0
+function generateLoopInvariants(
+  annotations: LoopInvariantAnnotation[],
+  context: Pseudo2GeneratorContext,
+  indent: string,
+  state: CGeneratorState
+): string[] {
+  const generatedInvariant = state.topLevel && state.globalNames.length > 0
     ? state.globalNames.map(name => `${name} |-> _`).join(' &*& ')
     : 'true';
-  return `${indent}  //@ invariant ${invariant};`;
+  const invariants = [
+    ...annotations.map(annotation => genSpecExpr(annotation.condition, context, state)),
+    generatedInvariant
+  ];
+  const combined = invariants.length > 1
+    ? invariants.map(invariant => `(${invariant})`).join(' &*& ')
+    : invariants[0] ?? 'true';
+  const line = `${indent}  //@ invariant ${combined};`;
+
+  return annotations[0] ? [sourceMapped(annotations[0], line, state)] : [line];
 }
 
 function genBooleanChain(left: Expr, op: '&&' | '||', rights: Expr[], context: Pseudo2GeneratorContext, state: CGeneratorState): string {

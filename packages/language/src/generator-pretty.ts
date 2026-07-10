@@ -3,6 +3,7 @@ import type {
   Expr,
   FunctionDeclaration,
   Instruction,
+  LoopInvariantAnnotation,
   ParameterDecl,
   Program,
   StructAttDeclaration,
@@ -118,17 +119,32 @@ function printInstruction(instruction: Instruction, level: number, ctx: PrettyCo
   }
 
   if (isWhileLoop(instruction)) {
-    return `${prefix}while ${printExpr(instruction.condition)} ${printBlock(instruction.body, level, ctx)}`;
+    return withLoopAnnotations(
+      instruction.annotations ?? [],
+      `${prefix}while ${printExpr(instruction.condition)} ${printBlock(instruction.body, level, ctx)}`,
+      level,
+      ctx
+    );
   }
 
   if (isForLoop(instruction)) {
     const iterator = instruction.iterator ? `${instruction.iterator.name} = ` : '';
     const step = instruction.step ? ` by ${printExpr(instruction.step)}` : '';
-    return `${prefix}for ${iterator}${printExpr(instruction.from)} ${instruction.direction} ${printExpr(instruction.to)}${step} ${printBlock(instruction.body, level, ctx)}`;
+    return withLoopAnnotations(
+      instruction.annotations ?? [],
+      `${prefix}for ${iterator}${printExpr(instruction.from)} ${instruction.direction} ${printExpr(instruction.to)}${step} ${printBlock(instruction.body, level, ctx)}`,
+      level,
+      ctx
+    );
   }
 
   if (isDoWhileLoop(instruction)) {
-    return `${prefix}do ${printBlock(instruction.body, level, ctx)} while ${printExpr(instruction.condition)}`;
+    return withLoopAnnotations(
+      instruction.annotations ?? [],
+      `${prefix}do ${printBlock(instruction.body, level, ctx)} while ${printExpr(instruction.condition)}`,
+      level,
+      ctx
+    );
   }
 
   if (isFunctionDeclaration(instruction)) {
@@ -164,6 +180,21 @@ function printFunction(fn: FunctionDeclaration, level: number, ctx: PrettyContex
   const params = (fn.params ?? []).map(printParameter).join(', ');
   const declaration = `${prefix}${keyword}${fn.name}(${params}) ${printBlock(fn.body, level, ctx)}`;
   return [...annotations, declaration].join('\n');
+}
+
+function withLoopAnnotations(
+  annotations: LoopInvariantAnnotation[],
+  loopText: string,
+  level: number,
+  ctx: PrettyContext
+): string {
+  if (annotations.length === 0) {
+    return loopText;
+  }
+
+  const prefix = indentation(level, ctx);
+  const annotationLines = annotations.map(annotation => `${prefix}@${annotation.kind} ${printExpr(annotation.condition)}`);
+  return [...annotationLines, loopText].join('\n');
 }
 
 function printParameter(parameter: ParameterDecl): string {

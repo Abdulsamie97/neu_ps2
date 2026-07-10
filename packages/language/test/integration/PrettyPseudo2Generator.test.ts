@@ -99,8 +99,10 @@ describe('PrettyPseudo2Generator', () => {
   test('prints while and do-while blocks with braces', async () => {
     const { model, document } = await parseRuntimeProgram(`
       var x = 0
+      @invariant true
       while x < 3
         x = x + 1
+      @invariant "true"
       do
         x = x - 1
       while x > 0
@@ -112,13 +114,37 @@ describe('PrettyPseudo2Generator', () => {
     expect(pretty).toBe([
       'var x = 0',
       '',
+      '@invariant true',
       'while (x < 3) {',
       '  x = (x + 1)',
       '}',
       '',
+      '@invariant "true"',
       'do {',
       '  x = (x - 1)',
       '} while (x > 0)',
+      ''
+    ].join('\n'));
+
+    const reparsed = await parseRuntimeProgram(pretty);
+    expectErrors(reparsed.document);
+  });
+
+  test('prints for-loop invariants with braces', async () => {
+    const { model, document } = await parseRuntimeProgram(`
+      @invariant true
+      for i = 1 to 2
+        print i
+    `);
+
+    expectErrors(document);
+
+    const pretty = generatePrettyPseudo2(model);
+    expect(pretty).toBe([
+      '@invariant true',
+      'for i = 1 to 2 {',
+      '  print i',
+      '}',
       ''
     ].join('\n'));
 

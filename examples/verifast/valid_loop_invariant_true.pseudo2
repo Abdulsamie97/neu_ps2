@@ -1,0 +1,7 @@
+var i = 1
+@invariant true
+while i < 2
+  @assert true
+  i = i + 1
+
+print i

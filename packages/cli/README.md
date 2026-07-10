@@ -49,3 +49,6 @@ Run the positive and negative VeriFast examples:
 ```powershell
 npm run --workspace packages/cli test -- test/verifast/VeriFastSourceMap.test.ts
 ```
+
+Pseudo2 VeriFast annotations currently include `@requires`, `@ensures`,
+`@assert` and loop `@invariant` annotations before `while`, `for` or `do`.

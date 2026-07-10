@@ -108,6 +108,7 @@ IfStatement:
 // ======================================================
 
 WhileLoop:
+  annotations+=LoopInvariantAnnotationRule*
   'while' condition=Expression body=Block
 ;
 
@@ -117,6 +118,7 @@ WhileLoop:
 // ======================================================
 
 ForLoop:
+  annotations+=LoopInvariantAnnotationRule*
   'for'
   (iterator=LengthParameter '=' )?
   from=Expression
@@ -131,6 +133,7 @@ LengthParameter returns VarDecl:
 ;
 
 DoWhileLoop:
+  annotations+=LoopInvariantAnnotationRule*
   'do' body=Block 'while' condition=Expression
 ;
 
@@ -215,12 +218,21 @@ interface VerificationStatement {
   condition: Expr
 }
 
+interface LoopInvariantAnnotation {
+  kind: string
+  condition: Expr
+}
+
 VerificationAnnotationRule returns VerificationAnnotation:
   '@' kind=('requires' | 'ensures') condition=Expression
 ;
 
 VerificationStatementRule returns VerificationStatement:
   '@' kind=('assert') condition=Expression
+;
+
+LoopInvariantAnnotationRule returns LoopInvariantAnnotation:
+  '@' kind=('invariant') condition=Expression
 ;
 
 interface FunctionDeclaration {

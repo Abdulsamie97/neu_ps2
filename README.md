@@ -291,6 +291,10 @@ func verified()
   @assert true
   return 5
 
+@invariant true
+while false
+  @assert true
+
 print verified()
 ```
 
@@ -311,6 +315,7 @@ Unterstuetzte Pseudo2-Annotationen:
 - `@requires <Expression>` vor einer Funktion.
 - `@ensures <Expression>` vor einer Funktion.
 - `@assert <Expression>` im Funktionsrumpf.
+- `@invariant <Expression>` direkt vor `while`, `for` oder `do`.
 
 Einfache Pseudo2-Ausdruecke wie `true`, `false`, Zahlen, Variablen und einfache
 Operatoren werden direkt in VeriFast-Spec-Ausdruecke uebersetzt.
@@ -325,6 +330,10 @@ den VeriFast-Kommentar geschrieben:
 func f()
   @assert "true"
   return 1
+
+@invariant "true"
+for i = 1 to 2
+  @assert true
 ```
 
 ## Weboberflaeche starten
@@ -417,6 +426,7 @@ Die aktuelle VeriFast-Beispielgruppe deckt u. a. ab:
 
 - einfache `@assert true`-/`@assert false`-Faelle.
 - boolesche Spezifikationsausdruecke.
+- Loop-Invarianten mit `@invariant` fuer `while`, `for` und `do`.
 - rohe VeriFast-Strings wie `@assert "true"` und `@assert "false"`.
 - Top-Level-Assertions.
 - Array-Parameter inklusive automatisch uebergebener Laenge.

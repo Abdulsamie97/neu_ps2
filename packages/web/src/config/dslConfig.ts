@@ -6,6 +6,8 @@
 import getKeybindingsServiceOverride from '@codingame/monaco-vscode-keybindings-service-override';
 import getLifecycleServiceOverride from '@codingame/monaco-vscode-lifecycle-service-override';
 import getLocalizationServiceOverride from '@codingame/monaco-vscode-localization-service-override';
+import getTextmateServiceOverride from '@codingame/monaco-vscode-textmate-service-override';
+import getThemeServiceOverride from '@codingame/monaco-vscode-theme-service-override';
 import { LogLevel } from '@codingame/monaco-vscode-api';
 import { MessageTransports } from 'vscode-languageclient';
 import { createDefaultLocaleConfiguration } from 'monaco-languageclient/vscodeApiLocales';
@@ -55,6 +57,8 @@ export const createLangiumGlobalConfig = (params: {
         },
         logLevel: LogLevel.Off,
         serviceOverrides: {
+            ...getThemeServiceOverride(),
+            ...getTextmateServiceOverride(),
             ...getKeybindingsServiceOverride(),
             ...getLifecycleServiceOverride(),
             ...getLocalizationServiceOverride(createDefaultLocaleConfiguration()),

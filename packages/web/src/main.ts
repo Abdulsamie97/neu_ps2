@@ -13,6 +13,7 @@ import { createLangiumGlobalConfig } from './config/dslConfig.js';
 import workerUrl from './worker/dsl-server?worker&url';
 import { MonacoVscodeApiWrapper } from 'monaco-languageclient/vscodeApiWrapper';
 import { LanguageClientWrapper } from 'monaco-languageclient/lcwrapper';
+import * as monaco from '@codingame/monaco-vscode-editor-api';
 import { EmptyFileSystem, URI } from 'langium';
 
 import {
@@ -31,6 +32,7 @@ let executionDocCounter = 0;
 let executionServices: ReturnType<typeof createPseudo2Services> | undefined;
 let lastGeneratedCCode = '';
 let lastGeneratedCSourceMap: CSourceMapEntry[] = [];
+let keywordDecorationDisposable: monaco.IDisposable | undefined;
 
 type SaveFilePicker = (options: {
     suggestedName?: string;
@@ -70,44 +72,53 @@ const startEditor = async () => {
     disableElement('button-start', true);
     disableElement('button-dispose', false);
 
+    try {
 
 
-    const worker = loadWorkerRegular();
-    const reader = new BrowserMessageReader(worker);
-    const writer = new BrowserMessageWriter(worker);
-    const logger = new ConsoleLogger(LogLevel.Off);
-    reader.listen((message) => {
-        logger.info('Received message from worker:', message);
-    });
+        const worker = loadWorkerRegular();
+        const reader = new BrowserMessageReader(worker);
+        const writer = new BrowserMessageWriter(worker);
+        const logger = new ConsoleLogger(LogLevel.Off);
+        reader.listen((message) => {
+            logger.info('Received message from worker:', message);
+        });
 
 
-    const htmlContainer = document.getElementById('monaco-editor-root')!;
-    // the configuration does not contain any text content
-    const appConfig = createLangiumGlobalConfig({
-        languageServerId: 'first',
-        codeContent: {
-            text,
-            uri: '/workspace/example.pseudo2'   //TBC  (suffix might be important)
-        },
-        worker,
-        messageTransports: { reader, writer },
-        htmlContainer
-    });
+        const htmlContainer = document.getElementById('monaco-editor-root')!;
+        // the configuration does not contain any text content
+        const appConfig = createLangiumGlobalConfig({
+            languageServerId: 'first',
+            codeContent: {
+                text,
+                uri: '/workspace/example.pseudo2',   //TBC  (suffix might be important)
+                enforceLanguageId: 'pseudo2'
+            },
+            worker,
+            messageTransports: { reader, writer },
+            htmlContainer
+        });
 
-    // appConfig.languageClientConfig.enforceDispose = disposeLcState;
+        // appConfig.languageClientConfig.enforceDispose = disposeLcState;
 
-    editorApp = new EditorApp(appConfig.editorAppConfig);
+        editorApp = new EditorApp(appConfig.editorAppConfig);
 
-    // perform global monaco-vscode-api init
-    const apiWrapper = new MonacoVscodeApiWrapper(appConfig.vscodeApiConfig);
-    await apiWrapper.start();
+        // perform global monaco-vscode-api init
+        const apiWrapper = new MonacoVscodeApiWrapper(appConfig.vscodeApiConfig);
+        await apiWrapper.start();
 
-    // init language client
-    lcWrapper = new LanguageClientWrapper(appConfig.languageClientConfig);
-    await lcWrapper.start();
+        // init language client
+        lcWrapper = new LanguageClientWrapper(appConfig.languageClientConfig);
+        await lcWrapper.start();
 
-    // run editorApp
-    await editorApp.start(htmlContainer);
+        // run editorApp
+        await editorApp.start(htmlContainer);
+        installPseudo2KeywordDecorations(editorApp.getEditor());
+    } catch (error) {
+        disableElement('button-start', false);
+        disableElement('button-dispose', true);
+        setTextContent('#exespan', `Editor start failed:\n${formatError(error)}`);
+        console.error(error);
+    }
 
 
 };
@@ -119,6 +130,8 @@ const disposeEditor = async () => {
     disableElement('button-dispose', true);
 
     lcWrapper.dispose();
+    keywordDecorationDisposable?.dispose();
+    keywordDecorationDisposable = undefined;
 
     editorApp?.reportStatus();
     await editorApp?.dispose();
@@ -408,6 +421,145 @@ function formatSourceLocation(error: NonNullable<VeriFastApiResult['errors']>[nu
     return error.sourceFile
         ? `${error.sourceFile}:${error.sourceLine}`
         : `Pseudo2 line ${error.sourceLine}`;
+}
+
+function installPseudo2KeywordDecorations(editor: monaco.editor.IStandaloneCodeEditor | undefined): void {
+    keywordDecorationDisposable?.dispose();
+    keywordDecorationDisposable = undefined;
+
+    if (!editor) {
+        return;
+    }
+
+    let decorationIds: string[] = [];
+    const keywords = new Set([
+        'assert',
+        'bool',
+        'by',
+        'call',
+        'do',
+        'downto',
+        'else',
+        'ensures',
+        'false',
+        'for',
+        'func',
+        'if',
+        'mod',
+        'new',
+        'null',
+        'num',
+        'print',
+        'requires',
+        'return',
+        'string',
+        'struct',
+        'this',
+        'throw',
+        'to',
+        'true',
+        'var',
+        'while'
+    ]);
+
+    const updateDecorations = () => {
+        const model = editor.getModel();
+        if (!model) {
+            decorationIds = editor.deltaDecorations(decorationIds, []);
+            return;
+        }
+
+        const decorations: monaco.editor.IModelDeltaDecoration[] = [];
+        for (let lineNumber = 1; lineNumber <= model.getLineCount(); lineNumber++) {
+            const line = model.getLineContent(lineNumber);
+            collectPseudo2Decorations(line, lineNumber, keywords, decorations);
+        }
+
+        decorationIds = editor.deltaDecorations(decorationIds, decorations);
+    };
+
+    updateDecorations();
+
+    const contentDisposable = editor.onDidChangeModelContent(updateDecorations);
+    const modelDisposable = editor.onDidChangeModel(updateDecorations);
+    keywordDecorationDisposable = {
+        dispose: () => {
+            decorationIds = editor.deltaDecorations(decorationIds, []);
+            contentDisposable.dispose();
+            modelDisposable.dispose();
+        }
+    };
+}
+
+function collectPseudo2Decorations(
+    line: string,
+    lineNumber: number,
+    keywords: Set<string>,
+    decorations: monaco.editor.IModelDeltaDecoration[]
+): void {
+    let index = 0;
+
+    const addDecoration = (startIndex: number, endIndex: number, inlineClassName: string) => {
+        decorations.push({
+            range: new monaco.Range(lineNumber, startIndex + 1, lineNumber, endIndex + 1),
+            options: {
+                inlineClassName
+            }
+        });
+    };
+
+    while (index < line.length) {
+        const char = line[index];
+
+        if (char === '#' || (char === '/' && line[index + 1] === '/')) {
+            addDecoration(index, line.length, 'pseudo2-comment-token');
+            return;
+        }
+
+        if (char === '"' || char === "'") {
+            const quote = char;
+            let end = index + 1;
+            while (end < line.length) {
+                if (line[end] === '\\') {
+                    end += 2;
+                    continue;
+                }
+                if (line[end] === quote) {
+                    end++;
+                    break;
+                }
+                end++;
+            }
+            addDecoration(index, Math.min(end, line.length), quote === "'" ? 'pseudo2-char-token' : 'pseudo2-string-token');
+            index = Math.max(end, index + 1);
+            continue;
+        }
+
+        if (/\d/.test(char)) {
+            const start = index;
+            index++;
+            while (index < line.length && /[\d.]/.test(line[index])) {
+                index++;
+            }
+            addDecoration(start, index, 'pseudo2-number-token');
+            continue;
+        }
+
+        if (/[a-zA-Z_]/.test(char)) {
+            const start = index;
+            index++;
+            while (index < line.length && /[\w]/.test(line[index])) {
+                index++;
+            }
+            const word = line.slice(start, index);
+            if (keywords.has(word)) {
+                addDecoration(start, index, 'pseudo2-keyword-token');
+            }
+            continue;
+        }
+
+        index++;
+    }
 }
 
 function getExecutionServices(): ReturnType<typeof createPseudo2Services> {

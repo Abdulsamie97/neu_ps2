@@ -168,6 +168,25 @@ button:disabled {
     height: 80vh;
 }
 
+.pseudo2-keyword-token {
+    color: #af00db !important;
+    font-weight: 500;
+}
+
+.pseudo2-string-token,
+.pseudo2-char-token {
+    color: #a31515 !important;
+}
+
+.pseudo2-number-token {
+    color: #098658 !important;
+}
+
+.pseudo2-comment-token {
+    color: #008000 !important;
+    font-style: italic;
+}
+
 .output-section {
     border-bottom: 1px solid #303036;
     padding-bottom: 12px;

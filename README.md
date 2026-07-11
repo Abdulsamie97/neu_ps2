@@ -286,12 +286,15 @@ Beispiel:
 
 ```pseudo2
 @requires true
-@ensures "true"
+@ensures result != null
+@terminates
 func verified()
+  @assume true
   @assert true
   return 5
 
 @invariant true
+@decreases "0"
 while false
   @assert true
 
@@ -303,10 +306,12 @@ Generierter C-Ausschnitt:
 ```c
 Ps2Value* func_verified_0(void)
 //@ requires true;
-//@ ensures true;
+//@ ensures (result != 0);
+//@ terminates;
 {
+  //@ assume(true);
   //@ assert true;
-  return ps2_copy_value(ps2_num(5));
+  return ps2_copy_value(ps2_int(5));
 }
 ```
 
@@ -314,11 +319,20 @@ Unterstuetzte Pseudo2-Annotationen:
 
 - `@requires <Expression>` vor einer Funktion.
 - `@ensures <Expression>` vor einer Funktion.
+- `@terminates` vor einer Funktion. Der C-Generator erzeugt daraus `//@ terminates;`.
+- `result` innerhalb von VeriFast-Annotationen, z. B. `@ensures result != null`.
 - `@assert <Expression>` im Funktionsrumpf.
+- `@assume <Expression>` im Funktionsrumpf.
+- `@open <Expression>`, `@close <Expression>` und `@leak <Expression>` im Funktionsrumpf. Fuer komplexe Praedikate ist meistens ein roher String sinnvoll, z. B. `@open "P()"`.
 - `@invariant <Expression>` direkt vor `while`, `for` oder `do`.
+- `@decreases <Expression>` direkt vor `while`, `for` oder `do`.
 
 Einfache Pseudo2-Ausdruecke wie `true`, `false`, Zahlen, Variablen und einfache
 Operatoren werden direkt in VeriFast-Spec-Ausdruecke uebersetzt.
+
+Wichtig: `@decreases` ist in Pseudo2 aktuell eine Loop-Annotation. Fuer
+C-Funktionen verwendet VeriFast `terminates`; deshalb gibt es dafuer die
+separate Pseudo2-Annotation `@terminates`.
 
 Falls eine C-/VeriFast-spezifische Spezifikation gebraucht wird, kann als erster
 einfacher Weg ein Stringliteral verwendet werden. Der Stringinhalt wird roh in
@@ -326,12 +340,15 @@ den VeriFast-Kommentar geschrieben:
 
 ```pseudo2
 @requires "true"
-@ensures "true"
+@ensures "result != 0"
+@terminates
 func f()
+  @assume "true"
   @assert "true"
   return 1
 
 @invariant "true"
+@decreases "0"
 for i = 1 to 2
   @assert true
 ```
@@ -427,6 +444,10 @@ Die aktuelle VeriFast-Beispielgruppe deckt u. a. ab:
 - einfache `@assert true`-/`@assert false`-Faelle.
 - boolesche Spezifikationsausdruecke.
 - Loop-Invarianten mit `@invariant` fuer `while`, `for` und `do`.
+- Loop-Varianten mit `@decreases`.
+- Funktions-Terminierung mit `@terminates`.
+- `result` in `@ensures`.
+- Ghost-/Proof-Statements wie `@assume`, `@open`, `@close` und `@leak`.
 - rohe VeriFast-Strings wie `@assert "true"` und `@assert "false"`.
 - Top-Level-Assertions.
 - Array-Parameter inklusive automatisch uebergebener Laenge.

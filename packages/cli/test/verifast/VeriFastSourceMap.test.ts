@@ -26,7 +26,9 @@ const validExamples = [
   'valid_loop_invariant_true.pseudo2',
   'valid_multiple_asserts.pseudo2',
   'valid_raw_specs.pseudo2',
+  'valid_result_ensures_non_null.pseudo2',
   'valid_struct_method.pseudo2',
+  'valid_terminates_and_assume.pseudo2',
   'valid_top_level_assert.pseudo2'
 ];
 
@@ -39,6 +41,7 @@ const invalidExamples = [
   'invalid_method_assert_false.pseudo2',
   'invalid_raw_assert_false.pseudo2',
   'invalid_requires_false_call.pseudo2',
+  'invalid_result_ensures_null.pseudo2',
   'invalid_top_level_assert_false.pseudo2'
 ];
 

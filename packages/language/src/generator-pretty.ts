@@ -3,7 +3,7 @@ import type {
   Expr,
   FunctionDeclaration,
   Instruction,
-  LoopInvariantAnnotation,
+  LoopAnnotation,
   ParameterDecl,
   Program,
   StructAttDeclaration,
@@ -41,6 +41,7 @@ import {
   isNumType,
   isOr,
   isPrintCommand,
+  isResultExpr,
   isReturnStmt,
   isStringLiteral,
   isStringType,
@@ -175,7 +176,9 @@ function printBlock(block: Block, level: number, ctx: PrettyContext): string {
 function printFunction(fn: FunctionDeclaration, level: number, ctx: PrettyContext): string {
   const prefix = indentation(level, ctx);
   const annotations = (fn.annotations ?? [])
-    .map(annotation => `${prefix}@${annotation.kind} ${printExpr(annotation.condition)}`);
+    .map(annotation => annotation.condition
+      ? `${prefix}@${annotation.kind} ${printExpr(annotation.condition)}`
+      : `${prefix}@${annotation.kind}`);
   const keyword = fn.keyword === true ? 'func ' : '';
   const params = (fn.params ?? []).map(printParameter).join(', ');
   const declaration = `${prefix}${keyword}${fn.name}(${params}) ${printBlock(fn.body, level, ctx)}`;
@@ -183,7 +186,7 @@ function printFunction(fn: FunctionDeclaration, level: number, ctx: PrettyContex
 }
 
 function withLoopAnnotations(
-  annotations: LoopInvariantAnnotation[],
+  annotations: LoopAnnotation[],
   loopText: string,
   level: number,
   ctx: PrettyContext
@@ -284,6 +287,10 @@ function printExpr(expr: Expr): string {
 
   if (isNullLiteral(expr)) {
     return 'null';
+  }
+
+  if (isResultExpr(expr)) {
+    return 'result';
   }
 
   if (isThisExpr(expr)) {

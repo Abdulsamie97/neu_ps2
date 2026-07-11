@@ -108,7 +108,7 @@ IfStatement:
 // ======================================================
 
 WhileLoop:
-  annotations+=LoopInvariantAnnotationRule*
+  annotations+=LoopAnnotationRule*
   'while' condition=Expression body=Block
 ;
 
@@ -118,7 +118,7 @@ WhileLoop:
 // ======================================================
 
 ForLoop:
-  annotations+=LoopInvariantAnnotationRule*
+  annotations+=LoopAnnotationRule*
   'for'
   (iterator=LengthParameter '=' )?
   from=Expression
@@ -133,7 +133,7 @@ LengthParameter returns VarDecl:
 ;
 
 DoWhileLoop:
-  annotations+=LoopInvariantAnnotationRule*
+  annotations+=LoopAnnotationRule*
   'do' body=Block 'while' condition=Expression
 ;
 
@@ -210,7 +210,7 @@ StructTypeRule returns StructType:
 // ======================================================
 interface VerificationAnnotation {
   kind: string
-  condition: Expr
+  condition?: Expr
 }
 
 interface VerificationStatement {
@@ -218,21 +218,22 @@ interface VerificationStatement {
   condition: Expr
 }
 
-interface LoopInvariantAnnotation {
+interface LoopAnnotation {
   kind: string
   condition: Expr
 }
 
 VerificationAnnotationRule returns VerificationAnnotation:
-  '@' kind=('requires' | 'ensures') condition=Expression
+    '@' kind=('requires' | 'ensures') condition=Expression
+  | '@' kind='terminates'
 ;
 
 VerificationStatementRule returns VerificationStatement:
-  '@' kind=('assert') condition=Expression
+  '@' kind=('assert' | 'assume' | 'open' | 'close' | 'leak') condition=Expression
 ;
 
-LoopInvariantAnnotationRule returns LoopInvariantAnnotation:
-  '@' kind=('invariant') condition=Expression
+LoopAnnotationRule returns LoopAnnotation:
+  '@' kind=('invariant' | 'decreases') condition=Expression
 ;
 
 interface FunctionDeclaration {
@@ -360,6 +361,7 @@ interface BoolLiteral extends Expr { value: 'true' | 'false' }
 interface StringLiteral extends Expr { value: string }
 
 interface NullLiteral extends Expr {}
+interface ResultExpr extends Expr {}
 interface NewExpr extends Expr { type: @StructDeclaration }
 interface ArrayLiteral extends Expr { elems: Expr[] }
 
@@ -381,6 +383,10 @@ StringLit returns StringLiteral:
 
 NullLit returns NullLiteral:
   {NullLiteral} 'null'
+;
+
+ResultRule returns ResultExpr:
+  {ResultExpr} 'result'
 ;
 
 NewRule returns NewExpr:
@@ -459,6 +465,7 @@ Primary returns Expr:
   | BoolLit
   | StringLit
   | NullLit
+  | ResultRule
   | NewRule
   | ArrayLiteralRule
   | Selection

@@ -34,6 +34,14 @@ describe('Validating', () => {
             expect.stringContaining('Expecting token of type')
         );
     });
+
+    test('reports result outside VeriFast annotations', async () => {
+        document = await parse('print result');
+
+        expect(document.diagnostics?.map(diagnosticToString).join('\n')).toContain(
+            "'result' darf nur in VeriFast-Annotationen verwendet werden."
+        );
+    });
 });
 
 function checkDocumentValid(document: LangiumDocument): string | undefined {

@@ -13,7 +13,7 @@ import type {
   FunctionDeclaration,
   IfStatement,
   Instruction,
-  LoopInvariantAnnotation,
+  LoopAnnotation,
   MethSelection,
   ParameterDecl,
   PrintCommand,
@@ -55,6 +55,7 @@ import {
   isNullLiteral,
   isOr,
   isPrintCommand,
+  isResultExpr,
   isReturnStmt,
   isStringLiteral,
   isStructAttDeclaration,
@@ -361,7 +362,7 @@ function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent
   const stepName = context.getAnonymousVarName('__forStep');
   const from = genExpr(loop.from, context, state);
   const to = genExpr(loop.to, context, state);
-  const step = loop.step ? genExpr(loop.step, context, state) : 'ps2_num(1)';
+  const step = loop.step ? genExpr(loop.step, context, state) : 'ps2_int(1)';
   const directionOp = loop.direction === 'to' ? '<=' : '>=';
   const stepOp = loop.direction === 'to' ? '+' : '-';
   const body = generateForLoopBody(loop, context, indent, state, iterName, stepName, stepOp);
@@ -503,10 +504,12 @@ function generateFunctionContracts(
   const annotations = fn.annotations ?? [];
   const requires = annotations.filter(annotation => annotation.kind === 'requires');
   const ensures = annotations.filter(annotation => annotation.kind === 'ensures');
+  const terminates = annotations.filter(annotation => annotation.kind === 'terminates');
 
   return [
     ...generateContractLines('requires', requires, fn, context, indent, state),
-    ...generateContractLines('ensures', ensures, fn, context, indent, state)
+    ...generateContractLines('ensures', ensures, fn, context, indent, state),
+    ...terminates.map(annotation => sourceMapped(annotation, `${indent}//@ terminates;`, state))
   ];
 }
 
@@ -516,15 +519,23 @@ function generateContractLines(
   fallbackNode: AstNode,
   context: Pseudo2GeneratorContext,
   indent: string,
-  state: CGeneratorState
+  state: CGeneratorState,
+  options: { emitFallback?: boolean } = {}
 ): string[] {
   if (annotations.length === 0) {
+    if (options.emitFallback === false) {
+      return [];
+    }
     return [sourceMapped(fallbackNode, `${indent}//@ ${kind} true;`, state)];
   }
 
-  return annotations.map(annotation =>
-    sourceMapped(annotation, `${indent}//@ ${kind} ${genSpecExpr(annotation.condition, context, state)};`, state)
-  );
+  return annotations.map(annotation => {
+    const condition = annotation.condition;
+    if (!condition) {
+      return sourceMapped(annotation, `${indent}//@ ${kind} true;`, state);
+    }
+    return sourceMapped(annotation, `${indent}//@ ${kind} ${genSpecExpr(condition, context, state)};`, state);
+  });
 }
 
 function containsReturn(instructions: Instruction[]): boolean {
@@ -606,7 +617,7 @@ function buildExpandedCall(
     expandedArgs.push(actualExpr);
 
     if (params[i].isArray && params[i].len) {
-      expandedArgs.push(`ps2_num((double)ps2_array_length(${actualExpr}))`);
+      expandedArgs.push(`ps2_int(ps2_array_length(${actualExpr}))`);
     }
   }
 
@@ -627,7 +638,7 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
   const prefix = state.topLevel ? '' : 'Ps2Value* ';
 
   if (decl.isArrayVariable) {
-    const sizeExpr = decl.size ? genExpr(decl.size, context, state) : 'ps2_num(0)';
+    const sizeExpr = decl.size ? genExpr(decl.size, context, state) : 'ps2_int(0)';
     const initExpr = decl.initializer ? genExpr(decl.initializer, context, state) : 'ps2_null()';
     const indexName = context.getAnonymousVarName('__arrInit');
     return [
@@ -676,14 +687,27 @@ function generateVerificationStatement(
   indent = '',
   state = DEFAULT_STATE
 ): string {
-  return `${indent}//@ ${statement.kind} ${genSpecExpr(statement.condition, context, state)};`;
+  const spec = genSpecExpr(statement.condition, context, state);
+
+  switch (statement.kind) {
+    case 'assume':
+      return `${indent}//@ assume(${spec});`;
+    case 'assert':
+    case 'open':
+    case 'close':
+    case 'leak':
+      return `${indent}//@ ${statement.kind} ${spec};`;
+    default:
+      throw new Error(`Unsupported VeriFast statement kind: ${statement.kind}`);
+  }
 }
 
 function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_STATE): string {
-  if (isIntLiteral(expr)) return `ps2_num(${expr.value})`;
+  if (isIntLiteral(expr)) return `ps2_int(${expr.value})`;
   if (isBoolLiteral(expr)) return `ps2_bool(${expr.value === 'true' ? 1 : 0})`;
   if (isStringLiteral(expr)) return `ps2_string(${JSON.stringify(expr.value)})`;
   if (isNullLiteral(expr)) return 'ps2_null()';
+  if (isResultExpr(expr)) throw new Error('result is only supported inside VeriFast annotations.');
   if (isArrayLiteral(expr)) return genArrayLiteral(expr, context, state);
 
   if (isNewExpr(expr)) {
@@ -741,6 +765,7 @@ function genSpecExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAU
   if (isIntLiteral(expr)) return String(expr.value);
   if (isBoolLiteral(expr)) return expr.value;
   if (isNullLiteral(expr)) return '0';
+  if (isResultExpr(expr)) return 'result';
   if (isThisExpr(expr)) return state.thisName;
   if (isVarRef(expr)) {
     if (expr.index) {
@@ -878,24 +903,32 @@ function genStructSet(receiver: string, field: string, value: string): string {
 }
 
 function generateLoopInvariants(
-  annotations: LoopInvariantAnnotation[],
+  annotations: LoopAnnotation[],
   context: Pseudo2GeneratorContext,
   indent: string,
   state: CGeneratorState
 ): string[] {
+  const invariantAnnotations = annotations.filter(annotation => annotation.kind === 'invariant');
+  const decreasesAnnotations = annotations.filter(annotation => annotation.kind === 'decreases');
   const generatedInvariant = state.topLevel && state.globalNames.length > 0
     ? state.globalNames.map(name => `${name} |-> _`).join(' &*& ')
     : 'true';
   const invariants = [
-    ...annotations.map(annotation => genSpecExpr(annotation.condition, context, state)),
+    ...invariantAnnotations.map(annotation => genSpecExpr(annotation.condition, context, state)),
     generatedInvariant
   ];
   const combined = invariants.length > 1
     ? invariants.map(invariant => `(${invariant})`).join(' &*& ')
     : invariants[0] ?? 'true';
-  const line = `${indent}  //@ invariant ${combined};`;
+  const invariantLine = `${indent}  //@ invariant ${combined};`;
+  const invariantOutput = invariantAnnotations[0]
+    ? [sourceMapped(invariantAnnotations[0], invariantLine, state)]
+    : [invariantLine];
+  const decreasesOutput = decreasesAnnotations.map(annotation =>
+    sourceMapped(annotation, `${indent}  //@ decreases ${genSpecExpr(annotation.condition, context, state)};`, state)
+  );
 
-  return annotations[0] ? [sourceMapped(annotations[0], line, state)] : [line];
+  return [...invariantOutput, ...decreasesOutput];
 }
 
 function genBooleanChain(left: Expr, op: '&&' | '||', rights: Expr[], context: Pseudo2GeneratorContext, state: CGeneratorState): string {
@@ -945,7 +978,14 @@ function withTrivialVeriFastContracts(source: string): string {
   );
 }
 
-const C_RUNTIME_PRELUDE = String.raw`#include <math.h>
+function withTerminatingVeriFastContracts(source: string): string {
+  return source.replace(
+    /(    \/\/@ ensures [^\n]+;)/g,
+    '$1\n    //@ terminates;'
+  );
+}
+
+const C_RUNTIME_PRELUDE = withTerminatingVeriFastContracts(String.raw`#include <math.h>
 
 typedef struct Ps2Value { int _; } Ps2Value;
 typedef struct Ps2Array { int _; } Ps2Array;
@@ -953,27 +993,31 @@ typedef struct Ps2Struct { int _; } Ps2Struct;
 
 Ps2Value* ps2_undefined(void);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result != 0;
 
 Ps2Value* ps2_null(void);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result != 0;
 
 Ps2Value* ps2_num(double number);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result != 0;
+
+Ps2Value* ps2_int(int number);
+    //@ requires true;
+    //@ ensures result != 0;
 
 Ps2Value* ps2_bool(int boolean);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result != 0;
 
 Ps2Value* ps2_string(const char* string);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result != 0;
 
 Ps2Value* ps2_copy_value(Ps2Value* value);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result != 0;
 
 double ps2_as_num(Ps2Value* value);
     //@ requires true;
@@ -997,7 +1041,7 @@ void ps2_throw(Ps2Value* value);
 
 Ps2Value* ps2_array_create(int length);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result != 0;
 
 int ps2_array_length(Ps2Value* value);
     //@ requires true;
@@ -1009,7 +1053,7 @@ void ps2_array_set_zero_based(Ps2Value* array_value, int index, Ps2Value* value)
 
 Ps2Value* ps2_array_get(Ps2Value* array_value, Ps2Value* source_index);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result != 0;
 
 void ps2_array_set(Ps2Value* array_value, Ps2Value* source_index, Ps2Value* value);
     //@ requires true;
@@ -1017,11 +1061,11 @@ void ps2_array_set(Ps2Value* array_value, Ps2Value* source_index, Ps2Value* valu
 
 Ps2Value* ps2_array_literal(int count, ...);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result != 0;
 
 Ps2Struct* ps2_struct_create(int field_count);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result != 0;
 
 void ps2_struct_define(Ps2Struct* object, int index, const char* name, Ps2Value* value);
     //@ requires true;
@@ -1029,11 +1073,11 @@ void ps2_struct_define(Ps2Struct* object, int index, const char* name, Ps2Value*
 
 Ps2Value* ps2_struct_value(Ps2Struct* object);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result != 0;
 
 Ps2Value* ps2_struct_get(Ps2Value* value, const char* field);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result != 0;
 
 void ps2_struct_set(Ps2Value* value, const char* field, Ps2Value* new_value);
     //@ requires true;
@@ -1041,7 +1085,7 @@ void ps2_struct_set(Ps2Value* value, const char* field, Ps2Value* new_value);
 
 Ps2Value* ps2_binary_op(const char* op, Ps2Value* left, Ps2Value* right);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result != 0;
 
 int ps2_compare(const char* op, Ps2Value* left, Ps2Value* right);
     //@ requires true;
@@ -1049,7 +1093,7 @@ int ps2_compare(const char* op, Ps2Value* left, Ps2Value* right);
 
 int ps2_equals(Ps2Value* left, Ps2Value* right);
     //@ requires true;
-    //@ ensures true;`;
+    //@ ensures true;`);
 
 const C_RUNTIME_IMPLEMENTATION = withTrivialVeriFastContracts(String.raw`#include <math.h>
 #include <stdarg.h>
@@ -1129,6 +1173,12 @@ static Ps2Value* ps2_null(void) {
 }
 
 static Ps2Value* ps2_num(double number) {
+  Ps2Value* value = ps2_value(PS2_NUM);
+  value->number = number;
+  return value;
+}
+
+static Ps2Value* ps2_int(int number) {
   Ps2Value* value = ps2_value(PS2_NUM);
   value->number = number;
   return value;

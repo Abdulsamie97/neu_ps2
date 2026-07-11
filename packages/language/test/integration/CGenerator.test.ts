@@ -25,15 +25,16 @@ describe('CGenerator', () => {
 
     expect(c).toContain('typedef struct Ps2Value { int _; } Ps2Value;');
     expect(c).toContain('Ps2Value* ps2_num(double number);');
+    expect(c).toContain('Ps2Value* ps2_int(int number);');
     expect(c).toContain('static Ps2Value* A_0;');
     expect(c).toContain('Ps2Value* func_add_0(Ps2Value* a_1, Ps2Value* b_2);');
     expect(c).toContain('Ps2Value* create_S_0(void);');
     expect(c).toContain('Ps2Value* func_inc_1(Ps2Value* mythis, Ps2Value* x_4);');
     expect(c).toContain('//@ requires true;');
-    expect(c).toContain('ps2_array_set(A_0, ps2_num(1), ps2_num(4));');
+    expect(c).toContain('ps2_array_set(A_0, ps2_int(1), ps2_int(4));');
     expect(c).toContain('s_5 = ps2_copy_value(create_S_0());');
-    expect(c).toContain('ps2_struct_set(s_5, "value_3", func_add_0(ps2_array_get(A_0, ps2_num(1)), ps2_num(1)));');
-    expect(c).toContain('ps2_print(func_inc_1(s_5, ps2_num(2)));');
+    expect(c).toContain('ps2_struct_set(s_5, "value_3", func_add_0(ps2_array_get(A_0, ps2_int(1)), ps2_int(1)));');
+    expect(c).toContain('ps2_print(func_inc_1(s_5, ps2_int(2)));');
   });
 
   test('passes array length parameters like the JavaScript generator', async () => {
@@ -47,7 +48,7 @@ describe('CGenerator', () => {
     `);
 
     expect(c).toContain('Ps2Value* func_first_0(Ps2Value* A_0, Ps2Value* n_1);');
-    expect(c).toContain('func_first_0(A_2, ps2_num((double)ps2_array_length(A_2)))');
+    expect(c).toContain('func_first_0(A_2, ps2_int(ps2_array_length(A_2)))');
   });
 
   test('maps Pseudo2 verification annotations to VeriFast comments', async () => {
@@ -109,11 +110,11 @@ describe('CGenerator', () => {
         throw "bad"
     `);
 
-    expect(c).toContain('while (ps2_truthy(ps2_bool(ps2_compare("<", x_0, ps2_num(2)))))');
+    expect(c).toContain('while (ps2_truthy(ps2_bool(ps2_compare("<", x_0, ps2_int(2)))))');
     expect(c).toContain('//@ invariant x_0 |-> _;');
     expect(c).toMatch(/do\s+\/\/@ invariant/);
     expect(c).toContain('while (ps2_as_num(i_1) <= ps2_as_num(');
-    expect(c).toContain('if (ps2_truthy(ps2_bool(ps2_equals(x_0, ps2_num(0)))))');
+    expect(c).toContain('if (ps2_truthy(ps2_bool(ps2_equals(x_0, ps2_int(0)))))');
     expect(c).toContain('ps2_throw(ps2_string("bad"));');
   });
 
@@ -144,6 +145,49 @@ describe('CGenerator', () => {
     expect(trueInvariantLine).toBeGreaterThan(0);
     expect(generated.sourceMap.find(entry => entry.generatedLine === falseInvariantLine)?.sourceLine).toBe(2);
     expect(generated.sourceMap.find(entry => entry.generatedLine === trueInvariantLine)?.sourceLine).toBe(6);
+  });
+
+  test('emits result, terminates and ghost verification statements', async () => {
+    const c = await generateC(`
+      @requires true
+      @ensures result != null
+      @terminates
+      func verified()
+        @assume true
+        @open "P()"
+        @close "P()"
+        @leak "P()"
+        return 1
+    `);
+
+    expect(c).toContain('//@ ensures (result != 0);');
+    expect(c).toContain('//@ terminates;');
+    expect(c).toContain('//@ assume(true);');
+    expect(c).toContain('//@ open P();');
+    expect(c).toContain('//@ close P();');
+    expect(c).toContain('//@ leak P();');
+  });
+
+  test('maps loop decreases annotations to Pseudo2 lines', async () => {
+    const source = [
+      'var i = 0',
+      '@invariant true',
+      '@decreases 2',
+      'while i < 1',
+      '  i = i + 1'
+    ].join('\n');
+    const { model, document } = await parseRuntimeProgram(source);
+    const errors = (document.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1);
+    expect(errors.map(error => error.message).join('\n')).toBe('');
+
+    const generated = generateCProgramWithSourceMap(model);
+    expect(generated.code).toContain('//@ decreases 2;');
+
+    const cLines = generated.code.split(/\r?\n/);
+    const decreasesLine = cLines.findIndex(line => line.includes('//@ decreases 2;')) + 1;
+
+    expect(decreasesLine).toBeGreaterThan(0);
+    expect(generated.sourceMap.find(entry => entry.generatedLine === decreasesLine)?.sourceLine).toBe(3);
   });
 });
 

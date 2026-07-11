@@ -119,7 +119,7 @@ describe('CLI generator', () => {
     expect(c).toContain('typedef struct Ps2Value { int _; } Ps2Value;');
     expect(c).toContain('//@ requires true;');
     expect(c).toContain('Ps2Value* func_add_0(Ps2Value* a_0, Ps2Value* b_1);');
-    expect(c).toContain('ps2_print(func_add_0(ps2_num(2), ps2_num(3)));');
+    expect(c).toContain('ps2_print(func_add_0(ps2_int(2), ps2_int(3)));');
     expect(sourceMap.sourceFile).toBe(path.resolve(sourcePath));
     expect(sourceMap.mappings?.some(entry => entry.sourceLine === 2)).toBe(true);
     expect(sourceMap.mappings?.some(entry => entry.sourceLine === 5)).toBe(true);

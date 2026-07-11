@@ -96,10 +96,45 @@ describe('PrettyPseudo2Generator', () => {
     expect(artifacts[0].code).toBe('print "Hallo"\n');
   });
 
+  test('prints advanced VeriFast annotations', async () => {
+    const { model, document } = await parseRuntimeProgram(`
+      @requires true
+      @ensures result != null
+      @terminates
+      func verified()
+        @assume true
+        @open "P()"
+        @close "P()"
+        @leak "P()"
+        return 1
+    `);
+
+    expectErrors(document);
+
+    const pretty = generatePrettyPseudo2(model);
+    expect(pretty).toBe([
+      '@requires true',
+      '@ensures (result != null)',
+      '@terminates',
+      'func verified() {',
+      '  @assume true',
+      '  @open "P()"',
+      '  @close "P()"',
+      '  @leak "P()"',
+      '  return 1',
+      '}',
+      ''
+    ].join('\n'));
+
+    const reparsed = await parseRuntimeProgram(pretty);
+    expectErrors(reparsed.document);
+  });
+
   test('prints while and do-while blocks with braces', async () => {
     const { model, document } = await parseRuntimeProgram(`
       var x = 0
       @invariant true
+      @decreases 3
       while x < 3
         x = x + 1
       @invariant "true"
@@ -115,6 +150,7 @@ describe('PrettyPseudo2Generator', () => {
       'var x = 0',
       '',
       '@invariant true',
+      '@decreases 3',
       'while (x < 3) {',
       '  x = (x + 1)',
       '}',

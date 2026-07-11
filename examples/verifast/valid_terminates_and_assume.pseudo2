@@ -1,0 +1,9 @@
+@requires true
+@ensures true
+@terminates
+func proof()
+  @assume true
+  @assert true
+  return 1
+
+print proof()

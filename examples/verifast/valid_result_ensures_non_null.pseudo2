@@ -1,0 +1,6 @@
+@requires true
+@ensures result != null
+func one()
+  return 1
+
+print one()

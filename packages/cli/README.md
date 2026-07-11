@@ -50,5 +50,8 @@ Run the positive and negative VeriFast examples:
 npm run --workspace packages/cli test -- test/verifast/VeriFastSourceMap.test.ts
 ```
 
-Pseudo2 VeriFast annotations currently include `@requires`, `@ensures`,
-`@assert` and loop `@invariant` annotations before `while`, `for` or `do`.
+Pseudo2 VeriFast annotations currently include function contracts
+`@requires`, `@ensures` and `@terminates`, `result` inside annotation
+expressions, proof statements `@assert`, `@assume`, `@open`, `@close` and
+`@leak`, plus loop annotations `@invariant` and `@decreases` before `while`,
+`for` or `do`.

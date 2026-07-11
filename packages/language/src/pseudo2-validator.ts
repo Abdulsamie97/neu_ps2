@@ -42,7 +42,8 @@ import type {
   And,
   Or,
   Not,
-  Neg
+  Neg,
+  ResultExpr
 } from './generated/ast.js';
 import type { Pseudo2Services } from './pseudo2-module.js';
 
@@ -75,7 +76,10 @@ import {
   isExponentiation,
   isNot,//,
   isArrayLiteral,
-  isNullLiteral
+  isNullLiteral,
+  isVerificationAnnotation,
+  isVerificationStatement,
+  isLoopAnnotation
   //isNeg
 } from './generated/ast.js';
 
@@ -122,6 +126,7 @@ export const ELEMENT_ONLY_WITHIN_METHDECL = 'ELEMENT_ONLY_WITHIN_METHDECL';
 
 // Eigener Code: formaler und tatsächlicher Parameter müssen bzgl. Array konsistent sein
 export const CONSISTENT_ARRAY_TYPE_OF_PARA = 'CONSISTENT_ARRAY_TYPE_OF_PARA';
+export const RESULT_ONLY_IN_VERIFAST_ANNOTATION = 'RESULT_ONLY_IN_VERIFAST_ANNOTATION';
 
 
 export function registerValidationChecks(services: Pseudo2Services) {
@@ -172,6 +177,7 @@ export function registerValidationChecks(services: Pseudo2Services) {
     Or: validator.checkOr,
     Not: validator.checkNot,
     Neg: validator.checkNeg,
+    ResultExpr: validator.checkResultExpr,
   };
 
   registry.register(checks, validator);
@@ -1468,6 +1474,20 @@ export class Pseudo2Validator {
         node,
         property: 'value',
         code: INCOMPATIBLE_TYPES
+      });
+    }
+  }
+
+  checkResultExpr(node: ResultExpr, accept: ValidationAcceptor): void {
+    const inAnnotation =
+      AstUtils.getContainerOfType(node, isVerificationAnnotation) ||
+      AstUtils.getContainerOfType(node, isVerificationStatement) ||
+      AstUtils.getContainerOfType(node, isLoopAnnotation);
+
+    if (!inAnnotation) {
+      accept('error', "'result' darf nur in VeriFast-Annotationen verwendet werden.", {
+        node,
+        code: RESULT_ONLY_IN_VERIFAST_ANNOTATION
       });
     }
   }

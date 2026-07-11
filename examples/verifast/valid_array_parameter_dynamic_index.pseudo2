@@ -1,0 +1,10 @@
+@requires vf_array(A) && vf_in_bounds(A, i) && vf_int(vf_elem(A, i)) == 7
+@ensures vf_int(result) == 7
+func getAt(A[1..n], i)
+  return A[i]
+
+@requires true
+@ensures vf_int(result) == 7
+func callGetAt()
+  var A[2] = 7
+  return getAt(A, 2)

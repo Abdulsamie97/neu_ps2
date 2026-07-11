@@ -176,9 +176,34 @@ describe('CGenerator', () => {
         return 7
 
       @requires true
-      @ensures vf_array(result) && vf_len(result) == 2
+      @ensures vf_bool(result)
+      func yes()
+        return true
+
+      @requires true
+      @ensures !vf_bool(result)
+      func no()
+        return false
+
+      @requires true
+      @ensures vf_string(result)
+      func text()
+        return "hi"
+
+      @requires true
+      @ensures vf_null(result)
+      func none()
+        return null
+
+      @requires true
+      @ensures vf_array(result) && vf_len(result) == 2 && vf_int(vf_elem(result, 2)) == 2
       func makeArray()
         return [1, 2]
+
+      @requires vf_array(A) && vf_in_bounds(A, i) && vf_int(vf_elem(A, i)) == 7
+      @ensures vf_int(result) == 7
+      func getAt(A[1..n], i)
+        return A[i]
 
       @requires true
       @ensures vf_array(result) && vf_int(vf_elem(result, 1)) == 7
@@ -187,11 +212,17 @@ describe('CGenerator', () => {
         A[1] = 7
         return A
 
+      @requires true
+      @ensures vf_array(result) && vf_int(vf_elem(result, 1)) == 7 && vf_int(vf_elem(result, 2)) == 7
+      func makeFilledArray()
+        var A[2] = 7
+        return A
+
       struct S
         num value
 
       @requires true
-      @ensures vf_struct(result)
+      @ensures vf_struct(result) && vf_undefined(vf_field(result, "value"))
       func makeStruct()
         return new S
 
@@ -201,20 +232,51 @@ describe('CGenerator', () => {
         var s = new S
         s.value = 7
         return s
+
+      @requires vf_struct(s) && vf_int(vf_field(s, "value")) == 7
+      @ensures vf_int(result) == 7
+      func readValue(s)
+        return s.value
+
+      @requires true
+      @ensures vf_int(result) == 7
+      func callReadValue()
+        var s = new S
+        s.value = 7
+        return readValue(s)
     `);
 
     expect(c).toContain('fixpoint bool ps2_model_value(Ps2Value* value);');
     expect(c).toContain('fixpoint bool ps2_model_array(Ps2Value* value);');
     expect(c).toContain('fixpoint bool ps2_model_struct(Ps2Value* value);');
+    expect(c).toContain('fixpoint bool ps2_model_bool(Ps2Value* value);');
+    expect(c).toContain('fixpoint bool ps2_model_string(Ps2Value* value);');
+    expect(c).toContain('fixpoint bool ps2_model_null(Ps2Value* value);');
+    expect(c).toContain('fixpoint bool ps2_model_undefined(Ps2Value* value);');
     expect(c).toContain('fixpoint int ps2_model_array_length(Ps2Value* value);');
     expect(c).toContain('fixpoint int ps2_model_int(Ps2Value* value);');
     expect(c).toContain('fixpoint Ps2Value* ps2_model_array_item(Ps2Value* value, int index);');
     expect(c).toContain('fixpoint Ps2Value* ps2_model_struct_field(Ps2Value* value, int field);');
+    expect(c).toContain('Ps2Value* ps2_array_literal_2(Ps2Value* item_0, Ps2Value* item_1);');
+    expect(c).toContain('ps2_model_array_item(result, 1) == item_0 &*& ps2_model_array_item(result, 2) == item_1');
+    expect(c).toContain('Ps2Value* ps2_array_filled_2(Ps2Value* item);');
+    expect(c).toContain('ps2_model_array_item(result, 1) == item &*& ps2_model_array_item(result, 2) == item');
+    expect(c).toContain('return ps2_copy_value(ps2_array_literal_2(ps2_int(1), ps2_int(2)));');
+    expect(c).toContain('ps2_array_filled_2(ps2_int(7));');
     expect(c).toContain('//@ ensures ((ps2_model_value(result) == true) && (ps2_model_int(result) == 7));');
-    expect(c).toContain('//@ ensures ((ps2_model_array(result) == true) && (ps2_model_array_length(result) == 2));');
+    expect(c).toContain('//@ ensures (ps2_model_bool(result) == true);');
+    expect(c).toContain('//@ ensures (!(ps2_model_bool(result) == true));');
+    expect(c).toContain('//@ ensures (ps2_model_string(result) == true);');
+    expect(c).toContain('//@ ensures (ps2_model_null(result) == true);');
+    expect(c).toContain('//@ ensures ((ps2_model_array(result) == true) && (ps2_model_array_length(result) == 2) && (ps2_model_int(ps2_model_array_item(result, 2)) == 2));');
+    expect(c).toContain('//@ requires ((ps2_model_array(A_0) == true) && ((1 <= ps2_model_int(i_2)) && (ps2_model_int(i_2) <= ps2_model_array_length(A_0))) && (ps2_model_int(ps2_model_array_item(A_0, ps2_model_int(i_2))) == 7));');
     expect(c).toContain('//@ ensures ((ps2_model_array(result) == true) && (ps2_model_int(ps2_model_array_item(result, 1)) == 7));');
-    expect(c).toContain('//@ ensures (ps2_model_struct(result) == true);');
+    expect(c).toContain('//@ ensures ((ps2_model_array(result) == true) && (ps2_model_int(ps2_model_array_item(result, 1)) == 7) && (ps2_model_int(ps2_model_array_item(result, 2)) == 7));');
+    expect(c).toContain('//@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_struct(result) == true &*& ps2_model_undefined(ps2_model_struct_field(result, 0)) == true;');
+    expect(c).toContain('//@ assume(ps2_model_undefined(ps2_model_struct_field(__ps2_value, 0)) == true);');
+    expect(c).toContain('//@ ensures ((ps2_model_struct(result) == true) && (ps2_model_undefined(ps2_model_struct_field(result, 0)) == true));');
     expect(c).toContain('//@ ensures ((ps2_model_struct(result) == true) && (ps2_model_int(ps2_model_struct_field(result, 0)) == 7));');
+    expect(c).toContain('//@ requires ((ps2_model_struct(s_7) == true) && (ps2_model_int(ps2_model_struct_field(s_7, 0)) == 7));');
   });
 
   test('resolves vf_field through the concrete result struct type', async () => {

@@ -1,0 +1,14 @@
+struct S
+  num value
+
+@requires vf_struct(s) && vf_int(vf_field(s, "value")) == 7
+@ensures vf_int(result) == 8
+func readValue(s)
+  return s.value
+
+@requires true
+@ensures vf_int(result) == 7
+func callReadValue()
+  var s = new S
+  s.value = 7
+  return readValue(s)

@@ -234,6 +234,13 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
         return this.dedupByName([...structAtts, ...params, ...globals]);
       }
 
+      if (isFunctionDeclaration(currentInstr)) {
+        const params = this.collectFunctionParameters(currentInstr);
+        const globals = this.collectGlobalVars(currentInstr);
+        const structAtts = this.collectEnclosingStructAttributes(currentInstr);
+        return this.dedupByName([...structAtts, ...params, ...globals]);
+      }
+
       const program = this.getProgram(node);
       if (program) {
         const locals = this.extractVarDeclsBeforeCurrent(program.instructions, currentInstr);
@@ -247,6 +254,14 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     const forLoop = AstUtils.getContainerOfType(node, isForLoop);
     if (forLoop?.iterator) {
       return this.dedupByName([forLoop.iterator, ...this.scopeForVarRefFrom(forLoop.$container)]);
+    }
+
+    const enclosingFn = AstUtils.getContainerOfType(node, isFunctionDeclaration);
+    if (enclosingFn) {
+      const params = this.collectFunctionParameters(enclosingFn);
+      const globals = this.collectGlobalVars(enclosingFn);
+      const structAtts = this.collectEnclosingStructAttributes(enclosingFn);
+      return this.dedupByName([...structAtts, ...params, ...globals]);
     }
 
     return this.dedupByName(this.collectGlobalVars(node));

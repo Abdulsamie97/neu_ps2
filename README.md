@@ -332,7 +332,12 @@ Unterstuetzte Pseudo2-Annotationen:
   - `vf_struct(x)` bedeutet: `x` ist ein abstraktes Pseudo2-Struct.
   - `vf_len(x)` liefert die abstrakte Array-Laenge von `x`.
   - `vf_int(x)` liefert den abstrakten Integer-Wert eines mit `ps2_int` erzeugten Pseudo2-Werts.
-  - `vf_elem(array, index)` liefert das abstrakte Pseudo2-Arrayelement an der 1-basierten Pseudo2-Position `index`.
+  - `vf_bool(x)` bedeutet: `x` ist der abstrakte Pseudo2-Wert `true`.
+  - `vf_string(x)` bedeutet: `x` ist ein abstrakter Pseudo2-String-Wert.
+  - `vf_null(x)` bedeutet: `x` ist der abstrakte Pseudo2-Wert `null`.
+  - `vf_undefined(x)` bedeutet: `x` ist der abstrakte Pseudo2-Wert `undefined`.
+  - `vf_elem(array, index)` liefert das abstrakte Pseudo2-Arrayelement an der 1-basierten Pseudo2-Position `index`. Das funktioniert fuer Array-Zuweisungen, fuer Array-Literale wie `[1, 2]` und fuer konstante Array-Deklarationen mit einfachen Literal-Initializern wie `var A[2] = 7`.
+  - `vf_in_bounds(array, index)` bedeutet: `index` liegt innerhalb der 1-basierten Pseudo2-Arraygrenzen von `array`.
   - `vf_field(struct, "fieldName")` liefert den abstrakten Pseudo2-Struct-Feldwert. Der Feldname ist der Pseudo2-Quellname; der C-Generator uebersetzt ihn intern auf den eindeutigen generierten Feldnamen.
 
 Einfache Pseudo2-Ausdruecke wie `true`, `false`, Zahlen, Variablen und einfache
@@ -365,7 +370,7 @@ Beispiele fuer die strukturierte Modellsyntax:
 
 ```pseudo2
 @requires true
-@ensures vf_array(result) && vf_len(result) == 2
+@ensures vf_array(result) && vf_len(result) == 2 && vf_int(vf_elem(result, 2)) == 2
 func makeArray()
   return [1, 2]
 
@@ -376,11 +381,17 @@ func makeArrayWithElement()
   A[1] = 7
   return A
 
+@requires true
+@ensures vf_array(result) && vf_int(vf_elem(result, 1)) == 7 && vf_int(vf_elem(result, 2)) == 7
+func makeFilledArray()
+  var A[2] = 7
+  return A
+
 struct S
   num value
 
 @requires true
-@ensures vf_struct(result)
+@ensures vf_struct(result) && vf_undefined(vf_field(result, "value"))
 func makeStruct()
   return new S
 
@@ -395,6 +406,21 @@ func makeStructWithField()
 @ensures vf_value(result) && vf_int(result) == 7
 func seven()
   return 7
+
+@requires true
+@ensures vf_bool(result)
+func yes()
+  return true
+
+@requires vf_array(A) && vf_in_bounds(A, i) && vf_int(vf_elem(A, i)) == 7
+@ensures vf_int(result) == 7
+func getAt(A[1..n], i)
+  return A[i]
+
+@requires vf_struct(s) && vf_int(vf_field(s, "value")) == 7
+@ensures vf_int(result) == 7
+func readValue(s)
+  return s.value
 ```
 
 Diese `vf_*`-Helfer sind absichtlich nur in VeriFast-Annotationen erlaubt.
@@ -498,7 +524,12 @@ Die aktuelle VeriFast-Beispielgruppe deckt u. a. ab:
 - Funktions-Terminierung mit `@terminates`.
 - `result` in `@ensures`.
 - Ghost-/Proof-Statements wie `@assume`, `@open`, `@close` und `@leak`.
-- strukturierte Modellhelfer `vf_value`, `vf_array`, `vf_struct`, `vf_len`, `vf_int`, `vf_elem` und `vf_field`.
+- strukturierte Modellhelfer `vf_value`, `vf_array`, `vf_struct`, `vf_len`, `vf_int`, `vf_bool`, `vf_string`, `vf_null`, `vf_undefined`, `vf_elem`, `vf_in_bounds` und `vf_field`.
+- Array-Literal-Elemente, z. B. `vf_elem(result, 2)` nach `return [1, 2]`.
+- konstante Array-Initialisierung mit Literal-Werten, z. B. `vf_elem(result, 1)` nach `var A[2] = 7`.
+- Struct-Defaultfelder, z. B. `vf_undefined(vf_field(result, "value"))` nach `return new S`.
+- Array- und Struct-Parameter in Funktionsvertraegen, z. B. `vf_elem(A, i)` und `vf_field(s, "value")`.
+- bounds-gesicherte Arrayparameter mit `vf_in_bounds(A, i)`.
 - rohe VeriFast-Strings wie `@assert "true"` und `@assert "false"`.
 - Top-Level-Assertions.
 - Array-Parameter inklusive automatisch uebergebener Laenge.

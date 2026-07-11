@@ -1,0 +1,19 @@
+@requires true
+@ensures vf_bool(result)
+func yes()
+  return true
+
+@requires true
+@ensures !vf_bool(result)
+func no()
+  return false
+
+@requires true
+@ensures vf_string(result)
+func text()
+  return "hi"
+
+@requires true
+@ensures vf_null(result)
+func none()
+  return null

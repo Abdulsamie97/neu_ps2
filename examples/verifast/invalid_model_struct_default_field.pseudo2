@@ -1,0 +1,7 @@
+struct S
+  num value
+
+@requires true
+@ensures vf_struct(result) && !vf_undefined(vf_field(result, "value"))
+func makeStruct()
+  return new S

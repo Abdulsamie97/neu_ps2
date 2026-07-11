@@ -58,7 +58,15 @@ expressions, proof statements `@assert`, `@assume`, `@open`, `@close` and
 
 Structured model helpers are available inside annotations: `vf_value(x)`,
 `vf_array(x)`, `vf_struct(x)`, `vf_len(x)`, `vf_int(x)`,
-`vf_elem(array, index)` and `vf_field(struct, "fieldName")`. They are
-translated to abstract VeriFast model fixpoints in generated C and are covered
-by the `examples/verifast/valid_model_*.pseudo2` and
+`vf_bool(x)`, `vf_string(x)`, `vf_null(x)`, `vf_undefined(x)`,
+`vf_elem(array, index)`, `vf_in_bounds(array, index)` and
+`vf_field(struct, "fieldName")`. They are translated to abstract VeriFast model
+fixpoints in generated C. `vf_elem` is supported for array assignments, array
+literals such as `[1, 2]`, and constant array declarations with simple literal
+initializers such as `var A[2] = 7`. `vf_in_bounds` can be used for dynamic
+1-based array indices. `vf_undefined` is used for default Struct fields after
+`new S`. Array and Struct parameters are available in function contracts, so
+contracts such as `@requires vf_array(A) && vf_int(vf_elem(A, i)) == 7` and
+`@requires vf_struct(s) && vf_int(vf_field(s, "value")) == 7` are supported.
+The helpers are covered by the `examples/verifast/valid_model_*.pseudo2` and
 `examples/verifast/invalid_model_*.pseudo2` examples.

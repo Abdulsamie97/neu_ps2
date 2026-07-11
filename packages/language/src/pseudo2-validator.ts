@@ -1501,7 +1501,7 @@ export class Pseudo2Validator {
       });
     }
 
-    const expectedArity = node.kind === 'vf_elem' || node.kind === 'vf_field' ? 2 : 1;
+    const expectedArity = node.kind === 'vf_elem' || node.kind === 'vf_field' || node.kind === 'vf_in_bounds' ? 2 : 1;
     if ((node.args ?? []).length !== expectedArity) {
       accept('error', `'${node.kind}' erwartet genau ${expectedArity === 1 ? 'ein Argument' : 'zwei Argumente'}.`, {
         node,

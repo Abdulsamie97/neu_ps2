@@ -42,6 +42,50 @@ describe('Validating', () => {
             "'result' darf nur in VeriFast-Annotationen verwendet werden."
         );
     });
+
+    test('reports structured VeriFast helpers outside annotations', async () => {
+        document = await parse('print vf_array(1)');
+
+        expect(document.diagnostics?.map(diagnosticToString).join('\n')).toContain(
+            "'vf_array' darf nur in VeriFast-Annotationen verwendet werden."
+        );
+    });
+
+    test('reports structured VeriFast helper arity errors', async () => {
+        document = await parse(`
+            func f()
+              @assert vf_array()
+              return 1
+        `);
+
+        expect(document.diagnostics?.map(diagnosticToString).join('\n')).toContain(
+            "'vf_array' erwartet genau ein Argument."
+        );
+    });
+
+    test('reports structured VeriFast element helper arity errors', async () => {
+        document = await parse(`
+            func f()
+              @assert vf_elem(result)
+              return 1
+        `);
+
+        expect(document.diagnostics?.map(diagnosticToString).join('\n')).toContain(
+            "'vf_elem' erwartet genau zwei Argumente."
+        );
+    });
+
+    test('reports structured VeriFast field helper name errors', async () => {
+        document = await parse(`
+            func f()
+              @assert vf_field(result, 1)
+              return 1
+        `);
+
+        expect(document.diagnostics?.map(diagnosticToString).join('\n')).toContain(
+            "'vf_field' erwartet als zweites Argument einen Feldnamen als Stringliteral."
+        );
+    });
 });
 
 function checkDocumentValid(document: LangiumDocument): string | undefined {

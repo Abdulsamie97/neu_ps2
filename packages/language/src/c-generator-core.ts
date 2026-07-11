@@ -1,4 +1,4 @@
-import type { AstNode } from 'langium';
+import { AstUtils, type AstNode } from 'langium';
 import type {
   ArrayLiteral,
   Assignment,
@@ -19,6 +19,7 @@ import type {
   PrintCommand,
   Program,
   ReturnStmt,
+  SpecPredicateExpr,
   StructDeclaration,
   ThrowCommand,
   VerificationAnnotation,
@@ -56,6 +57,7 @@ import {
   isOr,
   isPrintCommand,
   isResultExpr,
+  isSpecPredicateExpr,
   isReturnStmt,
   isStringLiteral,
   isStructAttDeclaration,
@@ -68,6 +70,7 @@ import {
   isWhileLoop
 } from './generated/ast.js';
 import { Pseudo2GeneratorContext } from './generator-context.js';
+import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
 
 type CGeneratorState = {
   thisName: string;
@@ -80,6 +83,7 @@ const DEFAULT_STATE: CGeneratorState = { thisName: 'this', topLevel: false, sour
 const METHOD_THIS_NAME = 'mythis';
 const SOURCE_MAP_MARKER_RE = /^\/\*@@pseudo2-source-line:(\d+)\*\/$/;
 const SOURCE_MAP_END_MARKER = '/*@@pseudo2-source-line:end*/';
+const TYPES = new Pseudo2TypeComputer();
 
 export type GenerateCProgramOptions = {
   runtime?: 'contracts' | 'implementation';
@@ -431,7 +435,7 @@ function generateStructDeclaration(
   const factory = [
     `${indent}Ps2Value* ${factoryName}(void)`,
     `${indent}//@ requires true;`,
-    `${indent}//@ ensures true;`,
+    `${indent}//@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_struct(result) == true;`,
     `${indent}{`,
     `${indent}  Ps2Struct* __ps2_obj = ps2_struct_create(${attributes.length});`,
     ...defineLines,
@@ -708,6 +712,7 @@ function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_S
   if (isStringLiteral(expr)) return `ps2_string(${JSON.stringify(expr.value)})`;
   if (isNullLiteral(expr)) return 'ps2_null()';
   if (isResultExpr(expr)) throw new Error('result is only supported inside VeriFast annotations.');
+  if (isSpecPredicateExpr(expr)) throw new Error(`${expr.kind} is only supported inside VeriFast annotations.`);
   if (isArrayLiteral(expr)) return genArrayLiteral(expr, context, state);
 
   if (isNewExpr(expr)) {
@@ -766,6 +771,7 @@ function genSpecExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAU
   if (isBoolLiteral(expr)) return expr.value;
   if (isNullLiteral(expr)) return '0';
   if (isResultExpr(expr)) return 'result';
+  if (isSpecPredicateExpr(expr)) return genSpecPredicate(expr, context, state);
   if (isThisExpr(expr)) return state.thisName;
   if (isVarRef(expr)) {
     if (expr.index) {
@@ -815,6 +821,116 @@ function specOperator(op: string): string {
   return op;
 }
 
+function genSpecPredicate(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
+  switch (expr.kind) {
+    case 'vf_value':
+      return `(ps2_model_value(${genSingleSpecArg(expr, context, state)}) == true)`;
+    case 'vf_array':
+      return `(ps2_model_array(${genSingleSpecArg(expr, context, state)}) == true)`;
+    case 'vf_struct':
+      return `(ps2_model_struct(${genSingleSpecArg(expr, context, state)}) == true)`;
+    case 'vf_len':
+      return `ps2_model_array_length(${genSingleSpecArg(expr, context, state)})`;
+    case 'vf_int':
+      return `ps2_model_int(${genSingleSpecArg(expr, context, state)})`;
+    case 'vf_elem':
+      return genSpecArrayElement(expr, context, state);
+    case 'vf_field':
+      return genSpecStructField(expr, context, state);
+    default:
+      throw new Error(`Unsupported VeriFast spec helper: ${expr.kind}`);
+  }
+}
+
+function genSingleSpecArg(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
+  const args = expr.args ?? [];
+  if (args.length !== 1) {
+    throw new Error(`${expr.kind} expects exactly one argument.`);
+  }
+  return genSpecExpr(args[0], context, state);
+}
+
+function genSpecArrayElement(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
+  const args = expr.args ?? [];
+  if (args.length !== 2) {
+    throw new Error('vf_elem expects exactly two arguments.');
+  }
+
+  return `ps2_model_array_item(${genSpecExpr(args[0], context, state)}, ${genSpecExpr(args[1], context, state)})`;
+}
+
+function genSpecStructField(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
+  const args = expr.args ?? [];
+  if (args.length !== 2) {
+    throw new Error('vf_field expects exactly two arguments.');
+  }
+  const fieldNameExpr = unwrapSingletonSpecExpr(args[1]);
+  if (!isStringLiteral(fieldNameExpr)) {
+    throw new Error('vf_field expects a string literal field name as its second argument.');
+  }
+  const field = resolveSpecStructField(args[0], fieldNameExpr.value, context);
+  if (!field) {
+    throw new Error(`vf_field could not resolve struct field '${fieldNameExpr.value}'. Use a receiver with a concrete struct type or a unique field name.`);
+  }
+
+  return `ps2_model_struct_field(${genSpecExpr(args[0], context, state)}, ${context.getStructFieldId(field)})`;
+}
+
+function resolveSpecStructField(
+  receiver: Expr,
+  fieldName: string,
+  context: Pseudo2GeneratorContext
+) {
+  const structName = structNameForSpecReceiver(receiver);
+  if (structName) {
+    const field = context.getStructFieldByStructNameAndSourceName(structName, fieldName);
+    if (field) {
+      return field;
+    }
+  }
+
+  return context.getUniqueStructFieldBySourceName(fieldName);
+}
+
+function structNameForSpecReceiver(receiver: Expr): string | undefined {
+  const unwrapped = unwrapSingletonSpecExpr(receiver);
+  if (isResultExpr(unwrapped)) {
+    return structNameForEnclosingFunctionResult(unwrapped);
+  }
+
+  const receiverType = TYPES.typeFor(receiver);
+  return receiverType.isStructType() && receiverType.name ? receiverType.name : undefined;
+}
+
+function structNameForEnclosingFunctionResult(expr: Expr): string | undefined {
+  const fn = AstUtils.getContainerOfType(expr, isFunctionDeclaration);
+  if (!fn) {
+    return undefined;
+  }
+
+  for (const node of AstUtils.streamAllContents(fn)) {
+    if (!isReturnStmt(node) || !node.retExpr) {
+      continue;
+    }
+    const type = TYPES.typeFor(node.retExpr);
+    if (type.isStructType() && type.name) {
+      return type.name;
+    }
+  }
+
+  return undefined;
+}
+
+function unwrapSingletonSpecExpr(expr: Expr): Expr {
+  if ((isOr(expr) || isAnd(expr) || isEquality(expr) || isComparison(expr) || isAddition(expr) || isMultiplication(expr) || isExponentiation(expr)) && (expr.right?.length ?? 0) === 0) {
+    return unwrapSingletonSpecExpr(expr.left);
+  }
+  if (isGrouping(expr)) {
+    return unwrapSingletonSpecExpr(expr.value);
+  }
+  return expr;
+}
+
 function genFunctionCall(expr: FunctionCall, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const target = expr.f?.ref;
   const fnName = target ? context.getFunctionName(target) : 'ps2_null';
@@ -838,7 +954,7 @@ function genVarRef(expr: VarRef, context: Pseudo2GeneratorContext, state: CGener
   const name = target ? context.getVarName(target) : '/* unresolved */';
 
   if (target && isStructAttDeclaration(target)) {
-    const attribute = genStructGet(state.thisName, name);
+    const attribute = genStructGet(state.thisName, name, context.getStructFieldId(target));
     return expr.index ? genArrayGet(attribute, expr.index, context, state) : attribute;
   }
 
@@ -849,7 +965,7 @@ function genAttSelection(expr: AttSelection, context: Pseudo2GeneratorContext, s
   const receiver = genExpr(expr.receiver, context, state);
   const target = expr.attref.ref?.ref;
   const attName = target ? context.getVarName(target) : '/* unresolved */';
-  const attribute = genStructGet(receiver, attName);
+  const attribute = target ? genStructGet(receiver, attName, context.getStructFieldId(target)) : genStructGet(receiver, attName, -1);
   return expr.attref.index ? genArrayGet(attribute, expr.attref.index, context, state) : attribute;
 }
 
@@ -860,9 +976,9 @@ function genAssignmentTarget(target: Expr, value: string, context: Pseudo2Genera
 
     if (decl && isStructAttDeclaration(decl)) {
       if (target.index) {
-        return genArraySet(genStructGet(state.thisName, name), target.index, value, context, state);
+        return genArraySet(genStructGet(state.thisName, name, context.getStructFieldId(decl)), target.index, value, context, state);
       }
-      return genStructSet(state.thisName, name, value);
+      return genStructSet(state.thisName, name, context.getStructFieldId(decl), value);
     }
 
     if (target.index) {
@@ -876,11 +992,12 @@ function genAssignmentTarget(target: Expr, value: string, context: Pseudo2Genera
     const receiver = genExpr(target.receiver, context, state);
     const decl = target.attref.ref?.ref;
     const attName = decl ? context.getVarName(decl) : '/* unresolved */';
+    const fieldId = decl ? context.getStructFieldId(decl) : -1;
 
     if (target.attref.index) {
-      return genArraySet(genStructGet(receiver, attName), target.attref.index, value, context, state);
+      return genArraySet(genStructGet(receiver, attName, fieldId), target.attref.index, value, context, state);
     }
-    return genStructSet(receiver, attName, value);
+    return genStructSet(receiver, attName, fieldId, value);
   }
 
   throw new Error(`Unsupported assignment target for C generator: ${target.$type}`);
@@ -894,12 +1011,12 @@ function genArraySet(array: string, index: Expr, value: string, context: Pseudo2
   return `ps2_array_set(${array}, ${genExpr(index, context, state)}, ${value})`;
 }
 
-function genStructGet(receiver: string, field: string): string {
-  return `ps2_struct_get(${receiver}, ${JSON.stringify(field)})`;
+function genStructGet(receiver: string, field: string, fieldId: number): string {
+  return `ps2_struct_get_model(${receiver}, ${JSON.stringify(field)}, ${fieldId})`;
 }
 
-function genStructSet(receiver: string, field: string, value: string): string {
-  return `ps2_struct_set(${receiver}, ${JSON.stringify(field)}, ${value})`;
+function genStructSet(receiver: string, field: string, fieldId: number, value: string): string {
+  return `ps2_struct_set_model(${receiver}, ${JSON.stringify(field)}, ${fieldId}, ${value})`;
 }
 
 function generateLoopInvariants(
@@ -991,33 +1108,43 @@ typedef struct Ps2Value { int _; } Ps2Value;
 typedef struct Ps2Array { int _; } Ps2Array;
 typedef struct Ps2Struct { int _; } Ps2Struct;
 
+/*@
+fixpoint bool ps2_model_value(Ps2Value* value);
+fixpoint bool ps2_model_array(Ps2Value* value);
+fixpoint bool ps2_model_struct(Ps2Value* value);
+fixpoint int ps2_model_array_length(Ps2Value* value);
+fixpoint int ps2_model_int(Ps2Value* value);
+fixpoint Ps2Value* ps2_model_array_item(Ps2Value* value, int index);
+fixpoint Ps2Value* ps2_model_struct_field(Ps2Value* value, int field);
+@*/
+
 Ps2Value* ps2_undefined(void);
     //@ requires true;
-    //@ ensures result != 0;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true;
 
 Ps2Value* ps2_null(void);
     //@ requires true;
-    //@ ensures result != 0;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true;
 
 Ps2Value* ps2_num(double number);
     //@ requires true;
-    //@ ensures result != 0;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true;
 
 Ps2Value* ps2_int(int number);
     //@ requires true;
-    //@ ensures result != 0;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_int(result) == number;
 
 Ps2Value* ps2_bool(int boolean);
     //@ requires true;
-    //@ ensures result != 0;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true;
 
 Ps2Value* ps2_string(const char* string);
     //@ requires true;
-    //@ ensures result != 0;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true;
 
 Ps2Value* ps2_copy_value(Ps2Value* value);
     //@ requires true;
-    //@ ensures result != 0;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& (ps2_model_array(value) == true ? result == value &*& ps2_model_array(result) == true &*& ps2_model_array_length(result) == ps2_model_array_length(value) : true) &*& (ps2_model_struct(value) == true ? result == value &*& ps2_model_struct(result) == true : true) &*& ps2_model_int(result) == ps2_model_int(value);
 
 double ps2_as_num(Ps2Value* value);
     //@ requires true;
@@ -1025,7 +1152,7 @@ double ps2_as_num(Ps2Value* value);
 
 int ps2_as_int(Ps2Value* value);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result == ps2_model_int(value);
 
 int ps2_truthy(Ps2Value* value);
     //@ requires true;
@@ -1041,27 +1168,27 @@ void ps2_throw(Ps2Value* value);
 
 Ps2Value* ps2_array_create(int length);
     //@ requires true;
-    //@ ensures result != 0;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_array(result) == true &*& ps2_model_array_length(result) == length;
 
 int ps2_array_length(Ps2Value* value);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result == ps2_model_array_length(value);
 
 void ps2_array_set_zero_based(Ps2Value* array_value, int index, Ps2Value* value);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures ps2_model_array_item(array_value, index + 1) == value;
 
 Ps2Value* ps2_array_get(Ps2Value* array_value, Ps2Value* source_index);
     //@ requires true;
-    //@ ensures result != 0;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& result == ps2_model_array_item(array_value, ps2_model_int(source_index));
 
 void ps2_array_set(Ps2Value* array_value, Ps2Value* source_index, Ps2Value* value);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures ps2_model_array_item(array_value, ps2_model_int(source_index)) == value;
 
 Ps2Value* ps2_array_literal(int count, ...);
     //@ requires true;
-    //@ ensures result != 0;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_array(result) == true &*& ps2_model_array_length(result) == count;
 
 Ps2Struct* ps2_struct_create(int field_count);
     //@ requires true;
@@ -1073,19 +1200,27 @@ void ps2_struct_define(Ps2Struct* object, int index, const char* name, Ps2Value*
 
 Ps2Value* ps2_struct_value(Ps2Struct* object);
     //@ requires true;
-    //@ ensures result != 0;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_struct(result) == true;
 
 Ps2Value* ps2_struct_get(Ps2Value* value, const char* field);
     //@ requires true;
-    //@ ensures result != 0;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true;
 
 void ps2_struct_set(Ps2Value* value, const char* field, Ps2Value* new_value);
     //@ requires true;
     //@ ensures true;
 
+Ps2Value* ps2_struct_get_model(Ps2Value* value, const char* field, int field_id);
+    //@ requires true;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& result == ps2_model_struct_field(value, field_id);
+
+void ps2_struct_set_model(Ps2Value* value, const char* field, int field_id, Ps2Value* new_value);
+    //@ requires true;
+    //@ ensures ps2_model_struct_field(value, field_id) == new_value;
+
 Ps2Value* ps2_binary_op(const char* op, Ps2Value* left, Ps2Value* right);
     //@ requires true;
-    //@ ensures result != 0;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true;
 
 int ps2_compare(const char* op, Ps2Value* left, Ps2Value* right);
     //@ requires true;
@@ -1418,6 +1553,16 @@ static Ps2Value* ps2_struct_get(Ps2Value* value, const char* field) {
 static void ps2_struct_set(Ps2Value* value, const char* field, Ps2Value* new_value) {
   Ps2Struct* object = ps2_as_struct(value);
   object->values[ps2_struct_field_index(object, field)] = ps2_copy_value(new_value);
+}
+
+static Ps2Value* ps2_struct_get_model(Ps2Value* value, const char* field, int field_id) {
+  (void)field_id;
+  return ps2_struct_get(value, field);
+}
+
+static void ps2_struct_set_model(Ps2Value* value, const char* field, int field_id, Ps2Value* new_value) {
+  (void)field_id;
+  ps2_struct_set(value, field, new_value);
 }
 
 static Ps2Value* ps2_concat(Ps2Value* left, Ps2Value* right) {

@@ -326,6 +326,14 @@ Unterstuetzte Pseudo2-Annotationen:
 - `@open <Expression>`, `@close <Expression>` und `@leak <Expression>` im Funktionsrumpf. Fuer komplexe Praedikate ist meistens ein roher String sinnvoll, z. B. `@open "P()"`.
 - `@invariant <Expression>` direkt vor `while`, `for` oder `do`.
 - `@decreases <Expression>` direkt vor `while`, `for` oder `do`.
+- strukturierte VeriFast-Modellhelfer in Annotationen:
+  - `vf_value(x)` bedeutet: `x` ist ein gueltiger abstrakter Pseudo2-Wert.
+  - `vf_array(x)` bedeutet: `x` ist ein abstraktes Pseudo2-Array.
+  - `vf_struct(x)` bedeutet: `x` ist ein abstraktes Pseudo2-Struct.
+  - `vf_len(x)` liefert die abstrakte Array-Laenge von `x`.
+  - `vf_int(x)` liefert den abstrakten Integer-Wert eines mit `ps2_int` erzeugten Pseudo2-Werts.
+  - `vf_elem(array, index)` liefert das abstrakte Pseudo2-Arrayelement an der 1-basierten Pseudo2-Position `index`.
+  - `vf_field(struct, "fieldName")` liefert den abstrakten Pseudo2-Struct-Feldwert. Der Feldname ist der Pseudo2-Quellname; der C-Generator uebersetzt ihn intern auf den eindeutigen generierten Feldnamen.
 
 Einfache Pseudo2-Ausdruecke wie `true`, `false`, Zahlen, Variablen und einfache
 Operatoren werden direkt in VeriFast-Spec-Ausdruecke uebersetzt.
@@ -352,6 +360,48 @@ func f()
 for i = 1 to 2
   @assert true
 ```
+
+Beispiele fuer die strukturierte Modellsyntax:
+
+```pseudo2
+@requires true
+@ensures vf_array(result) && vf_len(result) == 2
+func makeArray()
+  return [1, 2]
+
+@requires true
+@ensures vf_array(result) && vf_int(vf_elem(result, 1)) == 7
+func makeArrayWithElement()
+  var A[2] = 0
+  A[1] = 7
+  return A
+
+struct S
+  num value
+
+@requires true
+@ensures vf_struct(result)
+func makeStruct()
+  return new S
+
+@requires true
+@ensures vf_struct(result) && vf_int(vf_field(result, "value")) == 7
+func makeStructWithField()
+  var s = new S
+  s.value = 7
+  return s
+
+@requires true
+@ensures vf_value(result) && vf_int(result) == 7
+func seven()
+  return 7
+```
+
+Diese `vf_*`-Helfer sind absichtlich nur in VeriFast-Annotationen erlaubt.
+Ausserhalb davon meldet der Validator einen Fehler. Intern bildet der C-Generator
+sie auf abstrakte VeriFast-Fixpoints wie `ps2_model_array(...)`,
+`ps2_model_array_item(...)`, `ps2_model_struct_field(...)` und
+`ps2_model_array_length(...)` ab.
 
 ## Weboberflaeche starten
 
@@ -448,6 +498,7 @@ Die aktuelle VeriFast-Beispielgruppe deckt u. a. ab:
 - Funktions-Terminierung mit `@terminates`.
 - `result` in `@ensures`.
 - Ghost-/Proof-Statements wie `@assume`, `@open`, `@close` und `@leak`.
+- strukturierte Modellhelfer `vf_value`, `vf_array`, `vf_struct`, `vf_len`, `vf_int`, `vf_elem` und `vf_field`.
 - rohe VeriFast-Strings wie `@assert "true"` und `@assert "false"`.
 - Top-Level-Assertions.
 - Array-Parameter inklusive automatisch uebergebener Laenge.

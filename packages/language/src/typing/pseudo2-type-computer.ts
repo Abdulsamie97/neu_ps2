@@ -22,6 +22,7 @@ import type {
   MethSelection,
   StructAttDeclaration,
   ArrayLiteral,
+  SpecPredicateExpr,
   //Exponentiation
 } from '../generated/ast.js';
 
@@ -55,7 +56,8 @@ import {
   isArrayType,
   isStructType,
   isStructAttDeclaration,
-  isArrayLiteral
+  isArrayLiteral,
+  isSpecPredicateExpr
 } from '../generated/ast.js';
 
 import {
@@ -123,6 +125,7 @@ export class Pseudo2TypeComputer {
     if (isStringLiteral(e)) return TYPE_STRING;
     if (isNullLiteral(e)) return TYPE_STRUCT_UNKNOWN;
     if (isArrayLiteral(e)) return this.handleArrayLiteral(e, ctx);
+    if (isSpecPredicateExpr(e)) return this.handleSpecPredicate(e);
 
     // ---- object / struct ----
     if (isNewExpr(e)) return this.handleNew(e);
@@ -162,6 +165,16 @@ export class Pseudo2TypeComputer {
       isStruct: firstType.isStruct,
       isArray: true
     });
+  }
+
+  private handleSpecPredicate(e: SpecPredicateExpr): Pseudo2Type {
+    if (e.kind === 'vf_len' || e.kind === 'vf_int') {
+      return TYPE_NUM;
+    }
+    if (e.kind === 'vf_elem' || e.kind === 'vf_field') {
+      return TYPE_UNKNOWN;
+    }
+    return TYPE_BOOL;
   }
 
   private handlePlus(e: Addition, ctx: TypeComputationContext): Pseudo2Type {

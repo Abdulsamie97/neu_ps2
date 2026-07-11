@@ -49,6 +49,7 @@ import {
   isPrintCommand,
   isResultExpr,
   isReturnStmt,
+  isSpecPredicateExpr,
   isStringLiteral,
   isThrowCommand,
   isVarDecl,
@@ -63,6 +64,7 @@ export function printExpr(expr: Expr): string {
   if (isStringLiteral(expr)) return JSON.stringify(expr.value);
   if (isNullLiteral(expr)) return 'null';
   if (isResultExpr(expr)) return 'result';
+  if (isSpecPredicateExpr(expr)) return `${expr.kind}(${(expr.args ?? []).map(printExpr).join(',')})`;
   if (isGrouping(expr)) return `(${printExpr(expr.value)})`;
   if (isNot(expr)) return `(! ${printExpr(expr.value)})`;
   if (isNeg(expr)) return `(- ${printExpr(expr.value)})`;

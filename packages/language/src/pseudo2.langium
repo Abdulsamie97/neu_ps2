@@ -362,6 +362,7 @@ interface StringLiteral extends Expr { value: string }
 
 interface NullLiteral extends Expr {}
 interface ResultExpr extends Expr {}
+interface SpecPredicateExpr extends Expr { kind: string args: Expr[] }
 interface NewExpr extends Expr { type: @StructDeclaration }
 interface ArrayLiteral extends Expr { elems: Expr[] }
 
@@ -387,6 +388,11 @@ NullLit returns NullLiteral:
 
 ResultRule returns ResultExpr:
   {ResultExpr} 'result'
+;
+
+SpecPredicateRule returns SpecPredicateExpr:
+  {SpecPredicateExpr} kind=('vf_value' | 'vf_array' | 'vf_struct' | 'vf_len' | 'vf_int' | 'vf_elem' | 'vf_field')
+  '(' (args+=Expression (',' args+=Expression)*)? ')'
 ;
 
 NewRule returns NewExpr:
@@ -466,6 +472,7 @@ Primary returns Expr:
   | StringLit
   | NullLit
   | ResultRule
+  | SpecPredicateRule
   | NewRule
   | ArrayLiteralRule
   | Selection

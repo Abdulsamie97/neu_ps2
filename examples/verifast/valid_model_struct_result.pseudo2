@@ -1,0 +1,7 @@
+struct S
+  num value
+
+@requires true
+@ensures vf_struct(result)
+func makeStruct()
+  return new S

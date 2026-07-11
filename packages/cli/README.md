@@ -55,3 +55,10 @@ Pseudo2 VeriFast annotations currently include function contracts
 expressions, proof statements `@assert`, `@assume`, `@open`, `@close` and
 `@leak`, plus loop annotations `@invariant` and `@decreases` before `while`,
 `for` or `do`.
+
+Structured model helpers are available inside annotations: `vf_value(x)`,
+`vf_array(x)`, `vf_struct(x)`, `vf_len(x)`, `vf_int(x)`,
+`vf_elem(array, index)` and `vf_field(struct, "fieldName")`. They are
+translated to abstract VeriFast model fixpoints in generated C and are covered
+by the `examples/verifast/valid_model_*.pseudo2` and
+`examples/verifast/invalid_model_*.pseudo2` examples.

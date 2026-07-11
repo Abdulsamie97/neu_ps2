@@ -58,6 +58,7 @@ import {
   isParameterDecl,
   isPrintCommand,
   isResultExpr,
+  isSpecPredicateExpr,
   isReturnStmt,
   isStringLiteral,
   isStructAttDeclaration,
@@ -435,6 +436,7 @@ function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_S
   if (isStringLiteral(expr)) return JSON.stringify(expr.value);
   if (isNullLiteral(expr)) return 'null';
   if (isResultExpr(expr)) throw new Error('result is only supported inside VeriFast annotations.');
+  if (isSpecPredicateExpr(expr)) throw new Error(`${expr.kind} is only supported inside VeriFast annotations.`);
   if (isArrayLiteral(expr)) return genArrayLiteral(expr, context, state);
 
   if (isNewExpr(expr)) {

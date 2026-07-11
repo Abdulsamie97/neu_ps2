@@ -130,6 +130,52 @@ describe('PrettyPseudo2Generator', () => {
     expectErrors(reparsed.document);
   });
 
+  test('prints structured VeriFast model helper annotations', async () => {
+    const { model, document } = await parseRuntimeProgram(`
+      @requires true
+      @ensures vf_array(result) && vf_len(result) == 2
+      func makeArray()
+        return [1, 2]
+
+      struct S
+        num value
+
+      @requires true
+      @ensures vf_struct(result) && vf_int(vf_field(result, "value")) == 7
+      func makeStruct()
+        var s = new S
+        s.value = 7
+        return s
+    `);
+
+    expectErrors(document);
+
+    const pretty = generatePrettyPseudo2(model);
+    expect(pretty).toBe([
+      '@requires true',
+      '@ensures (vf_array(result) && (vf_len(result) == 2))',
+      'func makeArray() {',
+      '  return [1, 2]',
+      '}',
+      '',
+      'struct S {',
+      '  num value',
+      '}',
+      '',
+      '@requires true',
+      '@ensures (vf_struct(result) && (vf_int(vf_field(result, "value")) == 7))',
+      'func makeStruct() {',
+      '  var s = new S',
+      '  s.value = 7',
+      '  return s',
+      '}',
+      ''
+    ].join('\n'));
+
+    const reparsed = await parseRuntimeProgram(pretty);
+    expectErrors(reparsed.document);
+  });
+
   test('prints while and do-while blocks with braces', async () => {
     const { model, document } = await parseRuntimeProgram(`
       var x = 0

@@ -1,7 +1,8 @@
 import { AstUtils } from 'langium';
-import type { FunctionDeclaration, Program, StructDeclaration, Variable } from './generated/ast.js';
+import type { FunctionDeclaration, Program, StructAttDeclaration, StructDeclaration, Variable } from './generated/ast.js';
 import {
   isFunctionDeclaration,
+  isStructAttDeclaration,
   isStructDeclaration,
   isVariable
 } from './generated/ast.js';
@@ -15,9 +16,12 @@ export class Pseudo2GeneratorContext {
   private readonly variableNames = new Map<Variable, string>();
   private readonly functionNames = new Map<FunctionDeclaration, string>();
   private readonly structFactoryNames = new Map<StructDeclaration, string>();
+  private readonly structFieldIds = new Map<StructAttDeclaration, number>();
+  private readonly structFieldsBySourceName = new Map<string, StructAttDeclaration[]>();
   private variableCounter = 0;
   private functionCounter = 0;
   private structCounter = 0;
+  private structFieldCounter = 0;
 
   static fromProgram(program: Program): Pseudo2GeneratorContext {
     const context = new Pseudo2GeneratorContext();
@@ -29,6 +33,9 @@ export class Pseudo2GeneratorContext {
     for (const node of AstUtils.streamAllContents(program)) {
       if (isVariable(node)) {
         this.addVarName(node);
+      }
+      if (isStructAttDeclaration(node)) {
+        this.addStructFieldId(node);
       }
       if (isFunctionDeclaration(node)) {
         this.addFunctionName(node);
@@ -56,6 +63,34 @@ export class Pseudo2GeneratorContext {
 
   getAnonymousVarName(prefix = 'anonym'): string {
     return `${targetIdentifier(prefix)}_${this.variableCounter++}`;
+  }
+
+  addStructFieldId(field: StructAttDeclaration): void {
+    if (this.structFieldIds.has(field)) {
+      throw new Error(`Struct field '${field.name}' is already registered.`);
+    }
+    this.structFieldIds.set(field, this.structFieldCounter++);
+    const fields = this.structFieldsBySourceName.get(field.name) ?? [];
+    fields.push(field);
+    this.structFieldsBySourceName.set(field.name, fields);
+  }
+
+  getStructFieldId(field: StructAttDeclaration): number {
+    const id = this.structFieldIds.get(field);
+    if (id === undefined) {
+      throw new Error(`Could not find generated field id for struct field '${field.name}'.`);
+    }
+    return id;
+  }
+
+  getUniqueStructFieldBySourceName(name: string): StructAttDeclaration | undefined {
+    const fields = this.structFieldsBySourceName.get(name) ?? [];
+    return fields.length === 1 ? fields[0] : undefined;
+  }
+
+  getStructFieldByStructNameAndSourceName(structName: string, fieldName: string): StructAttDeclaration | undefined {
+    const fields = this.structFieldsBySourceName.get(fieldName) ?? [];
+    return fields.find(field => AstUtils.getContainerOfType(field, isStructDeclaration)?.name === structName);
   }
 
   addFunctionName(fn: FunctionDeclaration): void {

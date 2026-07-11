@@ -1,0 +1,9 @@
+struct S
+  num value
+
+@requires true
+@ensures vf_struct(result) && vf_int(vf_field(result, "value")) == 8
+func makeStruct()
+  var s = new S
+  s.value = 7
+  return s

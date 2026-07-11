@@ -43,6 +43,7 @@ import {
   isPrintCommand,
   isResultExpr,
   isReturnStmt,
+  isSpecPredicateExpr,
   isStringLiteral,
   isStringType,
   isStructAttDeclaration,
@@ -291,6 +292,10 @@ function printExpr(expr: Expr): string {
 
   if (isResultExpr(expr)) {
     return 'result';
+  }
+
+  if (isSpecPredicateExpr(expr)) {
+    return `${expr.kind}(${(expr.args ?? []).map(printExpr).join(', ')})`;
   }
 
   if (isThisExpr(expr)) {

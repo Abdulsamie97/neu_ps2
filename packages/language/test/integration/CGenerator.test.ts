@@ -33,7 +33,7 @@ describe('CGenerator', () => {
     expect(c).toContain('//@ requires true;');
     expect(c).toContain('ps2_array_set(A_0, ps2_int(1), ps2_int(4));');
     expect(c).toContain('s_5 = ps2_copy_value(create_S_0());');
-    expect(c).toContain('ps2_struct_set(s_5, "value_3", func_add_0(ps2_array_get(A_0, ps2_int(1)), ps2_int(1)));');
+    expect(c).toContain('ps2_struct_set_model(s_5, "value_3", 0, func_add_0(ps2_array_get(A_0, ps2_int(1)), ps2_int(1)));');
     expect(c).toContain('ps2_print(func_inc_1(s_5, ps2_int(2)));');
   });
 
@@ -166,6 +166,76 @@ describe('CGenerator', () => {
     expect(c).toContain('//@ open P();');
     expect(c).toContain('//@ close P();');
     expect(c).toContain('//@ leak P();');
+  });
+
+  test('emits structured VeriFast model helpers', async () => {
+    const c = await generateC(`
+      @requires true
+      @ensures vf_value(result) && vf_int(result) == 7
+      func seven()
+        return 7
+
+      @requires true
+      @ensures vf_array(result) && vf_len(result) == 2
+      func makeArray()
+        return [1, 2]
+
+      @requires true
+      @ensures vf_array(result) && vf_int(vf_elem(result, 1)) == 7
+      func makeArrayWithElement()
+        var A[2] = 0
+        A[1] = 7
+        return A
+
+      struct S
+        num value
+
+      @requires true
+      @ensures vf_struct(result)
+      func makeStruct()
+        return new S
+
+      @requires true
+      @ensures vf_struct(result) && vf_int(vf_field(result, "value")) == 7
+      func makeStructWithField()
+        var s = new S
+        s.value = 7
+        return s
+    `);
+
+    expect(c).toContain('fixpoint bool ps2_model_value(Ps2Value* value);');
+    expect(c).toContain('fixpoint bool ps2_model_array(Ps2Value* value);');
+    expect(c).toContain('fixpoint bool ps2_model_struct(Ps2Value* value);');
+    expect(c).toContain('fixpoint int ps2_model_array_length(Ps2Value* value);');
+    expect(c).toContain('fixpoint int ps2_model_int(Ps2Value* value);');
+    expect(c).toContain('fixpoint Ps2Value* ps2_model_array_item(Ps2Value* value, int index);');
+    expect(c).toContain('fixpoint Ps2Value* ps2_model_struct_field(Ps2Value* value, int field);');
+    expect(c).toContain('//@ ensures ((ps2_model_value(result) == true) && (ps2_model_int(result) == 7));');
+    expect(c).toContain('//@ ensures ((ps2_model_array(result) == true) && (ps2_model_array_length(result) == 2));');
+    expect(c).toContain('//@ ensures ((ps2_model_array(result) == true) && (ps2_model_int(ps2_model_array_item(result, 1)) == 7));');
+    expect(c).toContain('//@ ensures (ps2_model_struct(result) == true);');
+    expect(c).toContain('//@ ensures ((ps2_model_struct(result) == true) && (ps2_model_int(ps2_model_struct_field(result, 0)) == 7));');
+  });
+
+  test('resolves vf_field through the concrete result struct type', async () => {
+    const c = await generateC(`
+      struct Other
+        num value
+
+      struct S
+        num value
+
+      @requires true
+      @ensures vf_struct(result) && vf_int(vf_field(result, "value")) == 7
+      func makeStruct()
+        var s = new S
+        s.value = 7
+        return s
+    `);
+
+    expect(c).toContain('ps2_struct_define(__ps2_obj, 0, "value_0", ps2_undefined());');
+    expect(c).toContain('ps2_struct_define(__ps2_obj, 0, "value_1", ps2_undefined());');
+    expect(c).toContain('//@ ensures ((ps2_model_struct(result) == true) && (ps2_model_int(ps2_model_struct_field(result, 1)) == 7));');
   });
 
   test('maps loop decreases annotations to Pseudo2 lines', async () => {

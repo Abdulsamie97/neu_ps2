@@ -1,0 +1,4 @@
+@requires true
+@ensures vf_value(result) && vf_int(result) == 8
+func seven()
+  return 7

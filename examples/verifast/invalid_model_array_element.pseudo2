@@ -1,0 +1,6 @@
+@requires true
+@ensures vf_array(result) && vf_int(vf_elem(result, 1)) == 8
+func makeArray()
+  var A[2] = 0
+  A[1] = 7
+  return A

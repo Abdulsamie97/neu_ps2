@@ -514,6 +514,13 @@ function installPseudo2KeywordDecorations(editor: monaco.editor.IStandaloneCodeE
         'to',
         'true',
         'var',
+        'vf_array',
+        'vf_elem',
+        'vf_field',
+        'vf_int',
+        'vf_len',
+        'vf_struct',
+        'vf_value',
         'while'
     ]);
 

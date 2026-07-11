@@ -43,7 +43,8 @@ import type {
   Or,
   Not,
   Neg,
-  ResultExpr
+  ResultExpr,
+  SpecPredicateExpr
 } from './generated/ast.js';
 import type { Pseudo2Services } from './pseudo2-module.js';
 
@@ -75,6 +76,7 @@ import {
   isGrouping,
   isExponentiation,
   isNot,//,
+  isStringLiteral,
   isArrayLiteral,
   isNullLiteral,
   isVerificationAnnotation,
@@ -127,6 +129,9 @@ export const ELEMENT_ONLY_WITHIN_METHDECL = 'ELEMENT_ONLY_WITHIN_METHDECL';
 // Eigener Code: formaler und tatsächlicher Parameter müssen bzgl. Array konsistent sein
 export const CONSISTENT_ARRAY_TYPE_OF_PARA = 'CONSISTENT_ARRAY_TYPE_OF_PARA';
 export const RESULT_ONLY_IN_VERIFAST_ANNOTATION = 'RESULT_ONLY_IN_VERIFAST_ANNOTATION';
+export const SPEC_PREDICATE_ONLY_IN_VERIFAST_ANNOTATION = 'SPEC_PREDICATE_ONLY_IN_VERIFAST_ANNOTATION';
+export const SPEC_PREDICATE_ARITY = 'SPEC_PREDICATE_ARITY';
+export const SPEC_PREDICATE_FIELD_NAME = 'SPEC_PREDICATE_FIELD_NAME';
 
 
 export function registerValidationChecks(services: Pseudo2Services) {
@@ -178,6 +183,7 @@ export function registerValidationChecks(services: Pseudo2Services) {
     Not: validator.checkNot,
     Neg: validator.checkNeg,
     ResultExpr: validator.checkResultExpr,
+    SpecPredicateExpr: validator.checkSpecPredicateExpr,
   };
 
   registry.register(checks, validator);
@@ -1479,17 +1485,56 @@ export class Pseudo2Validator {
   }
 
   checkResultExpr(node: ResultExpr, accept: ValidationAcceptor): void {
-    const inAnnotation =
-      AstUtils.getContainerOfType(node, isVerificationAnnotation) ||
-      AstUtils.getContainerOfType(node, isVerificationStatement) ||
-      AstUtils.getContainerOfType(node, isLoopAnnotation);
-
-    if (!inAnnotation) {
+    if (!this.isInsideVeriFastAnnotation(node)) {
       accept('error', "'result' darf nur in VeriFast-Annotationen verwendet werden.", {
         node,
         code: RESULT_ONLY_IN_VERIFAST_ANNOTATION
       });
     }
+  }
+
+  checkSpecPredicateExpr(node: SpecPredicateExpr, accept: ValidationAcceptor): void {
+    if (!this.isInsideVeriFastAnnotation(node)) {
+      accept('error', `'${node.kind}' darf nur in VeriFast-Annotationen verwendet werden.`, {
+        node,
+        code: SPEC_PREDICATE_ONLY_IN_VERIFAST_ANNOTATION
+      });
+    }
+
+    const expectedArity = node.kind === 'vf_elem' || node.kind === 'vf_field' ? 2 : 1;
+    if ((node.args ?? []).length !== expectedArity) {
+      accept('error', `'${node.kind}' erwartet genau ${expectedArity === 1 ? 'ein Argument' : 'zwei Argumente'}.`, {
+        node,
+        property: 'args',
+        code: SPEC_PREDICATE_ARITY
+      });
+    }
+
+    if (node.kind === 'vf_field' && node.args[1] && !isStringLiteral(this.unwrapSingletonExpr(node.args[1]))) {
+      accept('error', "'vf_field' erwartet als zweites Argument einen Feldnamen als Stringliteral.", {
+        node,
+        property: 'args',
+        code: SPEC_PREDICATE_FIELD_NAME
+      });
+    }
+  }
+
+  private unwrapSingletonExpr(expr: Expr): Expr {
+    if ((isOr(expr) || isAnd(expr) || isEquality(expr) || isComparison(expr) || isAddition(expr) || isMultiplication(expr) || isExponentiation(expr)) && (expr.right?.length ?? 0) === 0) {
+      return this.unwrapSingletonExpr(expr.left);
+    }
+    if (isGrouping(expr)) {
+      return this.unwrapSingletonExpr(expr.value);
+    }
+    return expr;
+  }
+
+  private isInsideVeriFastAnnotation(node: AstNode): boolean {
+    return Boolean(
+      AstUtils.getContainerOfType(node, isVerificationAnnotation) ||
+      AstUtils.getContainerOfType(node, isVerificationStatement) ||
+      AstUtils.getContainerOfType(node, isLoopAnnotation)
+    );
   }
 
   checkEquality(node: Equality, accept: ValidationAcceptor): void {

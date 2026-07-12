@@ -1,0 +1,4 @@
+@requires true
+@ensures vf_int(result) == 6
+func add()
+  return 2 + 3

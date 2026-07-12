@@ -1,0 +1,34 @@
+@requires true
+@ensures vf_int(result) == 5
+func add()
+  return 2 + 3
+
+@requires true
+@ensures vf_int(result) == 5
+func subtract()
+  return 8 - 3
+
+@requires true
+@ensures vf_int(result) == 12
+func multiply()
+  return 3 * 4
+
+@requires true
+@ensures vf_int(result) == 4
+func divide()
+  return 8 / 2
+
+@requires true
+@ensures vf_int(result) == 2
+func modulo()
+  return 8 mod 3
+
+@requires true
+@ensures vf_int(result) == 8
+func power()
+  return 2 ^ 3
+
+@requires vf_number(a) && vf_number(b) && vf_integer(a) && vf_integer(b)
+@ensures vf_int(result) == vf_int(a) + vf_int(b)
+func addParameters(a, b)
+  return a + b

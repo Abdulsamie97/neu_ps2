@@ -86,6 +86,65 @@ describe('Validating', () => {
             "'vf_field' erwartet als zweites Argument einen Feldnamen als Stringliteral."
         );
     });
+
+    test('accepts one or two vf_string arguments and requires a literal content value', async () => {
+        const valid = await parse(`
+            func f()
+              @assert vf_string(result)
+              @assert vf_string(result, "abc")
+              return "abc"
+        `);
+        expect(valid.diagnostics?.map(diagnosticToString).join('\n') ?? '').not.toContain("'vf_string' erwartet");
+
+        const invalidArity = await parse(`
+            func f()
+              @assert vf_string()
+              return "abc"
+        `);
+        expect(invalidArity.diagnostics?.map(diagnosticToString).join('\n')).toContain(
+            "'vf_string' erwartet genau ein oder zwei Argumente."
+        );
+
+        const invalidContent = await parse(`
+            func f(x)
+              @assert vf_string(result, x)
+              return "abc"
+        `);
+        expect(invalidContent.diagnostics?.map(diagnosticToString).join('\n')).toContain(
+            "'vf_string' erwartet als zweites Argument einen konkreten String als Stringliteral."
+        );
+    });
+
+    test('accepts only non-zero integer literal denominators for vf_ratio', async () => {
+        const valid = await parse(`
+            @ensures vf_real(result) == vf_ratio(5, 2)
+            func halfFive()
+              return 5 / 2
+        `);
+        expect(valid.diagnostics?.map(diagnosticToString).join('\n') ?? '').not.toContain("'vf_ratio' erwartet");
+
+        for (const denominator of ['0', 'result']) {
+            const invalid = await parse(`
+                @ensures vf_real(result) == vf_ratio(5, ${denominator})
+                func invalidRatio()
+                  return 5 / 2
+            `);
+            expect(invalid.diagnostics?.map(diagnosticToString).join('\n')).toContain(
+                "'vf_ratio' erwartet als zweites Argument ein von null verschiedenes Ganzzahlliteral."
+            );
+        }
+    });
+
+    test('resolves a for-loop iterator in invariants and verification statements', async () => {
+        document = await parse(`
+            @invariant vf_integer(i) && vf_int(i) >= 1
+            for i = 1 to 3
+              @assert vf_int(i) <= 3
+        `);
+
+        expect(document.diagnostics?.map(diagnosticToString).join('\n') ?? '').not.toContain("Unbekannte Variable");
+        expect(document.diagnostics?.map(diagnosticToString).join('\n') ?? '').not.toContain("Could not resolve reference");
+    });
 });
 
 function checkDocumentValid(document: LangiumDocument): string | undefined {

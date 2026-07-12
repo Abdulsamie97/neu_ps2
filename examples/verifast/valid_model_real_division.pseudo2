@@ -1,0 +1,14 @@
+@requires true
+@ensures vf_real(result) == vf_ratio(5, 2)
+func halfFive()
+  return 5 / 2
+
+@requires vf_number(a) && vf_number(b) && !vf_integer(a) && !vf_integer(b) && vf_real(a) < vf_real(b)
+@ensures vf_bool(result)
+func realComparison(a, b)
+  return a < b
+
+@requires vf_number(a) && vf_number(b) && !vf_integer(a) && !vf_integer(b) && vf_real(a) == vf_real(b)
+@ensures vf_bool(result)
+func realEquality(a, b)
+  return a == b

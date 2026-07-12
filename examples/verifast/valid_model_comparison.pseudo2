@@ -1,0 +1,29 @@
+@requires true
+@ensures vf_bool(result)
+func less()
+  return 2 < 3
+
+@requires true
+@ensures vf_bool(result)
+func lessEqual()
+  return 3 <= 3
+
+@requires true
+@ensures vf_bool(result)
+func greater()
+  return 4 > 3
+
+@requires true
+@ensures vf_bool(result)
+func greaterEqual()
+  return 4 >= 4
+
+@requires true
+@ensures !vf_bool(result)
+func falseComparison()
+  return 4 < 3
+
+@requires vf_number(a) && vf_number(b) && vf_integer(a) && vf_integer(b)
+@ensures vf_bool(result) == (vf_int(a) < vf_int(b))
+func compareParameters(a, b)
+  return a < b

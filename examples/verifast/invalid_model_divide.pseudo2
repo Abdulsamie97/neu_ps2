@@ -1,0 +1,4 @@
+@requires true
+@ensures vf_int(result) == 5
+func divide()
+  return 8 / 2

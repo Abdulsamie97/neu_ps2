@@ -78,6 +78,8 @@ type CGeneratorState = {
   sourceMap: boolean;
   globalNames: string[];
   arrayFillDecls?: ReadonlySet<VarDecl>;
+  stringLiteralNames?: ReadonlyMap<string, string>;
+  divisionLiteralNames?: ReadonlyMap<number, string>;
 };
 
 const DEFAULT_STATE: CGeneratorState = { thisName: 'this', topLevel: false, sourceMap: false, globalNames: [] };
@@ -131,9 +133,15 @@ function generateCProgramInternal(
   const arrayLiteralArities = collectArrayLiteralArities(program);
   const arrayFillDecls = collectArrayFillDeclarations(program);
   const arrayFillArities = collectArrayFillArities(arrayFillDecls);
+  const stringLiterals = collectStringLiterals(program);
+  const stringLiteralNames = new Map(stringLiterals.map((value, index) => [value, stringLiteralHelperName(index)]));
+  const divisionLiterals = collectDivisionLiterals(program);
+  const divisionLiteralNames = new Map(divisionLiterals.map(value => [value, divisionLiteralHelperName(value)]));
   const arrayLiteralHelpers = generateArrayLiteralHelpers(arrayLiteralArities, options.runtime ?? 'contracts');
   const arrayFillHelpers = generateArrayFillHelpers(arrayFillArities, options.runtime ?? 'contracts');
-  const rootState = { ...DEFAULT_STATE, sourceMap, globalNames, arrayFillDecls };
+  const stringLiteralHelpers = generateStringLiteralHelpers(stringLiterals, options.runtime ?? 'contracts');
+  const divisionLiteralHelpers = generateDivisionLiteralHelpers(divisionLiterals, options.runtime ?? 'contracts');
+  const rootState = { ...DEFAULT_STATE, sourceMap, globalNames, arrayFillDecls, stringLiteralNames, divisionLiteralNames };
   const statements = program.instructions.filter(instruction => !isTopLevelDeclaration(instruction) && !isVarDecl(instruction));
 
   const prototypes = [
@@ -155,11 +163,95 @@ function generateCProgramInternal(
     runtimePrelude,
     arrayLiteralHelpers,
     arrayFillHelpers,
+    stringLiteralHelpers,
+    divisionLiteralHelpers,
     prototypes,
     globals,
     definitions,
     generateMain(mainBody, globalNames, moduleName)
   ].filter(Boolean).join('\n\n');
+}
+
+function collectDivisionLiterals(program: Program): number[] {
+  const values = new Set<number>();
+  for (const node of AstUtils.streamAllContents(program)) {
+    if (!isMultiplication(node)) {
+      continue;
+    }
+    for (let index = 0; index < (node.right?.length ?? 0); index++) {
+      const right = unwrapSingletonSpecExpr(node.right[index]);
+      if (node.op?.[index] === '/' && isIntLiteral(right) && right.value !== 0) {
+        values.add(right.value);
+      }
+    }
+  }
+  return [...values].sort((a, b) => a - b);
+}
+
+function divisionLiteralHelperName(divisor: number): string {
+  return `ps2_divide_by_${divisor < 0 ? `neg_${Math.abs(divisor)}` : divisor}`;
+}
+
+function generateDivisionLiteralHelpers(divisors: number[], runtime: 'contracts' | 'implementation'): string {
+  return divisors.map(divisor => runtime === 'implementation'
+    ? [
+        `static Ps2Value* ${divisionLiteralHelperName(divisor)}(Ps2Value* left) {`,
+        `  return ps2_divide(left, ps2_int(${divisor}));`,
+        '}'
+      ].join('\n')
+    : [
+        `Ps2Value* ${divisionLiteralHelperName(divisor)}(Ps2Value* left);`,
+        '    //@ requires true;',
+        `    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == (ps2_model_integral(left) && ps2_model_int(left) % ${divisor} == 0) &*& ps2_model_real(result) == ps2_model_real(left) / ${divisor}r &*& (ps2_model_integral(result) ? ps2_model_int(result) == ps2_model_int(left) / ${divisor} : true);`,
+        '    //@ terminates;'
+      ].join('\n')
+  ).join('\n\n');
+}
+
+function collectStringLiterals(program: Program): string[] {
+  const values = new Set<string>();
+  for (const node of AstUtils.streamAllContents(program)) {
+    if (isStringLiteral(node)) {
+      values.add(node.value);
+    }
+  }
+  return [...values].sort();
+}
+
+function generateStringLiteralHelpers(values: string[], runtime: 'contracts' | 'implementation'): string {
+  return values
+    .map((value, index) => runtime === 'implementation'
+      ? generateStringLiteralImplementation(value, index)
+      : generateStringLiteralContract(value, index)
+    )
+    .join('\n\n');
+}
+
+function stringLiteralHelperName(index: number): string {
+  return `ps2_string_literal_${index}`;
+}
+
+function generateStringLiteralContract(value: string, index: number): string {
+  return [
+    `Ps2Value* ${stringLiteralHelperName(index)}(void);`,
+    '    //@ requires true;',
+    `    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_string_kind &*& ps2_model_string(result) == true &*& ps2_model_string_content(result) == ${genVeriFastStringContent(value)} &*& ps2_model_to_string_content(result) == ${genVeriFastStringContent(value)};`,
+    '    //@ terminates;'
+  ].join('\n');
+}
+
+function generateStringLiteralImplementation(value: string, index: number): string {
+  return [
+    `static Ps2Value* ${stringLiteralHelperName(index)}(void) {`,
+    `  return ps2_string(${JSON.stringify(value)});`,
+    '}'
+  ].join('\n');
+}
+
+function genVeriFastStringContent(value: string): string {
+  return [...value]
+    .map(character => character.codePointAt(0) ?? 0)
+    .reduceRight((tail, codePoint) => `cons(${codePoint}, ${tail})`, 'nil');
 }
 
 function collectArrayLiteralArities(program: Program): number[] {
@@ -273,6 +365,7 @@ function generateArrayLiteralContract(arity: number): string {
   const ensures = [
     'result != 0',
     'ps2_model_value(result) == true',
+    'ps2_model_kind(result) == ps2_array_kind',
     'ps2_model_array(result) == true',
     `ps2_model_array_length(result) == ${arity}`,
     ...itemFacts
@@ -327,6 +420,7 @@ function generateArrayFillContract(arity: number): string {
   const ensures = [
     'result != 0',
     'ps2_model_value(result) == true',
+    'ps2_model_kind(result) == ps2_array_kind',
     'ps2_model_array(result) == true',
     `ps2_model_array_length(result) == ${arity}`,
     ...itemFacts
@@ -565,22 +659,83 @@ function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent
   const iterName = loop.iterator ? context.getVarName(loop.iterator) : context.getAnonymousVarName('__for');
   const endName = context.getAnonymousVarName('__forEnd');
   const stepName = context.getAnonymousVarName('__forStep');
+  const endKindName = context.getAnonymousVarName('__forEndKind');
+  const endIntegralName = context.getAnonymousVarName('__forEndIntegral');
+  const endIntName = context.getAnonymousVarName('__forEndInt');
+  const endRealName = context.getAnonymousVarName('__forEndReal');
+  const stepKindName = context.getAnonymousVarName('__forStepKind');
+  const stepIntegralName = context.getAnonymousVarName('__forStepIntegral');
+  const stepIntName = context.getAnonymousVarName('__forStepInt');
+  const stepRealName = context.getAnonymousVarName('__forStepReal');
   const from = genExpr(loop.from, context, state);
   const to = genExpr(loop.to, context, state);
   const step = loop.step ? genExpr(loop.step, context, state) : 'ps2_int(1)';
-  const directionOp = loop.direction === 'to' ? '<=' : '>=';
-  const stepOp = loop.direction === 'to' ? '+' : '-';
-  const body = generateForLoopBody(loop, context, indent, state, iterName, stepName, stepOp);
+  const staticStep = loop.step ? constantIntValue(loop.step) : 1;
+  const staticEnd = constantIntValue(loop.to);
+  const directionFunction = loop.direction === 'to' ? 'ps2_less_equal' : 'ps2_greater_equal';
+  const stepFunction = loop.direction === 'to' ? 'ps2_add' : 'ps2_subtract';
+  const body = generateForLoopBody(loop, context, indent, state, iterName, stepName, stepFunction);
+  const stepGuard = staticStep !== undefined && staticStep > 0
+    ? []
+    : [
+        `${indent}if (ps2_less_equal(${stepName}, ps2_int(0))) {`,
+        `${indent}  ps2_throw(ps2_string("Invoked for-loop with negative step-size"));`,
+        `${indent}}`
+      ];
+  const snapshotFacts = [
+    ...(staticEnd === undefined
+      ? [
+          `ps2_model_kind(${endName}) == ${endKindName}`,
+          `ps2_model_integral(${endName}) == ${endIntegralName}`,
+          `ps2_model_int(${endName}) == ${endIntName}`,
+          `ps2_model_real(${endName}) == ${endRealName}`
+        ]
+      : [
+          `ps2_model_kind(${endName}) == ps2_number_kind`,
+          `ps2_model_integral(${endName}) == true`,
+          `ps2_model_int(${endName}) == ${staticEnd}`
+        ]),
+    ...(staticStep === undefined
+      ? [
+          `ps2_model_kind(${stepName}) == ${stepKindName}`,
+          `ps2_model_integral(${stepName}) == ${stepIntegralName}`,
+          `ps2_model_int(${stepName}) == ${stepIntName}`,
+          `ps2_model_real(${stepName}) == ${stepRealName}`
+        ]
+      : [
+          `ps2_model_kind(${stepName}) == ps2_number_kind`,
+          `ps2_model_integral(${stepName}) == true`,
+          `ps2_model_int(${stepName}) == ${staticStep}`
+        ])
+  ];
+  const snapshotInvariant = snapshotFacts.join(' && ');
+  const snapshotDeclarations = [
+    ...(staticEnd === undefined
+      ? [
+          `${indent}//@ Ps2ModelKind ${endKindName} = ps2_model_kind(${endName});`,
+          `${indent}//@ bool ${endIntegralName} = ps2_model_integral(${endName});`,
+          `${indent}//@ int ${endIntName} = ps2_model_int(${endName});`,
+          `${indent}//@ real ${endRealName} = ps2_model_real(${endName});`
+        ]
+      : []),
+    ...(staticStep === undefined
+      ? [
+          `${indent}//@ Ps2ModelKind ${stepKindName} = ps2_model_kind(${stepName});`,
+          `${indent}//@ bool ${stepIntegralName} = ps2_model_integral(${stepName});`,
+          `${indent}//@ int ${stepIntName} = ps2_model_int(${stepName});`,
+          `${indent}//@ real ${stepRealName} = ps2_model_real(${stepName});`
+        ]
+      : [])
+  ];
 
   return [
     `${indent}Ps2Value* ${iterName} = ps2_copy_value(${from});`,
     `${indent}Ps2Value* ${endName} = ps2_copy_value(${to});`,
     `${indent}Ps2Value* ${stepName} = ps2_copy_value(${step});`,
-    `${indent}if (ps2_as_num(${stepName}) <= 0) {`,
-    `${indent}  ps2_throw(ps2_string("Invoked for-loop with negative step-size"));`,
-    `${indent}}`,
-    `${indent}while (ps2_as_num(${iterName}) ${directionOp} ps2_as_num(${endName}))`,
-    ...generateLoopInvariants(loop.annotations ?? [], context, indent, state),
+    ...snapshotDeclarations,
+    ...stepGuard,
+    `${indent}while (${directionFunction}(${iterName}, ${endName}))`,
+    ...generateLoopInvariants(loop.annotations ?? [], context, indent, state, [snapshotInvariant]),
     body
   ].join('\n');
 }
@@ -592,14 +747,14 @@ function generateForLoopBody(
   state: CGeneratorState,
   iterName: string,
   stepName: string,
-  stepOp: string
+  stepFunction: 'ps2_add' | 'ps2_subtract'
 ): string {
   const body = loop.body.instructions ?? [];
   const inner = `${indent}  `;
   const nested = body
     .map(instruction => generateInstruction(instruction, context, inner, state))
     .filter(Boolean);
-  const update = `${inner}${iterName} = ps2_num(ps2_as_num(${iterName}) ${stepOp} ps2_as_num(${stepName}));`;
+  const update = `${inner}${iterName} = ps2_copy_value(${stepFunction}(${iterName}, ${stepName}));`;
 
   return `${indent}{\n${[...nested, update].join('\n')}\n${indent}}`;
 }
@@ -642,6 +797,7 @@ function generateStructDeclaration(
   const factoryEnsures = [
     'result != 0',
     'ps2_model_value(result) == true',
+    'ps2_model_kind(result) == ps2_struct_kind',
     'ps2_model_struct(result) == true',
     ...defaultFieldFacts
   ].join(' &*& ');
@@ -929,7 +1085,10 @@ function generateVerificationStatement(
 function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_STATE): string {
   if (isIntLiteral(expr)) return `ps2_int(${expr.value})`;
   if (isBoolLiteral(expr)) return `ps2_bool(${expr.value === 'true' ? 1 : 0})`;
-  if (isStringLiteral(expr)) return `ps2_string(${JSON.stringify(expr.value)})`;
+  if (isStringLiteral(expr)) {
+    const helperName = state.stringLiteralNames?.get(expr.value);
+    return helperName ? `${helperName}()` : `ps2_string(${JSON.stringify(expr.value)})`;
+  }
   if (isNullLiteral(expr)) return 'ps2_null()';
   if (isResultExpr(expr)) throw new Error('result is only supported inside VeriFast annotations.');
   if (isSpecPredicateExpr(expr)) throw new Error(`${expr.kind} is only supported inside VeriFast annotations.`);
@@ -1024,19 +1183,28 @@ function genSpecRepeated(
     return genSpecExpr(left, context, state);
   }
 
-  let out = `(${genSpecExpr(left, context, state)}`;
-  for (let i = 0; i < rights.length; i++) {
-    out += ` ${specOperator(ops[i] ?? ops[0] ?? '?')} ${genSpecExpr(rights[i], context, state)}`;
+  if (!ops.includes('^')) {
+    let chain = `(${genSpecExpr(left, context, state)}`;
+    for (let i = 0; i < rights.length; i++) {
+      chain += ` ${specOperator(ops[i] ?? ops[0] ?? '?')} ${genSpecExpr(rights[i], context, state)}`;
+    }
+    return `${chain})`;
   }
-  return `${out})`;
+
+  let out = genSpecExpr(left, context, state);
+  for (let i = 0; i < rights.length; i++) {
+    const op = ops[i] ?? ops[0] ?? '?';
+    const right = genSpecExpr(rights[i], context, state);
+    out = op === '^'
+      ? `ps2_model_power(${out}, ${right})`
+      : `(${out} ${specOperator(op)} ${right})`;
+  }
+  return out;
 }
 
 function specOperator(op: string): string {
   if (op === 'mod') {
     return '%';
-  }
-  if (op === '^') {
-    throw new Error('Exponentiation in VeriFast annotations is not supported yet. Use a raw string annotation for C-specific specs.');
   }
   return op;
 }
@@ -1045,6 +1213,10 @@ function genSpecPredicate(expr: SpecPredicateExpr, context: Pseudo2GeneratorCont
   switch (expr.kind) {
     case 'vf_value':
       return `(ps2_model_value(${genSingleSpecArg(expr, context, state)}) == true)`;
+    case 'vf_number':
+      return `(ps2_model_kind(${genSingleSpecArg(expr, context, state)}) == ps2_number_kind)`;
+    case 'vf_integer':
+      return genSpecInteger(expr, context, state);
     case 'vf_array':
       return `(ps2_model_array(${genSingleSpecArg(expr, context, state)}) == true)`;
     case 'vf_struct':
@@ -1053,10 +1225,16 @@ function genSpecPredicate(expr: SpecPredicateExpr, context: Pseudo2GeneratorCont
       return `ps2_model_array_length(${genSingleSpecArg(expr, context, state)})`;
     case 'vf_int':
       return `ps2_model_int(${genSingleSpecArg(expr, context, state)})`;
+    case 'vf_real':
+      return `ps2_model_real(${genSingleSpecArg(expr, context, state)})`;
+    case 'vf_ratio':
+      return genSpecRatio(expr, context, state);
     case 'vf_bool':
       return `(ps2_model_bool(${genSingleSpecArg(expr, context, state)}) == true)`;
+    case 'vf_truthy':
+      return genSpecTruthy(expr, context, state);
     case 'vf_string':
-      return `(ps2_model_string(${genSingleSpecArg(expr, context, state)}) == true)`;
+      return genSpecString(expr, context, state);
     case 'vf_null':
       return `(ps2_model_null(${genSingleSpecArg(expr, context, state)}) == true)`;
     case 'vf_undefined':
@@ -1070,6 +1248,47 @@ function genSpecPredicate(expr: SpecPredicateExpr, context: Pseudo2GeneratorCont
     default:
       throw new Error(`Unsupported VeriFast spec helper: ${expr.kind}`);
   }
+}
+
+function genSpecInteger(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
+  const value = genSingleSpecArg(expr, context, state);
+  return `((ps2_model_kind(${value}) == ps2_number_kind) && (ps2_model_integral(${value}) == true))`;
+}
+
+function genSpecRatio(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
+  const args = expr.args ?? [];
+  if (args.length !== 2) {
+    throw new Error('vf_ratio expects exactly two arguments.');
+  }
+  const denominator = unwrapSingletonSpecExpr(args[1]);
+  if (!isIntLiteral(denominator) || denominator.value === 0) {
+    throw new Error('vf_ratio expects a non-zero integer literal as its second argument.');
+  }
+  return `(real_of_int(${genSpecExpr(args[0], context, state)}) / ${denominator.value}r)`;
+}
+
+function genSpecTruthy(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
+  const value = genSingleSpecArg(expr, context, state);
+  return `(ps2_model_kind(${value}) == ps2_undefined_kind || ps2_model_kind(${value}) == ps2_null_kind ? false : ps2_model_kind(${value}) == ps2_bool_kind ? ps2_model_bool(${value}) : ps2_model_kind(${value}) == ps2_number_kind ? ps2_model_real(${value}) != 0 : ps2_model_kind(${value}) == ps2_string_kind ? ps2_model_string_content(${value}) != nil : true)`;
+}
+
+function genSpecString(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
+  const args = expr.args ?? [];
+  if (args.length !== 1 && args.length !== 2) {
+    throw new Error('vf_string expects one or two arguments.');
+  }
+
+  const value = genSpecExpr(args[0], context, state);
+  const typeFact = `(ps2_model_string(${value}) == true)`;
+  if (args.length === 1) {
+    return typeFact;
+  }
+
+  const expected = unwrapSingletonSpecExpr(args[1]);
+  if (!isStringLiteral(expected)) {
+    throw new Error('vf_string expects a string literal as its second argument.');
+  }
+  return `(${typeFact} && (ps2_model_string_content(${value}) == ${genVeriFastStringContent(expected.value)}))`;
 }
 
 function genSingleSpecArg(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
@@ -1276,7 +1495,8 @@ function generateLoopInvariants(
   annotations: LoopAnnotation[],
   context: Pseudo2GeneratorContext,
   indent: string,
-  state: CGeneratorState
+  state: CGeneratorState,
+  additionalInvariants: string[] = []
 ): string[] {
   const invariantAnnotations = annotations.filter(annotation => annotation.kind === 'invariant');
   const decreasesAnnotations = annotations.filter(annotation => annotation.kind === 'decreases');
@@ -1285,6 +1505,7 @@ function generateLoopInvariants(
     : 'true';
   const invariants = [
     ...invariantAnnotations.map(annotation => genSpecExpr(annotation.condition, context, state)),
+    ...additionalInvariants,
     generatedInvariant
   ];
   const combined = invariants.length > 1
@@ -1324,7 +1545,7 @@ function genComparisonChain(left: Expr, ops: string[], rights: Expr[], context: 
   let previous = left;
 
   for (let i = 0; i < rights.length; i++) {
-    parts.push(`ps2_compare(${JSON.stringify(ops[i] ?? '==')}, ${genExpr(previous, context, state)}, ${genExpr(rights[i], context, state)})`);
+    parts.push(`${comparisonRuntimeFunction(ops[i] ?? '<')}(${genExpr(previous, context, state)}, ${genExpr(rights[i], context, state)})`);
     previous = rights[i];
   }
 
@@ -1335,10 +1556,40 @@ function genOpChain(left: Expr, ops: string[], rights: Expr[], context: Pseudo2G
   let out = genExpr(left, context, state);
 
   for (let i = 0; i < rights.length; i++) {
-    out = `ps2_binary_op(${JSON.stringify(ops[i] ?? '+')}, ${out}, ${genExpr(rights[i], context, state)})`;
+    const op = ops[i] ?? '+';
+    const right = unwrapSingletonSpecExpr(rights[i]);
+    const literalDivision = op === '/' && isIntLiteral(right)
+      ? state.divisionLiteralNames?.get(right.value)
+      : undefined;
+    out = literalDivision
+      ? `${literalDivision}(${out})`
+      : `${binaryRuntimeFunction(op)}(${out}, ${genExpr(rights[i], context, state)})`;
   }
 
   return out;
+}
+
+function binaryRuntimeFunction(op: string): string {
+  switch (op) {
+    case '+': return 'ps2_add';
+    case '-': return 'ps2_subtract';
+    case '*': return 'ps2_multiply';
+    case '/': return 'ps2_divide';
+    case '%':
+    case 'mod': return 'ps2_modulo';
+    case '^': return 'ps2_power';
+    default: throw new Error(`Unsupported binary operator for C generator: ${op}`);
+  }
+}
+
+function comparisonRuntimeFunction(op: string): string {
+  switch (op) {
+    case '<': return 'ps2_less';
+    case '<=': return 'ps2_less_equal';
+    case '>': return 'ps2_greater';
+    case '>=': return 'ps2_greater_equal';
+    default: throw new Error(`Unsupported comparison operator for C generator: ${op}`);
+  }
 }
 
 function withTrivialVeriFastContracts(source: string): string {
@@ -1356,52 +1607,64 @@ function withTerminatingVeriFastContracts(source: string): string {
 }
 
 const C_RUNTIME_PRELUDE = withTerminatingVeriFastContracts(String.raw`#include <math.h>
+//@ #include "nat.gh"
+#include "vf__floating_point.h"
 
 typedef struct Ps2Value { int _; } Ps2Value;
 typedef struct Ps2Array { int _; } Ps2Array;
 typedef struct Ps2Struct { int _; } Ps2Struct;
 
 /*@
+inductive Ps2ModelKind = ps2_undefined_kind | ps2_null_kind | ps2_number_kind | ps2_bool_kind | ps2_string_kind | ps2_array_kind | ps2_struct_kind;
+fixpoint Ps2ModelKind ps2_model_kind(Ps2Value* value);
 fixpoint bool ps2_model_value(Ps2Value* value);
 fixpoint bool ps2_model_array(Ps2Value* value);
 fixpoint bool ps2_model_struct(Ps2Value* value);
 fixpoint bool ps2_model_bool(Ps2Value* value);
 fixpoint bool ps2_model_string(Ps2Value* value);
+fixpoint list<int> ps2_model_string_content(Ps2Value* value);
+fixpoint list<int> ps2_model_to_string_content(Ps2Value* value);
 fixpoint bool ps2_model_null(Ps2Value* value);
 fixpoint bool ps2_model_undefined(Ps2Value* value);
 fixpoint int ps2_model_array_length(Ps2Value* value);
 fixpoint int ps2_model_int(Ps2Value* value);
+fixpoint real ps2_model_real(Ps2Value* value);
+fixpoint bool ps2_model_integral(Ps2Value* value);
+fixpoint real ps2_model_real_divide(real left, real right);
 fixpoint Ps2Value* ps2_model_array_item(Ps2Value* value, int index);
 fixpoint Ps2Value* ps2_model_struct_field(Ps2Value* value, int field);
+fixpoint int ps2_model_power(int base, int exponent) {
+    return exponent < 0 ? 0 : pow_nat(base, nat_of_int(exponent));
+}
 @*/
 
 Ps2Value* ps2_undefined(void);
     //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_undefined(result) == true;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_undefined_kind &*& ps2_model_undefined(result) == true;
 
 Ps2Value* ps2_null(void);
     //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_null(result) == true;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_null_kind &*& ps2_model_null(result) == true;
 
 Ps2Value* ps2_num(double number);
     //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind;
 
 Ps2Value* ps2_int(int number);
     //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_int(result) == number;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == true &*& ps2_model_int(result) == number &*& ps2_model_real(result) == real_of_int(number);
 
 Ps2Value* ps2_bool(int boolean);
     //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_bool(result) == (boolean == 0 ? false : true);
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_bool_kind &*& ps2_model_bool(result) == (boolean == 0 ? false : true);
 
 Ps2Value* ps2_string(const char* string);
     //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_string(result) == true;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_string_kind &*& ps2_model_string(result) == true;
 
 Ps2Value* ps2_copy_value(Ps2Value* value);
     //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& (ps2_model_array(value) == true ? result == value &*& ps2_model_array(result) == true &*& ps2_model_array_length(result) == ps2_model_array_length(value) : true) &*& (ps2_model_struct(value) == true ? result == value &*& ps2_model_struct(result) == true : true) &*& ps2_model_int(result) == ps2_model_int(value) &*& ps2_model_bool(result) == ps2_model_bool(value) &*& ps2_model_string(result) == ps2_model_string(value) &*& ps2_model_null(result) == ps2_model_null(value) &*& ps2_model_undefined(result) == ps2_model_undefined(value);
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_model_kind(value) &*& (ps2_model_array(value) == true ? result == value &*& ps2_model_array(result) == true &*& ps2_model_array_length(result) == ps2_model_array_length(value) : true) &*& (ps2_model_struct(value) == true ? result == value &*& ps2_model_struct(result) == true : true) &*& ps2_model_integral(result) == ps2_model_integral(value) &*& ps2_model_int(result) == ps2_model_int(value) &*& ps2_model_real(result) == ps2_model_real(value) &*& ps2_model_bool(result) == ps2_model_bool(value) &*& ps2_model_string(result) == ps2_model_string(value) &*& ps2_model_string_content(result) == ps2_model_string_content(value) &*& ps2_model_to_string_content(result) == ps2_model_to_string_content(value) &*& ps2_model_null(result) == ps2_model_null(value) &*& ps2_model_undefined(result) == ps2_model_undefined(value);
 
 double ps2_as_num(Ps2Value* value);
     //@ requires true;
@@ -1413,7 +1676,7 @@ int ps2_as_int(Ps2Value* value);
 
 int ps2_truthy(Ps2Value* value);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result == (ps2_model_kind(value) == ps2_undefined_kind || ps2_model_kind(value) == ps2_null_kind ? 0 : ps2_model_kind(value) == ps2_bool_kind ? (ps2_model_bool(value) ? 1 : 0) : ps2_model_kind(value) == ps2_number_kind ? (ps2_model_real(value) != 0 ? 1 : 0) : ps2_model_kind(value) == ps2_string_kind ? (ps2_model_string_content(value) != nil ? 1 : 0) : 1);
 
 void ps2_print(Ps2Value* value);
     //@ requires true;
@@ -1425,7 +1688,7 @@ void ps2_throw(Ps2Value* value);
 
 Ps2Value* ps2_array_create(int length);
     //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_array(result) == true &*& ps2_model_array_length(result) == length;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_array_kind &*& ps2_model_array(result) == true &*& ps2_model_array_length(result) == length;
 
 int ps2_array_length(Ps2Value* value);
     //@ requires true;
@@ -1457,7 +1720,7 @@ void ps2_struct_define(Ps2Struct* object, int index, const char* name, Ps2Value*
 
 Ps2Value* ps2_struct_value(Ps2Struct* object);
     //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_struct(result) == true;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_struct_kind &*& ps2_model_struct(result) == true;
 
 Ps2Value* ps2_struct_get(Ps2Value* value, const char* field);
     //@ requires true;
@@ -1475,17 +1738,49 @@ void ps2_struct_set_model(Ps2Value* value, const char* field, int field_id, Ps2V
     //@ requires true;
     //@ ensures ps2_model_struct_field(value, field_id) == new_value;
 
-Ps2Value* ps2_binary_op(const char* op, Ps2Value* left, Ps2Value* right);
+Ps2Value* ps2_add(Ps2Value* left, Ps2Value* right);
     //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& (ps2_model_kind(left) == ps2_string_kind || ps2_model_kind(right) == ps2_string_kind ? ps2_model_kind(result) == ps2_string_kind &*& ps2_model_string(result) == true &*& ps2_model_string_content(result) == append(ps2_model_to_string_content(left), ps2_model_to_string_content(right)) &*& ps2_model_to_string_content(result) == ps2_model_string_content(result) : ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == (ps2_model_integral(left) && ps2_model_integral(right)) &*& (ps2_model_integral(left) && ps2_model_integral(right) ? ps2_model_int(result) == ps2_model_int(left) + ps2_model_int(right) : true) &*& ps2_model_real(result) == ps2_model_real(left) + ps2_model_real(right));
 
-int ps2_compare(const char* op, Ps2Value* left, Ps2Value* right);
+Ps2Value* ps2_subtract(Ps2Value* left, Ps2Value* right);
     //@ requires true;
-    //@ ensures true;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == (ps2_model_integral(left) && ps2_model_integral(right)) &*& (ps2_model_integral(left) && ps2_model_integral(right) ? ps2_model_int(result) == ps2_model_int(left) - ps2_model_int(right) : true) &*& ps2_model_real(result) == ps2_model_real(left) - ps2_model_real(right);
+
+Ps2Value* ps2_multiply(Ps2Value* left, Ps2Value* right);
+    //@ requires true;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == (ps2_model_integral(left) && ps2_model_integral(right)) &*& (ps2_model_integral(left) && ps2_model_integral(right) ? ps2_model_int(result) == ps2_model_int(left) * ps2_model_int(right) : true) &*& ps2_model_real(result) == ps2_model_real(left) * ps2_model_real(right);
+
+Ps2Value* ps2_divide(Ps2Value* left, Ps2Value* right);
+    //@ requires true;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == (ps2_model_integral(left) && ps2_model_integral(right) && ps2_model_int(right) != 0 && ps2_model_int(left) % ps2_model_int(right) == 0) &*& ps2_model_real(result) == ps2_model_real_divide(ps2_model_real(left), ps2_model_real(right)) &*& (ps2_model_integral(result) ? ps2_model_int(result) == ps2_model_int(left) / ps2_model_int(right) : true);
+
+Ps2Value* ps2_modulo(Ps2Value* left, Ps2Value* right);
+    //@ requires true;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == (ps2_model_integral(left) && ps2_model_integral(right) && ps2_model_int(right) != 0) &*& (ps2_model_integral(result) ? ps2_model_int(result) == ps2_model_int(left) % ps2_model_int(right) &*& ps2_model_real(result) == real_of_int(ps2_model_int(result)) : true);
+
+Ps2Value* ps2_power(Ps2Value* left, Ps2Value* right);
+    //@ requires true;
+    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == (ps2_model_integral(left) && ps2_model_integral(right) && 0 <= ps2_model_int(right)) &*& (ps2_model_integral(result) ? ps2_model_int(result) == ps2_model_power(ps2_model_int(left), ps2_model_int(right)) &*& ps2_model_real(result) == real_of_int(ps2_model_int(result)) : true);
+
+int ps2_less(Ps2Value* left, Ps2Value* right);
+    //@ requires true;
+    //@ ensures result == (ps2_model_integral(left) && ps2_model_integral(right) ? (ps2_model_int(left) < ps2_model_int(right) ? 1 : 0) : (ps2_model_real(left) < ps2_model_real(right) ? 1 : 0));
+
+int ps2_less_equal(Ps2Value* left, Ps2Value* right);
+    //@ requires true;
+    //@ ensures result == (ps2_model_integral(left) && ps2_model_integral(right) ? (ps2_model_int(left) <= ps2_model_int(right) ? 1 : 0) : (ps2_model_real(left) <= ps2_model_real(right) ? 1 : 0));
+
+int ps2_greater(Ps2Value* left, Ps2Value* right);
+    //@ requires true;
+    //@ ensures result == (ps2_model_integral(left) && ps2_model_integral(right) ? (ps2_model_int(left) > ps2_model_int(right) ? 1 : 0) : (ps2_model_real(left) > ps2_model_real(right) ? 1 : 0));
+
+int ps2_greater_equal(Ps2Value* left, Ps2Value* right);
+    //@ requires true;
+    //@ ensures result == (ps2_model_integral(left) && ps2_model_integral(right) ? (ps2_model_int(left) >= ps2_model_int(right) ? 1 : 0) : (ps2_model_real(left) >= ps2_model_real(right) ? 1 : 0));
 
 int ps2_equals(Ps2Value* left, Ps2Value* right);
     //@ requires true;
-    //@ ensures true;`);
+    //@ ensures result == (ps2_model_kind(left) != ps2_model_kind(right) ? 0 : ps2_model_kind(left) == ps2_number_kind ? (ps2_model_integral(left) && ps2_model_integral(right) ? (ps2_model_int(left) == ps2_model_int(right) ? 1 : 0) : (ps2_model_real(left) == ps2_model_real(right) ? 1 : 0)) : ps2_model_kind(left) == ps2_bool_kind ? (ps2_model_bool(left) == ps2_model_bool(right) ? 1 : 0) : ps2_model_kind(left) == ps2_string_kind ? (ps2_model_string_content(left) == ps2_model_string_content(right) ? 1 : 0) : ps2_model_kind(left) == ps2_array_kind || ps2_model_kind(left) == ps2_struct_kind ? (left == right ? 1 : 0) : 1);`);
 
 const C_RUNTIME_IMPLEMENTATION = withTrivialVeriFastContracts(String.raw`#include <math.h>
 #include <stdarg.h>
@@ -1863,6 +2158,46 @@ static int ps2_compare(const char* op, Ps2Value* left, Ps2Value* right) {
   if (strcmp(op, ">") == 0) return l > r;
   if (strcmp(op, ">=") == 0) return l >= r;
   return 0;
+}
+
+static Ps2Value* ps2_add(Ps2Value* left, Ps2Value* right) {
+  return ps2_binary_op("+", left, right);
+}
+
+static Ps2Value* ps2_subtract(Ps2Value* left, Ps2Value* right) {
+  return ps2_binary_op("-", left, right);
+}
+
+static Ps2Value* ps2_multiply(Ps2Value* left, Ps2Value* right) {
+  return ps2_binary_op("*", left, right);
+}
+
+static Ps2Value* ps2_divide(Ps2Value* left, Ps2Value* right) {
+  return ps2_binary_op("/", left, right);
+}
+
+static Ps2Value* ps2_modulo(Ps2Value* left, Ps2Value* right) {
+  return ps2_binary_op("mod", left, right);
+}
+
+static Ps2Value* ps2_power(Ps2Value* left, Ps2Value* right) {
+  return ps2_binary_op("^", left, right);
+}
+
+static int ps2_less(Ps2Value* left, Ps2Value* right) {
+  return ps2_compare("<", left, right);
+}
+
+static int ps2_less_equal(Ps2Value* left, Ps2Value* right) {
+  return ps2_compare("<=", left, right);
+}
+
+static int ps2_greater(Ps2Value* left, Ps2Value* right) {
+  return ps2_compare(">", left, right);
+}
+
+static int ps2_greater_equal(Ps2Value* left, Ps2Value* right) {
+  return ps2_compare(">=", left, right);
 }
 
 static int ps2_equals(Ps2Value* left, Ps2Value* right) {

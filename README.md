@@ -328,12 +328,18 @@ Unterstuetzte Pseudo2-Annotationen:
 - `@decreases <Expression>` direkt vor `while`, `for` oder `do`.
 - strukturierte VeriFast-Modellhelfer in Annotationen:
   - `vf_value(x)` bedeutet: `x` ist ein gueltiger abstrakter Pseudo2-Wert.
+  - `vf_number(x)` bedeutet: `x` besitzt im VeriFast-Modell die Pseudo2-Wertart Zahl. Das ist besonders fuer symbolische Funktionsparameter sinnvoll.
+  - `vf_integer(x)` bedeutet: `x` ist eine Pseudo2-Zahl mit exaktem ganzzahligen Modellwert. Ein zusaetzliches `vf_number(x)` ist deshalb nicht erforderlich.
   - `vf_array(x)` bedeutet: `x` ist ein abstraktes Pseudo2-Array.
   - `vf_struct(x)` bedeutet: `x` ist ein abstraktes Pseudo2-Struct.
   - `vf_len(x)` liefert die abstrakte Array-Laenge von `x`.
   - `vf_int(x)` liefert den abstrakten Integer-Wert eines mit `ps2_int` erzeugten Pseudo2-Werts.
+  - `vf_real(x)` liefert den mathematischen Real-/Rationalwert einer Pseudo2-Zahl.
+  - `vf_ratio(a, b)` erzeugt die rationale Spezifikationskonstante `a / b`. `b` muss ein von null verschiedenes Ganzzahlliteral sein; falsche Nenner werden bereits als Editor-Diagnose gemeldet. Damit koennen nicht ganzzahlige Divisionen eindeutig spezifiziert werden, z. B. `vf_real(result) == vf_ratio(5, 2)` fuer `return 5 / 2`.
   - `vf_bool(x)` bedeutet: `x` ist der abstrakte Pseudo2-Wert `true`.
+  - `vf_truthy(x)` bildet die Wahrheitsauswertung der C-Runtime exakt ab: `false`, `0`, leere Strings, `null` und `undefined` sind falsch; Arrays, Structs und alle uebrigen Werte sind wahr.
   - `vf_string(x)` bedeutet: `x` ist ein abstrakter Pseudo2-String-Wert.
+  - `vf_string(x, "abc")` bedeutet zusaetzlich, dass der String exakt den Inhalt `abc` besitzt. Der Inhalt wird kollisionsfrei als abstrakte Folge von Unicode-Codepoints modelliert und bleibt bei Wertkopien erhalten.
   - `vf_null(x)` bedeutet: `x` ist der abstrakte Pseudo2-Wert `null`.
   - `vf_undefined(x)` bedeutet: `x` ist der abstrakte Pseudo2-Wert `undefined`.
   - `vf_elem(array, index)` liefert das abstrakte Pseudo2-Arrayelement an der 1-basierten Pseudo2-Position `index`. Das funktioniert fuer Array-Zuweisungen, fuer Array-Literale wie `[1, 2]` und fuer konstante Array-Deklarationen mit einfachen Literal-Initializern wie `var A[2] = 7`.
@@ -342,6 +348,30 @@ Unterstuetzte Pseudo2-Annotationen:
 
 Einfache Pseudo2-Ausdruecke wie `true`, `false`, Zahlen, Variablen und einfache
 Operatoren werden direkt in VeriFast-Spec-Ausdruecke uebersetzt.
+
+Arithmetik und boolesche Auswertung werden im generierten C nicht mehr durch
+unspezifische Runtime-Vertraege abstrahiert. Fuer `+`, `-`, `*`, `/`, `mod`
+und `^` erzeugt der Generator operator-spezifische Aufrufe mit Beziehungen
+zwischen den abstrakten Eingabe- und Ergebniswerten. Ganzzahlige Division wird
+konkret modelliert, wenn der Divisor nicht null ist und ohne Rest teilt. Dasselbe gilt fuer `<`,
+`<=`, `>`, `>=`, `==`, `!=`, `&&`, `||` und `!`. Division und Modulo liefern
+bei einem von null verschiedenen Divisor die entsprechende mathematische
+Integer-Beziehung. Nichtnegative ganzzahlige Potenzen werden durch
+`ps2_model_power` auf Basis des VeriFast-Nat-Modells auswertbar dargestellt,
+sodass beispielsweise `2 ^ 3 == 8` bewiesen wird.
+
+`for`-Schleifen verwenden dieselben modellierten Vergleichs- und
+Arithmetikoperationen. Der Generator konserviert Endwert und Schrittweite in
+internen Invarianten, sodass `vf_integer`, `vf_int` und `vf_real` ueber die
+Iteration erhalten bleiben. Der Schleifeniterator ist sowohl in
+`@invariant` als auch in Beweisanweisungen im Schleifenrumpf sichtbar.
+
+Grenze des aktuellen Modells: `vf_elem` und `vf_field` sind noch abstrakte,
+reine Modellprojektionen. Einzelne Erzeugungen, Lesezugriffe und Zuweisungen
+sind damit abgedeckt. Praezise Invarianten ueber mehrfach veraenderte Arrays
+oder Structs, insbesondere bei Aliasen, benoetigen dagegen ein
+zustandsbehaftetes Besitzmodell. Solche Invarianten sollten bis zu dieser
+Umstellung nicht als vollstaendige Heap-Verifikation interpretiert werden.
 
 Wichtig: `@decreases` ist in Pseudo2 aktuell eine Loop-Annotation. Fuer
 C-Funktionen verwendet VeriFast `terminates`; deshalb gibt es dafuer die
@@ -411,6 +441,31 @@ func seven()
 @ensures vf_bool(result)
 func yes()
   return true
+
+@requires true
+@ensures vf_string(result, "hello")
+func greeting()
+  return "hello"
+
+@requires vf_integer(a) && vf_integer(b)
+@ensures vf_int(result) == vf_int(a) + vf_int(b)
+func add(a, b)
+  return a + b
+
+@requires true
+@ensures vf_real(result) == vf_ratio(5, 2)
+func halfFive()
+  return 5 / 2
+
+@requires vf_integer(a) && vf_integer(b)
+@ensures vf_bool(result) == (vf_int(a) < vf_int(b))
+func less(a, b)
+  return a < b
+
+@requires vf_number(x)
+@ensures vf_bool(result) == vf_truthy(x)
+func normalizeTruthiness(x)
+  return !(!x)
 
 @requires vf_array(A) && vf_in_bounds(A, i) && vf_int(vf_elem(A, i)) == 7
 @ensures vf_int(result) == 7
@@ -524,7 +579,13 @@ Die aktuelle VeriFast-Beispielgruppe deckt u. a. ab:
 - Funktions-Terminierung mit `@terminates`.
 - `result` in `@ensures`.
 - Ghost-/Proof-Statements wie `@assume`, `@open`, `@close` und `@leak`.
-- strukturierte Modellhelfer `vf_value`, `vf_array`, `vf_struct`, `vf_len`, `vf_int`, `vf_bool`, `vf_string`, `vf_null`, `vf_undefined`, `vf_elem`, `vf_in_bounds` und `vf_field`.
+- strukturierte Modellhelfer `vf_value`, `vf_number`, `vf_integer`, `vf_array`, `vf_struct`, `vf_len`, `vf_int`, `vf_real`, `vf_ratio`, `vf_bool`, `vf_truthy`, `vf_string`, `vf_null`, `vf_undefined`, `vf_elem`, `vf_in_bounds` und `vf_field`.
+- rationale Zahlenbeziehungen und nicht ganzzahlige Division ueber `vf_real`.
+- praezise Arithmetik fuer `+`, `-`, `*`, `/`, `mod` und `^`, auch mit symbolischen Funktionsparametern.
+- praezise Vergleiche und Gleichheit fuer Zahlen, Booleans, Strings, Null-/Undefined-Werte sowie Identitaetsgleichheit im Runtime-Modell.
+- Runtime-konforme Wahrheitsauswertung fuer `&&`, `||` und `!` ueber `vf_truthy`.
+- konkrete String-Inhalte mit `vf_string(value, "text")`, einschliesslich positiver und absichtlich falscher Inhaltsvertraege.
+- Stringverkettung mit `+`, einschliesslich eines exakten Inhaltsbeweises fuer das Ergebnis.
 - Array-Literal-Elemente, z. B. `vf_elem(result, 2)` nach `return [1, 2]`.
 - konstante Array-Initialisierung mit Literal-Werten, z. B. `vf_elem(result, 1)` nach `var A[2] = 7`.
 - Struct-Defaultfelder, z. B. `vf_undefined(vf_field(result, "value"))` nach `return new S`.

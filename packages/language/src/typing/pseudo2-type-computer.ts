@@ -168,7 +168,7 @@ export class Pseudo2TypeComputer {
   }
 
   private handleSpecPredicate(e: SpecPredicateExpr): Pseudo2Type {
-    if (e.kind === 'vf_len' || e.kind === 'vf_int') {
+    if (e.kind === 'vf_len' || e.kind === 'vf_int' || e.kind === 'vf_real' || e.kind === 'vf_ratio') {
       return TYPE_NUM;
     }
     if (e.kind === 'vf_elem' || e.kind === 'vf_field') {

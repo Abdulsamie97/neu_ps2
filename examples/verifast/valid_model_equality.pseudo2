@@ -1,0 +1,29 @@
+@requires true
+@ensures vf_bool(result)
+func equalNumbers()
+  return 7 == 7
+
+@requires true
+@ensures !vf_bool(result)
+func unequalNumbers()
+  return 7 != 7
+
+@requires true
+@ensures vf_bool(result)
+func equalStrings()
+  return "same" == "same"
+
+@requires true
+@ensures !vf_bool(result)
+func unequalStrings()
+  return "left" == "right"
+
+@requires true
+@ensures vf_bool(result)
+func equalNull()
+  return null == null
+
+@requires vf_number(a) && vf_number(b) && vf_integer(a) && vf_integer(b)
+@ensures vf_bool(result) == (vf_int(a) == vf_int(b))
+func equalParameters(a, b)
+  return a == b

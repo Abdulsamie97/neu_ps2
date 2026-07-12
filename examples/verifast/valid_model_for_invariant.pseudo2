@@ -1,0 +1,5 @@
+@invariant vf_integer(i)
+for i = 1 to 3
+  @assert vf_integer(i)
+
+print "done"

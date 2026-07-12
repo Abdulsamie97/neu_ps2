@@ -1,0 +1,24 @@
+@requires true
+@ensures vf_bool(result)
+func andTrue()
+  return true && true
+
+@requires true
+@ensures !vf_bool(result)
+func andFalse()
+  return true && false
+
+@requires true
+@ensures vf_bool(result)
+func orTrue()
+  return false || true
+
+@requires true
+@ensures !vf_bool(result)
+func notTrue()
+  return !true
+
+@requires vf_number(x)
+@ensures vf_bool(result) == vf_truthy(x)
+func normalizeTruthiness(x)
+  return !(!x)

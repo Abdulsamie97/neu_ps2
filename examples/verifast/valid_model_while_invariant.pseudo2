@@ -1,0 +1,9 @@
+@requires true
+@ensures vf_integer(result) && vf_int(result) == 3
+func countToThree()
+  var i = 0
+  @invariant vf_integer(i) && vf_int(i) >= 0 && vf_int(i) <= 3
+  while i < 3
+    i = i + 1
+
+  return i

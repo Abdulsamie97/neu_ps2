@@ -45,7 +45,9 @@ import {
 
   isPrintCommand,
   isThrowCommand,
-  isCallCommand
+  isCallCommand,
+  isVerificationStatement,
+  isLoopAnnotation
   
 } from '../generated/ast.js';
 
@@ -187,6 +189,13 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
   }
 
   private scopeForVarRef(node: AstNode): Named[] {
+    const loopAnnotation = AstUtils.getContainerOfType(node, isLoopAnnotation);
+    if (loopAnnotation && isForLoop(loopAnnotation.$container) && loopAnnotation.$container.iterator) {
+      const loop = loopAnnotation.$container;
+      const iterator = loop.iterator!;
+      return this.dedupByName([iterator, ...this.scopeForVarRefFrom(loop.$container)]);
+    }
+
     const currentInstr = this.getEnclosingInstruction(node);
 
     debugScope('[scopeForVarRef] node type =', node.$type);
@@ -418,6 +427,7 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
       isPrintCommand(n) ||
       isThrowCommand(n) ||
       isCallCommand(n) ||
+      isVerificationStatement(n) ||
       (isFunctionCall(n) && this.isStandaloneFunctionCallInstruction(n))
     );
   }

@@ -110,12 +110,13 @@ describe('CGenerator', () => {
         throw "bad"
     `);
 
-    expect(c).toContain('while (ps2_truthy(ps2_bool(ps2_compare("<", x_0, ps2_int(2)))))');
+    expect(c).toContain('while (ps2_truthy(ps2_bool(ps2_less(x_0, ps2_int(2)))))');
     expect(c).toContain('//@ invariant x_0 |-> _;');
     expect(c).toMatch(/do\s+\/\/@ invariant/);
-    expect(c).toContain('while (ps2_as_num(i_1) <= ps2_as_num(');
+    expect(c).toContain('while (ps2_less_equal(i_1,');
+    expect(c).toContain('i_1 = ps2_copy_value(ps2_add(i_1,');
     expect(c).toContain('if (ps2_truthy(ps2_bool(ps2_equals(x_0, ps2_int(0)))))');
-    expect(c).toContain('ps2_throw(ps2_string("bad"));');
+    expect(c).toContain('ps2_throw(ps2_string_literal_0());');
   });
 
   test('maps loop invariant annotations to VeriFast comments', async () => {
@@ -186,7 +187,7 @@ describe('CGenerator', () => {
         return false
 
       @requires true
-      @ensures vf_string(result)
+      @ensures vf_string(result, "hi")
       func text()
         return "hi"
 
@@ -251,6 +252,7 @@ describe('CGenerator', () => {
     expect(c).toContain('fixpoint bool ps2_model_struct(Ps2Value* value);');
     expect(c).toContain('fixpoint bool ps2_model_bool(Ps2Value* value);');
     expect(c).toContain('fixpoint bool ps2_model_string(Ps2Value* value);');
+    expect(c).toContain('fixpoint list<int> ps2_model_string_content(Ps2Value* value);');
     expect(c).toContain('fixpoint bool ps2_model_null(Ps2Value* value);');
     expect(c).toContain('fixpoint bool ps2_model_undefined(Ps2Value* value);');
     expect(c).toContain('fixpoint int ps2_model_array_length(Ps2Value* value);');
@@ -266,17 +268,61 @@ describe('CGenerator', () => {
     expect(c).toContain('//@ ensures ((ps2_model_value(result) == true) && (ps2_model_int(result) == 7));');
     expect(c).toContain('//@ ensures (ps2_model_bool(result) == true);');
     expect(c).toContain('//@ ensures (!(ps2_model_bool(result) == true));');
-    expect(c).toContain('//@ ensures (ps2_model_string(result) == true);');
+    expect(c).toContain('//@ ensures ((ps2_model_string(result) == true) && (ps2_model_string_content(result) == cons(104, cons(105, nil))));');
+    expect(c).toContain('ps2_model_string_content(result) == ps2_model_string_content(value)');
+    expect(c).toContain('ps2_model_string_content(result) == cons(104, cons(105, nil))');
     expect(c).toContain('//@ ensures (ps2_model_null(result) == true);');
     expect(c).toContain('//@ ensures ((ps2_model_array(result) == true) && (ps2_model_array_length(result) == 2) && (ps2_model_int(ps2_model_array_item(result, 2)) == 2));');
     expect(c).toContain('//@ requires ((ps2_model_array(A_0) == true) && ((1 <= ps2_model_int(i_2)) && (ps2_model_int(i_2) <= ps2_model_array_length(A_0))) && (ps2_model_int(ps2_model_array_item(A_0, ps2_model_int(i_2))) == 7));');
     expect(c).toContain('//@ ensures ((ps2_model_array(result) == true) && (ps2_model_int(ps2_model_array_item(result, 1)) == 7));');
     expect(c).toContain('//@ ensures ((ps2_model_array(result) == true) && (ps2_model_int(ps2_model_array_item(result, 1)) == 7) && (ps2_model_int(ps2_model_array_item(result, 2)) == 7));');
-    expect(c).toContain('//@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_struct(result) == true &*& ps2_model_undefined(ps2_model_struct_field(result, 0)) == true;');
+    expect(c).toContain('//@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_struct_kind &*& ps2_model_struct(result) == true &*& ps2_model_undefined(ps2_model_struct_field(result, 0)) == true;');
     expect(c).toContain('//@ assume(ps2_model_undefined(ps2_model_struct_field(__ps2_value, 0)) == true);');
     expect(c).toContain('//@ ensures ((ps2_model_struct(result) == true) && (ps2_model_undefined(ps2_model_struct_field(result, 0)) == true));');
     expect(c).toContain('//@ ensures ((ps2_model_struct(result) == true) && (ps2_model_int(ps2_model_struct_field(result, 0)) == 7));');
     expect(c).toContain('//@ requires ((ps2_model_struct(s_7) == true) && (ps2_model_int(ps2_model_struct_field(s_7, 0)) == 7));');
+  });
+
+  test('emits precise arithmetic, comparison, equality and truthiness contracts', async () => {
+    const c = await generateC(`
+      @requires true
+      @ensures vf_int(result) == 5
+      func arithmetic()
+        return (2 + 3) * 1
+
+      @requires true
+      @ensures vf_int(result) == 2 ^ 3
+      func power()
+        return 2 ^ 3
+
+      @requires true
+      @ensures vf_bool(result)
+      func comparison()
+        return 2 < 3
+
+      @requires true
+      @ensures vf_bool(result)
+      func equality()
+        return "same" == "same"
+
+      @requires true
+      @ensures !vf_bool(result)
+      func truthiness()
+        return true && false
+    `);
+
+    expect(c).toContain('inductive Ps2ModelKind =');
+    expect(c).toContain('fixpoint real ps2_model_real(Ps2Value* value);');
+    expect(c).toContain('fixpoint int ps2_model_power(int base, int exponent) {');
+    expect(c).toContain('ps2_multiply(ps2_add(ps2_int(2), ps2_int(3)), ps2_int(1))');
+    expect(c).toContain('ps2_power(ps2_int(2), ps2_int(3))');
+    expect(c).toContain('ps2_bool(ps2_less(ps2_int(2), ps2_int(3)))');
+    expect(c).toContain('ps2_bool(ps2_equals(ps2_string_literal_0(), ps2_string_literal_0()))');
+    expect(c).toContain('ps2_bool(ps2_truthy(ps2_bool(1)) && ps2_truthy(ps2_bool(0)))');
+    expect(c).toContain('ps2_model_int(result) == ps2_model_int(left) + ps2_model_int(right)');
+    expect(c).toContain('ps2_model_real(result) == ps2_model_real(left) + ps2_model_real(right)');
+    expect(c).toContain('ps2_model_string_content(left) == ps2_model_string_content(right)');
+    expect(c).toContain('ps2_model_string_content(value) != nil');
   });
 
   test('resolves vf_field through the concrete result struct type', async () => {

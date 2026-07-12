@@ -146,6 +146,11 @@ describe('PrettyPseudo2Generator', () => {
         var s = new S
         s.value = 7
         return s
+
+      @requires vf_number(x)
+      @ensures vf_bool(result) == vf_truthy(x)
+      func normalize(x)
+        return !(!x)
     `);
 
     expectErrors(document);
@@ -168,6 +173,12 @@ describe('PrettyPseudo2Generator', () => {
       '  var s = new S',
       '  s.value = 7',
       '  return s',
+      '}',
+      '',
+      '@requires vf_number(x)',
+      '@ensures (vf_bool(result) == vf_truthy(x))',
+      'func normalize(x) {',
+      '  return !(!x)',
       '}',
       ''
     ].join('\n'));

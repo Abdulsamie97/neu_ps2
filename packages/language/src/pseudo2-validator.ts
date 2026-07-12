@@ -76,6 +76,7 @@ import {
   isGrouping,
   isExponentiation,
   isNot,//,
+  isIntLiteral,
   isStringLiteral,
   isArrayLiteral,
   isNullLiteral,
@@ -132,6 +133,8 @@ export const RESULT_ONLY_IN_VERIFAST_ANNOTATION = 'RESULT_ONLY_IN_VERIFAST_ANNOT
 export const SPEC_PREDICATE_ONLY_IN_VERIFAST_ANNOTATION = 'SPEC_PREDICATE_ONLY_IN_VERIFAST_ANNOTATION';
 export const SPEC_PREDICATE_ARITY = 'SPEC_PREDICATE_ARITY';
 export const SPEC_PREDICATE_FIELD_NAME = 'SPEC_PREDICATE_FIELD_NAME';
+export const SPEC_PREDICATE_STRING_VALUE = 'SPEC_PREDICATE_STRING_VALUE';
+export const SPEC_PREDICATE_RATIO_DENOMINATOR = 'SPEC_PREDICATE_RATIO_DENOMINATOR';
 
 
 export function registerValidationChecks(services: Pseudo2Services) {
@@ -1501,9 +1504,16 @@ export class Pseudo2Validator {
       });
     }
 
-    const expectedArity = node.kind === 'vf_elem' || node.kind === 'vf_field' || node.kind === 'vf_in_bounds' ? 2 : 1;
-    if ((node.args ?? []).length !== expectedArity) {
-      accept('error', `'${node.kind}' erwartet genau ${expectedArity === 1 ? 'ein Argument' : 'zwei Argumente'}.`, {
+    const actualArity = (node.args ?? []).length;
+    const expectedArity = node.kind === 'vf_elem' || node.kind === 'vf_field' || node.kind === 'vf_in_bounds' || node.kind === 'vf_ratio' ? 2 : 1;
+    const validArity = node.kind === 'vf_string'
+      ? actualArity === 1 || actualArity === 2
+      : actualArity === expectedArity;
+    if (!validArity) {
+      const expectation = node.kind === 'vf_string'
+        ? 'ein oder zwei Argumente'
+        : expectedArity === 1 ? 'ein Argument' : 'zwei Argumente';
+      accept('error', `'${node.kind}' erwartet genau ${expectation}.`, {
         node,
         property: 'args',
         code: SPEC_PREDICATE_ARITY
@@ -1516,6 +1526,25 @@ export class Pseudo2Validator {
         property: 'args',
         code: SPEC_PREDICATE_FIELD_NAME
       });
+    }
+
+    if (node.kind === 'vf_string' && node.args[1] && !isStringLiteral(this.unwrapSingletonExpr(node.args[1]))) {
+      accept('error', "'vf_string' erwartet als zweites Argument einen konkreten String als Stringliteral.", {
+        node,
+        property: 'args',
+        code: SPEC_PREDICATE_STRING_VALUE
+      });
+    }
+
+    if (node.kind === 'vf_ratio' && node.args[1]) {
+      const denominator = this.unwrapSingletonExpr(node.args[1]);
+      if (!isIntLiteral(denominator) || denominator.value === 0) {
+        accept('error', "'vf_ratio' erwartet als zweites Argument ein von null verschiedenes Ganzzahlliteral.", {
+          node,
+          property: 'args',
+          code: SPEC_PREDICATE_RATIO_DENOMINATOR
+        });
+      }
     }
   }
 

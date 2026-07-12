@@ -1,0 +1,8 @@
+@requires vf_integer(start) && vf_integer(end) && vf_integer(step)
+@ensures vf_integer(result)
+func countWithStep(start, end, step)
+  @invariant vf_integer(i)
+  for i = start to end by step
+    @assert vf_integer(i)
+
+  return 1

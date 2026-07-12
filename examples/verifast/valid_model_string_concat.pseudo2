@@ -1,0 +1,4 @@
+@requires true
+@ensures vf_string(result, "hello")
+func concatenate()
+  return "hel" + "lo"

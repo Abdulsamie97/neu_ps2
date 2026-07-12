@@ -391,7 +391,7 @@ ResultRule returns ResultExpr:
 ;
 
 SpecPredicateRule returns SpecPredicateExpr:
-  {SpecPredicateExpr} kind=('vf_value' | 'vf_array' | 'vf_struct' | 'vf_len' | 'vf_int' | 'vf_bool' | 'vf_string' | 'vf_null' | 'vf_undefined' | 'vf_elem' | 'vf_field' | 'vf_in_bounds')
+  {SpecPredicateExpr} kind=('vf_value' | 'vf_number' | 'vf_integer' | 'vf_array' | 'vf_struct' | 'vf_len' | 'vf_int' | 'vf_real' | 'vf_ratio' | 'vf_bool' | 'vf_truthy' | 'vf_string' | 'vf_null' | 'vf_undefined' | 'vf_elem' | 'vf_field' | 'vf_in_bounds')
   '(' (args+=Expression (',' args+=Expression)*)? ')'
 ;
 

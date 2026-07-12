@@ -1,0 +1,4 @@
+@requires true
+@ensures vf_real(result) == vf_ratio(4, 2)
+func halfFive()
+  return 5 / 2

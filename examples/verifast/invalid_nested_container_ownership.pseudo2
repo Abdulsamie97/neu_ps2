@@ -1,0 +1,11 @@
+struct Buffer
+  num[] values
+
+@requires true
+@ensures vf_struct(result) && vf_array(vf_field(result, "values")) && vf_int(vf_elem(vf_field(result, "values"), 2)) == 8
+func makeBuffer()
+  var buffer = new Buffer
+  var values[2] = 0
+  values[2] = 7
+  buffer.values = values
+  return buffer

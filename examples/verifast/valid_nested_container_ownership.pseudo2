@@ -1,0 +1,56 @@
+struct Buffer
+  num[] values
+
+@requires true
+@ensures vf_struct(result) && vf_array(vf_field(result, "values")) && vf_len(vf_field(result, "values")) == 2 && vf_int(vf_elem(vf_field(result, "values"), 2)) == 7
+func makeBuffer()
+  var buffer = new Buffer
+  var values[2] = 0
+  values[2] = 7
+  buffer.values = values
+  return buffer
+
+@requires vf_struct(buffer) && vf_array(vf_field(buffer, "values")) && vf_len(vf_field(buffer, "values")) == 2 && vf_in_bounds(vf_field(buffer, "values"), 2) && vf_int(vf_elem(vf_field(buffer, "values"), 2)) == 7
+@ensures vf_struct(buffer) && vf_array(vf_field(buffer, "values")) && vf_len(vf_field(buffer, "values")) == 2 && vf_int(vf_elem(vf_field(buffer, "values"), 2)) == 7 && vf_int(result) == 7
+func readBuffer(buffer)
+  return buffer.values[2]
+
+@requires vf_struct(buffer) && vf_array(vf_field(buffer, "values")) && vf_len(vf_field(buffer, "values")) == 2 && vf_in_bounds(vf_field(buffer, "values"), 2) && vf_int(vf_elem(vf_field(buffer, "values"), 2)) == 7
+@ensures vf_struct(result) && vf_array(vf_field(result, "values")) && vf_len(vf_field(result, "values")) == 2 && vf_int(vf_elem(vf_field(result, "values"), 2)) == 8
+func updateBuffer(buffer)
+  buffer.values[2] = 8
+  return buffer
+
+@requires true
+@ensures vf_struct(result) && vf_array(vf_field(result, "values")) && vf_int(vf_elem(vf_field(result, "values"), 2)) == 8
+func roundTripBuffer()
+  var buffer = makeBuffer()
+  var value = readBuffer(buffer)
+  @assert vf_int(value) == 7
+  buffer = updateBuffer(buffer)
+  return buffer
+
+struct Cell
+  num value
+
+@requires true
+@ensures vf_array(result) && vf_len(result) == 1 && vf_struct(vf_elem(result, 1)) && vf_int(vf_field(vf_elem(result, 1), "value")) == 9
+func makeCellArray()
+  var cell = new Cell
+  cell.value = 9
+  var cells[1] = cell
+  return cells
+
+@requires vf_array(cells) && vf_len(cells) == 1 && vf_in_bounds(cells, 1) && vf_struct(vf_elem(cells, 1)) && vf_int(vf_field(vf_elem(cells, 1), "value")) == 9
+@ensures vf_array(cells) && vf_len(cells) == 1 && vf_struct(vf_elem(cells, 1)) && vf_int(vf_field(vf_elem(cells, 1), "value")) == 9 && vf_int(result) == 9
+func readCellArray(cells[1..n])
+  var cell = cells[1]
+  return cell.value
+
+@requires true
+@ensures vf_array(result) && vf_len(result) == 1 && vf_struct(vf_elem(result, 1)) && vf_int(vf_field(vf_elem(result, 1), "value")) == 9
+func roundTripCellArray()
+  var cells = makeCellArray()
+  var value = readCellArray(cells)
+  @assert vf_int(value) == 9
+  return cells

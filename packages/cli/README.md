@@ -100,6 +100,13 @@ representation, including pointer arrays and field mutation. Run it with:
 node .\packages\cli\bin\cli.js verifast .\runtime\c\pseudo2_heap_runtime.c
 ```
 
-The remaining ownership limit is recursive ownership for heap values nested
-inside containers. Scalar runtime code for strings, floating-point values, I/O
-and deallocation also remains behind trusted abstract contracts.
+Nested container ownership is supported through separate transferred chunks.
+This covers arrays stored in Struct fields and Struct values stored in arrays,
+including nested reads, writes and contracts such as
+`vf_elem(vf_field(buffer, "values"), 2)`. The flat representation also permits
+cyclic Struct references without recursively expanding predicates.
+
+Replacing an already owned heap child with another heap object still requires
+explicit handling of the old child ownership. Arrays of arrays remain rejected
+by the Pseudo2 validator. Scalar runtime code for strings, floating-point
+values, I/O and deallocation also remains behind trusted abstract contracts.

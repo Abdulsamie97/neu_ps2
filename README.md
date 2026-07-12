@@ -383,10 +383,18 @@ Heap-Realisierung unter `runtime/c/pseudo2_heap_runtime.c` verifiziert reale
 C-Felder, Pointer-Arrays, Arrayzugriffe, Struct-Aufbau und Feldmutationen gegen
 dieselben Zustandsideen.
 
-Aktuelle Grenze: Tiefes Ownership innerhalb eines Containers, etwa Structs als
-Arrayelemente oder Arrays als Struct-Feldwerte, wird als gespeicherter Pointer
-modelliert, aber noch nicht rekursiv mit dem Containerbesitz gekoppelt. Die
-konkrete Heap-Runtime ist verifiziert; die vollstaendige skalare C-Runtime fuer
+Heapwerte innerhalb von Containern werden als getrennte, uebertragene
+Ownership-Chunks modelliert. Damit sind insbesondere Structs als Arrayelemente
+und Arrays in Struct-Feldern inklusive tiefer Lese- und Schreibzugriffe
+verifizierbar. Verschachtelte Vertrage verwenden dieselbe Pseudo2-Syntax, zum
+Beispiel `vf_elem(vf_field(buffer, "values"), 2)` oder
+`vf_field(vf_elem(cells, 1), "value")`. Da die Chunks flach gekoppelt werden,
+bleiben auch erlaubte zyklische Struct-Referenzen endlich modellierbar.
+
+Aktuelle Grenze: Wird ein bereits besetztes Heap-Feld durch ein anderes
+Heapobjekt ersetzt, muss die Ownership des alten Child-Objekts derzeit noch
+explizit behandelt werden. Arrays von Arrays bleiben entsprechend der
+Pseudo2-Sprachvalidierung unzulaessig. Die vollstaendige skalare C-Runtime fuer
 Strings, Gleitkommazahlen, Ausgabe und Speicherfreigabe bleibt weiterhin die
 vertrauenswuerdige Vertragsgrenze.
 
@@ -499,6 +507,15 @@ func readValue(s)
 func writeAlias(A[1..n], B[1..m])
   B[1] = 7
   return A[1]
+
+struct Buffer
+  num[] values
+
+@requires vf_struct(buffer) && vf_array(vf_field(buffer, "values")) && vf_in_bounds(vf_field(buffer, "values"), 2)
+@ensures vf_struct(result) && vf_array(vf_field(result, "values")) && vf_int(vf_elem(vf_field(result, "values"), 2)) == 8
+func updateBuffer(buffer)
+  buffer.values[2] = 8
+  return buffer
 
 @requires true
 @ensures vf_array(result) && vf_int(vf_elem(result, 1)) == 3

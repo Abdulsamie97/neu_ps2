@@ -83,6 +83,7 @@ type CGeneratorState = {
   specHeapStates?: ReadonlyMap<string, SpecHeapState>;
   ownedHeapLocals?: Array<Omit<SpecHeapState, 'stateName'>>;
   heapAliases?: ReadonlyMap<string, string>;
+  heapContainments?: ReadonlyMap<string, string>;
   expressionTemps?: ReadonlyMap<AstNode, string>;
 };
 
@@ -92,6 +93,7 @@ type SpecHeapState = {
   kind: HeapKind;
   receiver: string;
   stateName: string;
+  expression?: Expr;
 };
 
 const DEFAULT_STATE: CGeneratorState = { thisName: 'this', topLevel: false, sourceMap: false, globalNames: [] };
@@ -890,6 +892,7 @@ function generateFunctionBody(
     ownedHeapLocals: collectOwnedHeapLocals(body, context),
     heapAliases: collectHeapAliases(fn, context)
   };
+  functionState.heapContainments = collectHeapContainments(fn, context, functionState);
   const prelude = generateParameterPrelude(fn, context, inner);
   const contracts = generateFunctionContracts(fn, context, indent, state);
   const nested = [
@@ -920,13 +923,21 @@ function collectOwnedHeapLocals(
 }
 
 function heapKindForOwnedVariable(variable: VarDecl): HeapKind | undefined {
-  if (variable.isArrayVariable || (variable.initializer && isArrayLiteral(unwrapSingletonSpecExpr(variable.initializer)))) {
+  if (variable.isArrayVariable) {
     return 'array';
   }
-  if (variable.initializer && isNewExpr(unwrapSingletonSpecExpr(variable.initializer))) {
-    return 'struct';
+  if (!variable.initializer) {
+    return undefined;
   }
-  return undefined;
+  const initializer = unwrapSingletonSpecExpr(variable.initializer);
+  if (isVarRef(initializer) || isThisExpr(initializer) || isAttSelection(initializer)) {
+    return undefined;
+  }
+  const type = TYPES.typeFor(initializer);
+  if (type.isArrayType()) {
+    return 'array';
+  }
+  return type.isStructType() ? 'struct' : undefined;
 }
 
 function collectHeapAliases(
@@ -954,6 +965,75 @@ function collectHeapAliases(
   }
 
   return aliases;
+}
+
+function collectHeapContainments(
+  fn: FunctionDeclaration,
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): ReadonlyMap<string, string> {
+  const containments = new Map<string, string>();
+  for (const node of AstUtils.streamAllContents(fn.body)) {
+    if (isVarDecl(node) && node.isArrayVariable && node.initializer) {
+      const child = directHeapValueReceiver(node.initializer, context, state);
+      if (child) {
+        containments.set(child, context.getVarName(node));
+      }
+      continue;
+    }
+    if (!isAssignment(node)) {
+      continue;
+    }
+    const child = directHeapValueReceiver(node.value, context, state);
+    const parent = containmentTargetReceiver(node.sel as Expr, context, state);
+    if (child && parent && child !== parent) {
+      containments.set(child, parent);
+    }
+  }
+  return containments;
+}
+
+function directHeapValueReceiver(
+  expr: Expr,
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): string | undefined {
+  const unwrapped = unwrapSingletonSpecExpr(expr);
+  const type = TYPES.typeFor(unwrapped);
+  if (!type.isArrayType() && !type.isStructType()) {
+    return undefined;
+  }
+  if (isVarRef(unwrapped) && !unwrapped.index) {
+    const target = unwrapped.ref?.ref;
+    return target
+      ? resolveHeapAlias(context.getVarName(target), state.heapAliases ?? new Map())
+      : undefined;
+  }
+  if (isThisExpr(unwrapped)) {
+    return state.thisName;
+  }
+  return undefined;
+}
+
+function containmentTargetReceiver(
+  expr: Expr,
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): string | undefined {
+  const target = unwrapSingletonSpecExpr(expr);
+  if (isVarRef(target)) {
+    const declaration = target.ref?.ref;
+    if (declaration && isStructAttDeclaration(declaration)) {
+      return state.thisName;
+    }
+    if (declaration && target.index) {
+      return resolveHeapAlias(context.getVarName(declaration), state.heapAliases ?? new Map());
+    }
+  }
+  if (isAttSelection(target)) {
+    return directHeapValueReceiver(target.receiver, context, state);
+  }
+  return undefined;
 }
 
 function resolveHeapAlias(receiver: string, aliases: ReadonlyMap<string, string>): string {
@@ -994,13 +1074,34 @@ function generateFunctionContracts(
     requiredReceivers,
     collectAnnotationHeapReceivers(ensures, context, state)
   );
-  const heapAliases = collectContractHeapAliases(requires, requiredReceivers, context, state);
+  const heapAliases = new Map(collectContractHeapAliases(requires, requiredReceivers, context, state));
+  const returnedReceiver = collectDirectReturnedHeapReceiver(fn, context, state);
+  if (returnedReceiver) {
+    heapAliases.set('result', resolveHeapAlias(returnedReceiver, heapAliases));
+  }
 
   return [
     generateStatefulContractLine('requires', requires, requiredReceivers, fn, context, indent, state, heapAliases),
     generateStatefulContractLine('ensures', ensures, ensuredReceivers, fn, context, indent, state, heapAliases),
     ...terminates.map(annotation => sourceMapped(annotation, `${indent}//@ terminates;`, state))
   ];
+}
+
+function collectDirectReturnedHeapReceiver(
+  fn: FunctionDeclaration,
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): string | undefined {
+  const returns = [...AstUtils.streamAllContents(fn.body)].filter(isReturnStmt);
+  if (returns.length === 0) {
+    return undefined;
+  }
+  const receivers = returns.map(ret => ret.retExpr
+    ? directContractReceiver(ret.retExpr, context, state)
+    : undefined
+  );
+  const first = receivers[0];
+  return first && receivers.every(receiver => receiver === first) ? first : undefined;
 }
 
 function collectAutomaticFunctionHeapReceivers(
@@ -1029,7 +1130,7 @@ function generateStatefulContractLine(
   state: CGeneratorState,
   aliases: ReadonlyMap<string, string> = new Map()
 ): string {
-  const heapStates = createSpecHeapStates(receivers, kind, aliases);
+  const heapStates = createSpecHeapStates(receivers, kind, aliases, context, state);
   const specState = { ...state, specHeapStates: heapStates };
   const chunks = uniqueHeapStates(heapStates).map(heapStatePredicate);
   const conditions = annotations
@@ -1122,7 +1223,8 @@ function collectExprHeapReceivers(
     }
     receivers.push({
       kind,
-      receiver: genSpecExpr(node.args[0], context, { ...state, specHeapStates: undefined })
+      receiver: genSpecExpr(node.args[0], context, { ...state, specHeapStates: undefined }),
+      expression: node.args[0]
     });
   }
   return mergeHeapReceivers(receivers);
@@ -1151,19 +1253,29 @@ function mergeHeapReceivers(
 function createSpecHeapStates(
   receivers: Array<Omit<SpecHeapState, 'stateName'>>,
   phase: string,
-  aliases: ReadonlyMap<string, string> = new Map()
+  aliases: ReadonlyMap<string, string> = new Map(),
+  context?: Pseudo2GeneratorContext,
+  generatorState: CGeneratorState = DEFAULT_STATE
 ): ReadonlyMap<string, SpecHeapState> {
   const canonical = mergeHeapReceivers(receivers.map(receiver => ({
     ...receiver,
     receiver: resolveHeapAlias(receiver.receiver, aliases)
   })));
   const states = new Map<string, SpecHeapState>();
-  canonical.forEach((receiver, index) => {
+  canonical
+    .sort((left, right) => expressionComplexity(left.expression) - expressionComplexity(right.expression))
+    .forEach((receiver, index) => {
+    const fallbackReceiver = receiver.receiver;
+    const resolvedReceiver = receiver.expression && context
+      ? genSpecExpr(receiver.expression, context, { ...generatorState, specHeapStates: states })
+      : fallbackReceiver;
     const heapState: SpecHeapState = {
       ...receiver,
+      receiver: resolvedReceiver,
       stateName: `__ps2_${receiver.kind}_${phase}_${index}`
     };
-    states.set(heapStateKey(receiver.kind, receiver.receiver), heapState);
+    states.set(heapStateKey(receiver.kind, resolvedReceiver), heapState);
+    states.set(heapStateKey(receiver.kind, fallbackReceiver), heapState);
   });
   for (const receiver of receivers) {
     const canonicalReceiver = resolveHeapAlias(receiver.receiver, aliases);
@@ -1173,6 +1285,10 @@ function createSpecHeapStates(
     }
   }
   return states;
+}
+
+function expressionComplexity(expr: Expr | undefined): number {
+  return expr ? 1 + [...AstUtils.streamAllContents(expr)].length : 0;
 }
 
 function uniqueHeapStates(states: ReadonlyMap<string, SpecHeapState>): SpecHeapState[] {
@@ -1318,8 +1434,10 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
 
     const indexName = context.getAnonymousVarName('__arrInit');
     const lengthName = context.getAnonymousVarName('__arrLength');
+    const initializerName = context.getAnonymousVarName('__arrValue');
     const stateName = '__ps2_array_loop_0';
     return [
+      `${indent}Ps2Value* ${initializerName} = ps2_copy_value(${initExpr});`,
       `${indent}${prefix}${name} = ps2_array_create(ps2_as_int(${sizeExpr}));`,
       `${indent}int ${lengthName} = ps2_array_length(${name});`,
       `${indent}for (int ${indexName} = 0; ${indexName} < ${lengthName}; ${indexName}++)`,
@@ -1328,11 +1446,15 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
         context,
         indent,
         state,
-        [`0 <= ${indexName} && ${indexName} <= ${lengthName} && ${lengthName} == length(${stateName})`],
+        [
+          `0 <= ${indexName} && ${indexName} <= ${lengthName} && ${lengthName} == length(${stateName})`,
+          `take(${indexName}, ${stateName}) == ps2_repeat_value(nat_of_int(${indexName}), ${initializerName})`
+        ],
         [{ kind: 'array', receiver: name }]
       ),
       `${indent}{`,
-      `${indent}  ps2_array_set_zero_based(${name}, ${indexName}, ${initExpr});`,
+      `${indent}  ps2_array_set_zero_based(${name}, ${indexName}, ${initializerName});`,
+      `${indent}  //@ ps2_repeat_update_prefix(${stateName}, ${indexName}, ${initializerName});`,
       `${indent}}`
     ].join('\n');
   }
@@ -1343,10 +1465,44 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
 
 function generateAssignment(assign: Assignment, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   const materialized = materializeHeapReads(assign.value, context, indent, state);
+  const target = materializeAssignmentTarget(assign.sel as Expr, materialized.value, context, indent, state);
   return [
     ...materialized.prelude,
-    `${indent}${genAssignmentTarget(assign.sel as Expr, materialized.value, context, state)};`
+    ...target.prelude,
+    `${indent}${target.statement};`
   ].join('\n');
+}
+
+function materializeAssignmentTarget(
+  target: Expr,
+  value: string,
+  context: Pseudo2GeneratorContext,
+  indent: string,
+  state: CGeneratorState
+): { prelude: string[]; statement: string } {
+  if (isAttSelection(target) && target.attref.index) {
+    const declaration = target.attref.ref?.ref;
+    const fieldName = declaration ? context.getVarName(declaration) : '/* unresolved */';
+    const fieldId = declaration ? context.getStructFieldId(declaration) : -1;
+    const fieldTemp = context.getAnonymousVarName('__heapField');
+    return {
+      prelude: [`${indent}Ps2Value* ${fieldTemp} = ${genStructGet(genExpr(target.receiver, context, state), fieldName, fieldId)};`],
+      statement: genArraySet(fieldTemp, target.attref.index, value, context, state)
+    };
+  }
+
+  if (isVarRef(target) && target.index) {
+    const declaration = target.ref?.ref;
+    if (declaration && isStructAttDeclaration(declaration)) {
+      const fieldTemp = context.getAnonymousVarName('__heapField');
+      return {
+        prelude: [`${indent}Ps2Value* ${fieldTemp} = ${genStructGet(state.thisName, context.getVarName(declaration), context.getStructFieldId(declaration))};`],
+        statement: genArraySet(fieldTemp, target.index, value, context, state)
+      };
+    }
+  }
+
+  return { prelude: [], statement: genAssignmentTarget(target, value, context, state) };
 }
 
 function materializeHeapReads(
@@ -1366,7 +1522,8 @@ function materializeHeapReads(
     }
     const tempName = context.getAnonymousVarName('__heapRead');
     const readState = { ...state, expressionTemps };
-    prelude.push(`${indent}Ps2Value* ${tempName} = ${genExpr(read, context, readState)};`);
+    const readExpression = materializeHeapReadExpression(read, context, indent, readState, prelude);
+    prelude.push(`${indent}Ps2Value* ${tempName} = ${readExpression};`);
     expressionTemps.set(read, tempName);
   }
 
@@ -1376,19 +1533,49 @@ function materializeHeapReads(
   };
 }
 
+function materializeHeapReadExpression(
+  read: Expr,
+  context: Pseudo2GeneratorContext,
+  indent: string,
+  state: CGeneratorState,
+  prelude: string[]
+): string {
+  if (isAttSelection(read) && read.attref.index) {
+    const declaration = read.attref.ref?.ref;
+    const fieldName = declaration ? context.getVarName(declaration) : '/* unresolved */';
+    const fieldId = declaration ? context.getStructFieldId(declaration) : -1;
+    const fieldTemp = context.getAnonymousVarName('__heapField');
+    prelude.push(`${indent}Ps2Value* ${fieldTemp} = ${genStructGet(genExpr(read.receiver, context, state), fieldName, fieldId)};`);
+    return genArrayGet(fieldTemp, read.attref.index, context, state);
+  }
+
+  if (isVarRef(read) && read.index) {
+    const declaration = read.ref?.ref;
+    if (declaration && isStructAttDeclaration(declaration)) {
+      const fieldTemp = context.getAnonymousVarName('__heapField');
+      prelude.push(`${indent}Ps2Value* ${fieldTemp} = ${genStructGet(state.thisName, context.getVarName(declaration), context.getStructFieldId(declaration))};`);
+      return genArrayGet(fieldTemp, read.index, context, state);
+    }
+  }
+
+  return genExpr(read, context, state);
+}
+
 function generateReturnStatement(ret: ReturnStmt, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   const leaks = generateOwnedHeapLeaks(ret.retExpr, context, indent, state);
   if (!ret.retExpr) {
     return [...leaks, `${indent}return ps2_null();`].join('\n');
   }
 
-  const returnExpr = `ps2_copy_value(${genExpr(ret.retExpr, context, state)})`;
+  const materialized = materializeHeapReads(ret.retExpr, context, indent, state);
+  const returnExpr = `ps2_copy_value(${materialized.value})`;
   if (leaks.length === 0) {
-    return `${indent}return ${returnExpr};`;
+    return [...materialized.prelude, `${indent}return ${returnExpr};`].join('\n');
   }
 
   const resultName = context.getAnonymousVarName('__return');
   return [
+    ...materialized.prelude,
     `${indent}Ps2Value* ${resultName} = ${returnExpr};`,
     ...leaks,
     `${indent}return ${resultName};`
@@ -1412,12 +1599,37 @@ function generateHeapLeaks(
   state: CGeneratorState
 ): string[] {
   const returned = returnedExpr ? directSpecReceiver(returnedExpr, context, state) : undefined;
+  const heapReceivers = new Set(heaps.map(heap => heap.receiver));
   return heaps
-    .filter(heap => heap.receiver !== returned)
+    .filter(heap => {
+      if (returned && isHeapContainedBy(heap.receiver, returned, state)) {
+        return false;
+      }
+      const parent = state.heapContainments?.get(heap.receiver);
+      return returned !== undefined || !parent || heapReceivers.has(parent);
+    })
     .map(heap => {
       const predicate = heap.kind === 'array' ? 'ps2_array_state' : 'ps2_struct_state';
       return `${indent}//@ leak ${predicate}(${heap.receiver}, _);`;
     });
+}
+
+function isHeapContainedBy(receiver: string, container: string, state: CGeneratorState): boolean {
+  let current = resolveHeapAlias(receiver, state.heapAliases ?? new Map());
+  const target = resolveHeapAlias(container, state.heapAliases ?? new Map());
+  const visited = new Set<string>();
+  while (!visited.has(current)) {
+    if (current === target) {
+      return true;
+    }
+    visited.add(current);
+    const parent = state.heapContainments?.get(current);
+    if (!parent) {
+      return false;
+    }
+    current = resolveHeapAlias(parent, state.heapAliases ?? new Map());
+  }
+  return false;
 }
 
 function directSpecReceiver(expr: Expr, context: Pseudo2GeneratorContext, state: CGeneratorState): string | undefined {
@@ -1454,7 +1666,7 @@ function generateVerificationStatement(
   state = DEFAULT_STATE
 ): string {
   const receivers = collectExprHeapReceivers(statement.condition, context, state);
-  const heapStates = createSpecHeapStates(receivers, 'assert');
+  const heapStates = createSpecHeapStates(receivers, 'assert', new Map(), context, state);
   const spec = genSpecExpr(statement.condition, context, { ...state, specHeapStates: heapStates });
   const heapChunks = [...heapStates.values()].map(heapStatePredicate);
   const statefulSpec = [...heapChunks, spec].join(' &*& ');
@@ -1614,9 +1826,9 @@ function genSpecPredicate(expr: SpecPredicateExpr, context: Pseudo2GeneratorCont
     case 'vf_integer':
       return genSpecInteger(expr, context, state);
     case 'vf_array':
-      return `(ps2_model_array(${genSingleSpecArg(expr, context, state)}) == true)`;
+      return genSpecHeapKind(expr, context, state, 'array');
     case 'vf_struct':
-      return `(ps2_model_struct(${genSingleSpecArg(expr, context, state)}) == true)`;
+      return genSpecHeapKind(expr, context, state, 'struct');
     case 'vf_len':
       return genSpecArrayLength(expr, context, state);
     case 'vf_int':
@@ -1646,6 +1858,18 @@ function genSpecPredicate(expr: SpecPredicateExpr, context: Pseudo2GeneratorCont
     default:
       throw new Error(`Unsupported VeriFast spec helper: ${expr.kind}`);
   }
+}
+
+function genSpecHeapKind(
+  expr: SpecPredicateExpr,
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState,
+  kind: HeapKind
+): string {
+  const value = genSingleSpecArg(expr, context, state);
+  const modelKind = kind === 'array' ? 'ps2_array_kind' : 'ps2_struct_kind';
+  const modelPredicate = kind === 'array' ? 'ps2_model_array' : 'ps2_model_struct';
+  return `((ps2_model_kind(${value}) == ${modelKind}) && (${modelPredicate}(${value}) == true))`;
 }
 
 function genSpecSame(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
@@ -1942,7 +2166,7 @@ function generateLoopInvariants(
     additionalHeapReceivers,
     invariantAnnotations.flatMap(annotation => collectExprHeapReceivers(annotation.condition, context, state))
   );
-  const heapStates = createSpecHeapStates(heapReceivers, 'loop');
+  const heapStates = createSpecHeapStates(heapReceivers, 'loop', new Map(), context, state);
   const specState = { ...state, specHeapStates: heapStates };
   const generatedInvariant = state.topLevel && state.globalNames.length > 0
     ? state.globalNames.map(name => `${name} |-> _`).join(' &*& ')
@@ -2079,6 +2303,28 @@ fixpoint bool ps2_model_integral(Ps2Value* value);
 fixpoint real ps2_model_real_divide(real left, real right);
 fixpoint Ps2Value* ps2_model_array_item(Ps2Value* value, int index);
 fixpoint Ps2Value* ps2_model_struct_field(Ps2Value* value, int field);
+fixpoint list<Ps2Value*> ps2_repeat_value(nat count, Ps2Value* value) {
+    switch (count) {
+        case zero: return nil;
+        case succ(rest): return cons(value, ps2_repeat_value(rest, value));
+    }
+}
+lemma void ps2_repeat_update_prefix(list<Ps2Value*> items, int index, Ps2Value* value)
+    requires 0 <= index &*& index < length(items) &*& take(index, items) == ps2_repeat_value(nat_of_int(index), value);
+    ensures take(index + 1, update(index, value, items)) == ps2_repeat_value(nat_of_int(index + 1), value);
+{
+    switch (items) {
+        case nil:
+        case cons(head, tail):
+            if (index > 0) {
+                succ_int(index - 1);
+                assert head == value;
+                assert take(index - 1, tail) == ps2_repeat_value(nat_of_int(index - 1), value);
+                ps2_repeat_update_prefix(tail, index - 1, value);
+            }
+            succ_int(index);
+    }
+}
 predicate ps2_array_state(Ps2Value* value; list<Ps2Value*> items);
 predicate ps2_struct_builder_state(Ps2Struct* value; int capacity, list<pair<int, Ps2Value*> > fields);
 predicate ps2_struct_state(Ps2Value* value; list<pair<int, Ps2Value*> > fields);
@@ -2158,7 +2404,7 @@ void ps2_array_set_zero_based(Ps2Value* array_value, int index, Ps2Value* value)
 
 Ps2Value* ps2_array_get(Ps2Value* array_value, Ps2Value* source_index);
     //@ requires ps2_array_state(array_value, ?items) &*& 1 <= ps2_model_int(source_index) &*& ps2_model_int(source_index) <= length(items);
-    //@ ensures ps2_array_state(array_value, items) &*& result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_model_kind(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_integral(result) == ps2_model_integral(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_int(result) == ps2_model_int(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_real(result) == ps2_model_real(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_bool(result) == ps2_model_bool(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_string(result) == ps2_model_string(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_string_content(result) == ps2_model_string_content(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_null(result) == ps2_model_null(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_undefined(result) == ps2_model_undefined(nth(ps2_model_int(source_index) - 1, items));
+    //@ ensures ps2_array_state(array_value, items) &*& result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_model_kind(nth(ps2_model_int(source_index) - 1, items)) &*& (ps2_model_kind(result) == ps2_array_kind || ps2_model_kind(result) == ps2_struct_kind ? result == nth(ps2_model_int(source_index) - 1, items) : true) &*& ps2_model_integral(result) == ps2_model_integral(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_int(result) == ps2_model_int(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_real(result) == ps2_model_real(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_bool(result) == ps2_model_bool(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_string(result) == ps2_model_string(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_string_content(result) == ps2_model_string_content(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_null(result) == ps2_model_null(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_undefined(result) == ps2_model_undefined(nth(ps2_model_int(source_index) - 1, items));
 
 void ps2_array_set(Ps2Value* array_value, Ps2Value* source_index, Ps2Value* value);
     //@ requires ps2_array_state(array_value, ?items) &*& 1 <= ps2_model_int(source_index) &*& ps2_model_int(source_index) <= length(items);
@@ -2190,7 +2436,7 @@ void ps2_struct_set(Ps2Value* value, const char* field, Ps2Value* new_value);
 
 Ps2Value* ps2_struct_get_model(Ps2Value* value, const char* field, int field_id);
     //@ requires ps2_struct_state(value, ?fields);
-    //@ ensures ps2_struct_state(value, fields) &*& result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_model_kind(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_integral(result) == ps2_model_integral(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_int(result) == ps2_model_int(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_real(result) == ps2_model_real(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_bool(result) == ps2_model_bool(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_string(result) == ps2_model_string(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_string_content(result) == ps2_model_string_content(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_null(result) == ps2_model_null(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_undefined(result) == ps2_model_undefined(ps2_struct_field_lookup(field_id, fields));
+    //@ ensures ps2_struct_state(value, fields) &*& result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_model_kind(ps2_struct_field_lookup(field_id, fields)) &*& (ps2_model_kind(result) == ps2_array_kind || ps2_model_kind(result) == ps2_struct_kind ? result == ps2_struct_field_lookup(field_id, fields) : true) &*& ps2_model_integral(result) == ps2_model_integral(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_int(result) == ps2_model_int(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_real(result) == ps2_model_real(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_bool(result) == ps2_model_bool(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_string(result) == ps2_model_string(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_string_content(result) == ps2_model_string_content(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_null(result) == ps2_model_null(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_undefined(result) == ps2_model_undefined(ps2_struct_field_lookup(field_id, fields));
 
 void ps2_struct_set_model(Ps2Value* value, const char* field, int field_id, Ps2Value* new_value);
     //@ requires ps2_struct_state(value, ?fields);

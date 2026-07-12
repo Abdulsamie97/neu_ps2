@@ -94,10 +94,12 @@ matching invalid examples. `vf_same(A, B)` in a precondition makes two formal
 heap parameters share one ownership state, allowing calls such as `f(A, A)`.
 
 `runtime/c/pseudo2_heap_runtime.c` verifies the concrete array and Struct memory
-representation, including pointer arrays and field mutation. Run it with:
+representation, including pointer arrays, field mutation, owned-child
+replacement and container deallocation. Run both concrete runtime kernels with:
 
 ```powershell
 node .\packages\cli\bin\cli.js verifast .\runtime\c\pseudo2_heap_runtime.c
+node .\packages\cli\bin\cli.js verifast .\runtime\c\pseudo2_scalar_runtime.c
 ```
 
 Nested container ownership is supported through separate transferred chunks.
@@ -106,7 +108,13 @@ including nested reads, writes and contracts such as
 `vf_elem(vf_field(buffer, "values"), 2)`. The flat representation also permits
 cyclic Struct references without recursively expanding predicates.
 
-Replacing an already owned heap child with another heap object still requires
-explicit handling of the old child ownership. Arrays of arrays remain rejected
-by the Pseudo2 validator. Scalar runtime code for strings, floating-point
-values, I/O and deallocation also remains behind trusted abstract contracts.
+Replacing an already owned heap child is tracked per container slot. The C
+generator consumes the old array/Struct state after its last known slot is
+overwritten. Arrays of arrays remain rejected by the Pseudo2 validator.
+
+`runtime/c/pseudo2_scalar_runtime.c` independently verifies scalar allocation
+and copying, owned strings and content equality, stored `double` values through
+VeriFast's floating-point model, standard I/O wrappers and complete scalar
+deallocation. Generated programs still use modular abstract runtime contracts;
+the concrete kernels verify the corresponding memory implementations
+separately.

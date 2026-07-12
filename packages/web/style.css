@@ -123,7 +123,9 @@ button:disabled {
 }
 
 .editor-pane,
-.output-pane {
+.result-pane,
+.output-pane,
+.graph-pane {
     min-height: 0;
 }
 
@@ -132,13 +134,129 @@ button:disabled {
     grid-template-rows: auto minmax(0, 1fr);
 }
 
-.output-pane {
+.result-pane {
     border-left: 1px solid #303036;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.result-tabs {
+    align-items: center;
+    border-bottom: 1px solid #303036;
+    display: flex;
+    flex: 0 0 45px;
+    gap: 4px;
+    padding: 6px 12px;
+}
+
+.result-tab {
+    background: transparent;
+    border-color: transparent;
+    border-radius: 4px;
+    color: #a7a7a7;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.result-tab.is-active {
+    background-color: #333337;
+    border-color: #4b4b52;
+    color: #ffffff;
+}
+
+.result-view {
+    flex: 1;
+}
+
+.output-pane {
     display: flex;
     flex-direction: column;
     gap: 12px;
     overflow: auto;
     padding: 12px;
+}
+
+.graph-pane {
+    display: grid;
+    grid-template-rows: auto auto minmax(220px, 1fr) auto;
+    overflow: hidden;
+    padding: 12px;
+}
+
+.graph-pane[hidden],
+.output-pane[hidden] {
+    display: none;
+}
+
+.graph-toolbar {
+    align-items: center;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.graph-toolbar label {
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.graph-toolbar select {
+    background-color: #252526;
+    border: 1px solid #4b4b52;
+    border-radius: 4px;
+    color: #f2f2f2;
+    font: inherit;
+    min-height: 32px;
+    min-width: 0;
+    padding: 5px 8px;
+}
+
+.graph-status {
+    color: #b8b8b8;
+    font-size: 12px;
+    min-height: 30px;
+    padding: 9px 0 6px;
+}
+
+.graph-status.is-error {
+    color: #f48771;
+}
+
+.graph-canvas {
+    align-items: flex-start;
+    background-color: #f7f7f7;
+    border: 1px solid #45454b;
+    border-radius: 6px;
+    display: flex;
+    justify-content: flex-start;
+    min-height: 220px;
+    overflow: auto;
+    padding: 16px;
+}
+
+.graph-canvas:empty::before {
+    color: #555555;
+    content: "Select Graphs to generate diagrams.";
+    font-size: 13px;
+}
+
+.graph-canvas svg {
+    display: block;
+    flex: 0 0 auto;
+    height: auto;
+    min-width: 100%;
+}
+
+.dot-source {
+    margin-top: 10px;
+}
+
+#graph-dot-source {
+    max-height: 180px;
 }
 
 .pane-header {
@@ -270,10 +388,14 @@ a:visited {
         overflow: visible;
     }
 
-    .output-pane {
+    .result-pane {
         border-left: 0;
         border-top: 1px solid #303036;
         max-height: none;
+    }
+
+    .graph-pane {
+        min-height: 65vh;
     }
 
     #monaco-editor-root {

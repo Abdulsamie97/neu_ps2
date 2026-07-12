@@ -19,11 +19,14 @@ import { EmptyFileSystem, URI } from 'langium';
 import {
     createPseudo2Services,
     generateCProgramWithSourceMap,
+    generateGraphvizArtifacts,
     generateProgram,
     getSummaryFromCode,
     type CSourceMapEntry,
+    type GeneratedArtifact,
     type Program
 } from 'pseudo2-language'; //TBC
+import { instance, type Viz } from '@viz-js/viz';
 
 
 let editorApp: EditorApp | undefined;
@@ -32,6 +35,8 @@ let executionDocCounter = 0;
 let executionServices: ReturnType<typeof createPseudo2Services> | undefined;
 let lastGeneratedCCode = '';
 let lastGeneratedCSourceMap: CSourceMapEntry[] = [];
+let graphArtifacts: GeneratedArtifact[] = [];
+let vizPromise: Promise<Viz> | undefined;
 let keywordDecorationDisposable: monaco.IDisposable | undefined;
 
 type SaveFilePicker = (options: {
@@ -239,6 +244,127 @@ const updateCGeneration = async () => {
         await verifyLastGeneratedCCode();
     }
 };
+
+const showResultView = async (view: 'output' | 'graphs') => {
+    const outputView = document.querySelector<HTMLElement>('#output-view');
+    const graphView = document.querySelector<HTMLElement>('#graph-view');
+    const outputButton = document.querySelector<HTMLButtonElement>('#button-view-output');
+    const graphButton = document.querySelector<HTMLButtonElement>('#button-view-graphs');
+    const showGraphs = view === 'graphs';
+
+    if (outputView) outputView.hidden = showGraphs;
+    if (graphView) graphView.hidden = !showGraphs;
+    setActiveResultTab(outputButton, !showGraphs);
+    setActiveResultTab(graphButton, showGraphs);
+
+    if (showGraphs && graphArtifacts.length === 0) {
+        await updateGraphvizArtifacts();
+    }
+};
+
+function setActiveResultTab(button: HTMLButtonElement | null, active: boolean): void {
+    button?.classList.toggle('is-active', active);
+    button?.setAttribute('aria-selected', String(active));
+}
+
+const updateGraphvizArtifacts = async () => {
+    setGraphStatus('Generating graphs...');
+    clearRenderedGraph();
+
+    if (!editorApp?.getEditor()) {
+        setGraphStatus('Start the editor before generating graphs.', true);
+        return;
+    }
+
+    const currentCode = getCurrentCode();
+    if (currentCode.trim().length === 0) {
+        setGraphStatus('No Pseudo2 code to analyze.', true);
+        return;
+    }
+
+    try {
+        const { program, errors } = await parsePseudo2(currentCode);
+        if (errors.length > 0 || !program) {
+            graphArtifacts = [];
+            updateGraphSelect();
+            setGraphStatus(`Validation failed:\n${errors.join('\n')}`, true);
+            return;
+        }
+
+        graphArtifacts = generateGraphvizArtifacts(program);
+        updateGraphSelect();
+        if (graphArtifacts.length === 0) {
+            setGraphStatus('No graphs are available for this program.');
+            return;
+        }
+        await renderSelectedGraph();
+    } catch (error) {
+        graphArtifacts = [];
+        updateGraphSelect();
+        setGraphStatus(`Graph generation failed: ${formatError(error)}`, true);
+    }
+};
+
+function updateGraphSelect(): void {
+    const select = document.querySelector<HTMLSelectElement>('#graph-select');
+    if (!select) return;
+
+    const previous = select.value;
+    select.replaceChildren(...graphArtifacts.map(artifact => {
+        const option = document.createElement('option');
+        option.value = artifact.fileName;
+        option.textContent = graphArtifactLabel(artifact.fileName);
+        return option;
+    }));
+    select.disabled = graphArtifacts.length === 0;
+    if (graphArtifacts.some(artifact => artifact.fileName === previous)) {
+        select.value = previous;
+    }
+}
+
+function graphArtifactLabel(fileName: string): string {
+    if (fileName === 'graphvizAST.dot') return 'Abstract Syntax Tree (AST)';
+    if (fileName === 'graphvizDep.dot') return 'Dependency graph';
+    const cfg = fileName.match(/^graphvizCfg_(.+)\.dot$/);
+    return cfg ? `Control Flow Graph: ${cfg[1]}` : fileName;
+}
+
+const renderSelectedGraph = async () => {
+    const select = document.querySelector<HTMLSelectElement>('#graph-select');
+    const artifact = graphArtifacts.find(candidate => candidate.fileName === select?.value) ?? graphArtifacts[0];
+    if (!artifact) {
+        clearRenderedGraph();
+        return;
+    }
+
+    setGraphStatus(`Rendering ${graphArtifactLabel(artifact.fileName)}...`);
+    setTextContent('#graph-dot-source', artifact.code);
+    try {
+        vizPromise ??= instance();
+        const viz = await vizPromise;
+        const svg = viz.renderSVGElement(artifact.code, { engine: 'dot' });
+        svg.removeAttribute('width');
+        svg.removeAttribute('height');
+        const canvas = document.querySelector<HTMLElement>('#graph-canvas');
+        canvas?.replaceChildren(svg);
+        setGraphStatus(`${graphArtifactLabel(artifact.fileName)} rendered.`);
+    } catch (error) {
+        clearRenderedGraph(false);
+        setGraphStatus(`Graph rendering failed: ${formatError(error)}`, true);
+    }
+};
+
+function clearRenderedGraph(clearDot = true): void {
+    document.querySelector('#graph-canvas')?.replaceChildren();
+    if (clearDot) setTextContent('#graph-dot-source', '');
+}
+
+function setGraphStatus(message: string, error = false): void {
+    const status = document.querySelector<HTMLElement>('#graph-status');
+    if (!status) return;
+    status.textContent = message;
+    status.classList.toggle('is-error', error);
+}
 
 const generateCCodeFromEditor = async (): Promise<boolean> => {
     setTextContent('#cspan', 'Generating C...');
@@ -752,6 +878,10 @@ export const runDsl = async () => {
         document.querySelector('#button-generate-c')?.addEventListener('click', updateCGeneration);
         document.querySelector('#button-save-c')?.addEventListener('click', saveCurrentCCode);
         document.querySelector('#button-run-verifast')?.addEventListener('click', runVeriFastFromWeb);
+        document.querySelector('#button-view-output')?.addEventListener('click', () => void showResultView('output'));
+        document.querySelector('#button-view-graphs')?.addEventListener('click', () => void showResultView('graphs'));
+        document.querySelector('#button-generate-graphs')?.addEventListener('click', () => void updateGraphvizArtifacts());
+        document.querySelector('#graph-select')?.addEventListener('change', () => void renderSelectedGraph());
         setTextContent('#verifastspan', '');
 
     } catch (e) {

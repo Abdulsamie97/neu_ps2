@@ -25,7 +25,7 @@ verwendet bewusst den repo-lokalen VeriFast.
 
 - `packages/language`: Grammatik, AST, Scoping, Validator, Typing und alle Generator-Kernfunktionen.
 - `packages/cli`: Kommandozeilenwerkzeug fuer JS-, Pretty-Pseudo2-, Graphviz-, C-Generierung und VeriFast.
-- `packages/web`: Monaco/Langium-Weboberflaeche mit JS-Ausfuehrung, C-Ausgabe und VeriFast-Button.
+- `packages/web`: Monaco/Langium-Weboberflaeche mit JS-Ausfuehrung, C-Ausgabe, VeriFast und gerenderten Graphviz-Graphen.
 - `packages/extension`: VS-Code-Erweiterung.
 - `examples`: Pseudo2-Beispielprogramme.
 - `out`: uebliches Zielverzeichnis fuer generierte Ausgaben.
@@ -391,12 +391,26 @@ Beispiel `vf_elem(vf_field(buffer, "values"), 2)` oder
 `vf_field(vf_elem(cells, 1), "value")`. Da die Chunks flach gekoppelt werden,
 bleiben auch erlaubte zyklische Struct-Referenzen endlich modellierbar.
 
-Aktuelle Grenze: Wird ein bereits besetztes Heap-Feld durch ein anderes
-Heapobjekt ersetzt, muss die Ownership des alten Child-Objekts derzeit noch
-explizit behandelt werden. Arrays von Arrays bleiben entsprechend der
-Pseudo2-Sprachvalidierung unzulaessig. Die vollstaendige skalare C-Runtime fuer
-Strings, Gleitkommazahlen, Ausgabe und Speicherfreigabe bleibt weiterhin die
-vertrauenswuerdige Vertragsgrenze.
+Beim Ersetzen eines bereits besetzten Child-Slots verfolgt der C-Generator die
+vorherige Belegung. Sobald das alte Child keinen weiteren bekannten
+Container-Slot mehr besitzt, materialisiert der Generator den alten Wert und
+konsumiert automatisch dessen `ps2_array_state`- oder `ps2_struct_state`-Chunk.
+Das gilt fuer Struct-Felder und statisch verfolgbare Arrayelemente; mehrere
+Slots fuer dasselbe Child werden beruecksichtigt. Arrays von Arrays bleiben
+entsprechend der Pseudo2-Sprachvalidierung unzulaessig.
+
+Die konkreten Runtime-Kernel liegen getrennt vom Generator unter `runtime/c`:
+
+- `pseudo2_heap_runtime.c` verifiziert Array-/Struct-Speicher, Mutation,
+  Child-Ersetzung und Freigabe der Containerdaten.
+- `pseudo2_scalar_runtime.c` verifiziert skalare Werte, Stringkopien und
+  Stringgleichheit, den gespeicherten `double`-Wert ueber `fp_of_double`,
+  Ein-/Ausgabewrapper sowie die vollstaendige Freigabe der skalaren Objekte.
+
+Der generierte Programmcode verwendet weiterhin abstrakte Runtime-Vertraege,
+damit Pseudo2-Vertraege modular bewiesen werden koennen. Die beiden konkreten
+Kernel pruefen unabhaengig davon, dass die zugrunde liegenden C-Speicherideen
+implementierbar und speichersicher sind.
 
 Wichtig: `@decreases` ist in Pseudo2 aktuell eine Loop-Annotation. Fuer
 C-Funktionen verwendet VeriFast `terminates`; deshalb gibt es dafuer die
@@ -538,11 +552,12 @@ Struct-Felder werden ueber `ps2_array_state(...)`, `ps2_struct_state(...)`,
 `nth(...)` und `ps2_struct_field_lookup(...)` an den jeweils aktuellen
 Heapzustand gebunden.
 
-Die konkrete Heap-Runtime kann unabhaengig vom generierten Programm geprueft
-werden:
+Die konkreten Runtime-Kernel koennen unabhaengig vom generierten Programm
+geprueft werden:
 
 ```powershell
 node .\packages\cli\bin\cli.js verifast .\runtime\c\pseudo2_heap_runtime.c
+node .\packages\cli\bin\cli.js verifast .\runtime\c\pseudo2_scalar_runtime.c
 ```
 
 ## Weboberflaeche starten
@@ -590,6 +605,17 @@ Der Server nutzt den repo-lokalen Standardpfad:
 6. `Verify C` sendet den zuletzt erzeugten C-Code erneut an `/api/verifast` und zeigt das Ergebnis im VeriFast-Fenster.
 7. `Summary` erzeugt eine kurze Strukturuebersicht des Programms.
 8. `Show Source` zeigt den aktuellen Pseudo2-Quelltext im Ausgabefenster.
+9. Mit den Registern `Outputs` und `Graphs` wird zwischen Textausgaben und der
+   visuellen Graphansicht gewechselt.
+10. Beim ersten Oeffnen von `Graphs` oder mit `Refresh` werden alle
+    Graphviz-Artefakte aus dem aktuellen, validierten Editor-AST erzeugt.
+11. Das Auswahlmenue enthaelt den Abstract Syntax Tree, den Dependency-Graph
+    und fuer jede Pseudo2-Funktion einen eigenen Control Flow Graph.
+
+Die Graphen werden lokal mit `@viz-js/viz` als SVG gerendert. Eine separate
+Graphviz-Systeminstallation ist fuer die Webansicht nicht erforderlich. Der
+zugehoerige DOT-Quelltext bleibt unter `DOT Source` einsehbar. Grosse Graphen
+werden innerhalb der Graphflaeche gescrollt.
 
 Wenn VeriFast einen Fehler meldet und das Source-Mapping vorhanden ist, zeigt
 das VeriFast-Fenster die Pseudo2-Zeile statt nur der generierten C-Zeile. Die
@@ -651,6 +677,8 @@ Die aktuelle VeriFast-Beispielgruppe deckt u. a. ab:
 - konstante Array-Initialisierung mit Literal-Werten, z. B. `vf_elem(result, 1)` nach `var A[2] = 7`.
 - Struct-Defaultfelder, z. B. `vf_undefined(vf_field(result, "value"))` nach `return new S`.
 - Array- und Struct-Parameter in Funktionsvertraegen, z. B. `vf_elem(A, i)` und `vf_field(s, "value")`.
+- automatische Ownership-Aufgabe beim Ersetzen besessener Array-/Struct-Childs.
+- konkrete Heap-Freigabe sowie konkrete skalare String-, Gleitkomma-, I/O- und Freigabe-Runtime.
 - bounds-gesicherte Arrayparameter mit `vf_in_bounds(A, i)`.
 - rohe VeriFast-Strings wie `@assert "true"` und `@assert "false"`.
 - Top-Level-Assertions.
@@ -700,6 +728,8 @@ npm run dev
 
 Dann im Browser `http://localhost:20002/pseudo2-workbench` oeffnen
 und die Buttons `Run JavaScript`, `Generate C + Verify` und `Verify C` pruefen.
+Zusaetzlich im Register `Graphs` AST, Dependency-Graph und mindestens einen CFG
+auswaehlen.
 
 ### Nach einer C-/VeriFast-Aenderung
 
@@ -707,6 +737,8 @@ und die Buttons `Run JavaScript`, `Generate C + Verify` und `Verify C` pruefen.
 npm run build
 node .\packages\cli\bin\cli.js generate-c .\examples\verifast_annotations.pseudo2 -d .\out
 node .\packages\cli\bin\cli.js verifast .\out\verifast_annotations.c
+node .\packages\cli\bin\cli.js verifast .\runtime\c\pseudo2_heap_runtime.c
+node .\packages\cli\bin\cli.js verifast .\runtime\c\pseudo2_scalar_runtime.c
 ```
 
 Erwartung fuer das Annotation-Beispiel:

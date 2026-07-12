@@ -34,46 +34,69 @@
           <div id="monaco-editor-root" class="example-editor-root"></div>
         </section>
 
-        <aside class="output-pane">
-          <section class="output-section output-primary">
-            <div class="pane-header">JavaScript Output</div>
-            <pre id="exespan"></pre>
-          </section>
+        <aside class="result-pane">
+          <div class="result-tabs" role="tablist" aria-label="Result view">
+            <button type="button" id="button-view-output" class="result-tab is-active" role="tab" aria-selected="true" aria-controls="output-view">Outputs</button>
+            <button type="button" id="button-view-graphs" class="result-tab" role="tab" aria-selected="false" aria-controls="graph-view">Graphs</button>
+          </div>
 
-          <section class="output-section">
-            <details open>
-              <summary>Generated JavaScript</summary>
-              <pre id="generatedspan"></pre>
-            </details>
-          </section>
+          <div id="output-view" class="output-pane result-view" role="tabpanel" aria-labelledby="button-view-output">
+            <section class="output-section output-primary">
+              <div class="pane-header">JavaScript Output</div>
+              <pre id="exespan"></pre>
+            </section>
 
-          <section class="output-section">
-            <details open>
-              <summary>Generated C</summary>
-              <pre id="cspan"></pre>
-            </details>
-          </section>
+            <section class="output-section">
+              <details open>
+                <summary>Generated JavaScript</summary>
+                <pre id="generatedspan"></pre>
+              </details>
+            </section>
 
-          <section class="output-section">
-            <details open>
-              <summary>VeriFast</summary>
-              <pre id="verifastspan"></pre>
-            </details>
-          </section>
+            <section class="output-section">
+              <details open>
+                <summary>Generated C</summary>
+                <pre id="cspan"></pre>
+              </details>
+            </section>
 
-          <section class="output-section">
-            <details>
-              <summary>Summary</summary>
-              <pre id="summaryspan"></pre>
-            </details>
-          </section>
+            <section class="output-section">
+              <details open>
+                <summary>VeriFast</summary>
+                <pre id="verifastspan"></pre>
+              </details>
+            </section>
 
-          <section class="output-section">
-            <details>
-              <summary>Source Echo</summary>
-              <pre id="codespan"></pre>
+            <section class="output-section">
+              <details>
+                <summary>Summary</summary>
+                <pre id="summaryspan"></pre>
+              </details>
+            </section>
+
+            <section class="output-section">
+              <details>
+                <summary>Source Echo</summary>
+                <pre id="codespan"></pre>
+              </details>
+            </section>
+          </div>
+
+          <div id="graph-view" class="graph-pane result-view" role="tabpanel" aria-labelledby="button-view-graphs" hidden>
+            <div class="graph-toolbar">
+              <label for="graph-select">Graph</label>
+              <select id="graph-select" disabled>
+                <option>No graphs generated</option>
+              </select>
+              <button type="button" id="button-generate-graphs">Refresh</button>
+            </div>
+            <div id="graph-status" class="graph-status" aria-live="polite"></div>
+            <div id="graph-canvas" class="graph-canvas" aria-label="Rendered Graphviz graph"></div>
+            <details class="dot-source">
+              <summary>DOT Source</summary>
+              <pre id="graph-dot-source"></pre>
             </details>
-          </section>
+          </div>
         </aside>
       </main>
     </div>

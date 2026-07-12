@@ -16,6 +16,7 @@ const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url));
 const examplesRoot = path.join(repoRoot, 'examples', 'verifast');
 const verifastExe = path.join(repoRoot, 'verifast-26.01', 'bin', 'verifast.exe');
 const concreteHeapRuntime = path.join(repoRoot, 'runtime', 'c', 'pseudo2_heap_runtime.c');
+const concreteScalarRuntime = path.join(repoRoot, 'runtime', 'c', 'pseudo2_scalar_runtime.c');
 
 const validExamples = [
   'valid_array_parameter_length.pseudo2',
@@ -50,6 +51,7 @@ const validExamples = [
   'valid_nested_heap_ownership.pseudo2',
   'valid_nested_container_ownership.pseudo2',
   'valid_parameter_alias_ownership.pseudo2',
+  'valid_replaced_child_ownership.pseudo2',
   'valid_raw_specs.pseudo2',
   'valid_result_ensures_non_null.pseudo2',
   'valid_struct_parameter_field.pseudo2',
@@ -96,6 +98,7 @@ const invalidExamples = [
   'invalid_nested_heap_ownership.pseudo2',
   'invalid_nested_container_ownership.pseudo2',
   'invalid_parameter_alias_ownership.pseudo2',
+  'invalid_replaced_child_ownership.pseudo2',
   'invalid_raw_assert_false.pseudo2',
   'invalid_requires_false_call.pseudo2',
   'invalid_result_ensures_null.pseudo2',
@@ -155,12 +158,22 @@ describe('VeriFast source maps', () => {
         `${example} should contain at least one Pseudo2-mapped diagnostic:\n${formatFailure(example, result)}`
       ).toBe(true);
     }
-  }, 120000);
+  }, 240000);
 
   testWithVeriFast('verifies the concrete C array and Struct heap runtime', async () => {
     const result = await runVeriFast({
       verifastExe,
       file: concreteHeapRuntime,
+      compileOnly: true
+    });
+
+    expect(result.ok, formatRuntimeFailure(result)).toBe(true);
+  });
+
+  testWithVeriFast('verifies the concrete C scalar, string, floating-point, I/O and disposal runtime', async () => {
+    const result = await runVeriFast({
+      verifastExe,
+      file: concreteScalarRuntime,
       compileOnly: true
     });
 

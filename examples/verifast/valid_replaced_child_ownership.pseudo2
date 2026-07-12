@@ -1,0 +1,40 @@
+struct Buffer
+  num[] values
+
+@requires true
+@ensures vf_struct(result) && vf_array(vf_field(result, "values")) && vf_len(vf_field(result, "values")) == 1 && vf_int(vf_elem(vf_field(result, "values"), 1)) == 2
+func replaceArrayField()
+  var buffer = new Buffer
+  var first[1] = 1
+  var second[1] = 2
+  buffer.values = first
+  buffer.values = second
+  return buffer
+
+@requires true
+@ensures vf_struct(result) && vf_array(vf_field(result, "values")) && vf_len(vf_field(result, "values")) == 1
+func replaceArrayFieldInLoop()
+  var buffer = new Buffer
+  var first[1] = 1
+  buffer.values = first
+  var i = 0
+  @invariant vf_struct(buffer) && vf_array(vf_field(buffer, "values")) && vf_len(vf_field(buffer, "values")) == 1 && vf_integer(i) && vf_int(i) >= 0 && vf_int(i) <= 1
+  while i < 1
+    var second[1] = 2
+    buffer.values = second
+    i = i + 1
+  return buffer
+
+struct Cell
+  num value
+
+@requires true
+@ensures vf_array(result) && vf_len(result) == 1 && vf_struct(vf_elem(result, 1)) && vf_int(vf_field(vf_elem(result, 1), "value")) == 2
+func replaceStructElement()
+  var first = new Cell
+  first.value = 1
+  var second = new Cell
+  second.value = 2
+  var cells[1] = first
+  cells[1] = second
+  return cells

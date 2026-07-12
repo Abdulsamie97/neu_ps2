@@ -4,6 +4,70 @@ import { generateCProgram, generateCProgramWithSourceMap } from '../../src/c-gen
 import { parseRuntimeProgram } from '../helpers/runtime-test-utils.js';
 
 describe('CGenerator', () => {
+  test('releases replaced child ownership after its last container slot is overwritten', async () => {
+    const c = await generateC(`
+      struct Buffer
+        num[] values
+
+      struct Cell
+        num value
+
+      func replaceChildren()
+        var buffer = new Buffer
+        var first[1] = 1
+        var second[1] = 2
+        buffer.values = first
+        buffer.values = second
+
+        var oldCell = new Cell
+        var newCell = new Cell
+        var cells[1] = oldCell
+        cells[1] = newCell
+        return buffer
+    `);
+
+    expect(c).toMatch(/Ps2Value\* __replacedHeap_\d+ = ps2_struct_get_model\(buffer_\d+, "values_\d+", 0\);\n\s*\/\/@ leak ps2_array_state\(__replacedHeap_\d+, _\);/);
+    expect(c).toMatch(/Ps2Value\* __replacedHeap_\d+ = ps2_array_get\(cells_\d+, ps2_int\(1\)\);\n\s*\/\/@ leak ps2_struct_state\(__replacedHeap_\d+, _\);/);
+  });
+
+  test('does not treat mutually exclusive branch assignments as sequential replacement', async () => {
+    const c = await generateC(`
+      struct Buffer
+        num[] values
+
+      func choose(flag)
+        var buffer = new Buffer
+        var first[1] = 1
+        var second[1] = 2
+        if flag
+          buffer.values = first
+        else
+          buffer.values = second
+        return buffer
+    `);
+
+    expect(c).not.toContain('__replacedHeap');
+  });
+
+  test('guards repeated child replacement inside loops by pointer identity', async () => {
+    const c = await generateC(`
+      struct Buffer
+        num[] values
+
+      func replaceInLoop(flag)
+        var buffer = new Buffer
+        var first[1] = 1
+        var second[1] = 2
+        buffer.values = first
+        while flag
+          buffer.values = second
+          flag = false
+        return buffer
+    `);
+
+    expect(c).toMatch(/if \(__replacedHeap_\d+ != second_\d+\) \{\n\s*\/\/@ leak ps2_array_state\(__replacedHeap_\d+, _\);/);
+  });
+
   test('generates VeriFast-ready C for arrays, functions, structs and methods', async () => {
     const c = await generateC(`
       var A[3] = 0

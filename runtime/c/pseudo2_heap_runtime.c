@@ -74,7 +74,8 @@ predicate ps2_array_state(Ps2Value* value; list<Ps2Value*> items) =
   array->length |-> ?count &*& array->items |-> ?data &*&
   malloc_block_Ps2Array(array) &*&
   malloc_block_pointers((void**)data, count + 1) &*&
-  ps2_items(data, count, items) &*& count == length(items);
+  ps2_items(data, count, items) &*& data[count] |-> _ &*&
+  count == length(items);
 
 predicate ps2_struct_builder_state(
     Ps2Struct* object; int capacity, list<pair<int, Ps2Value*> > fields) =
@@ -103,7 +104,7 @@ predicate ps2_struct_state(
 
 static Ps2Value* ps2_array_create(int length)
   //@ requires 0 <= length &*& length < INT_MAX &*& (length + 1) * sizeof(Ps2Value*) <= INT_MAX;
-  //@ ensures ps2_array_state(result, ?items) &*& length(items) == length;
+  //@ ensures result != 0 &*& ps2_array_state(result, ?items) &*& length(items) == length;
 {
   Ps2Array* array = malloc(sizeof(Ps2Array));
   if (array == 0) abort();
@@ -120,7 +121,7 @@ static Ps2Value* ps2_array_create(int length)
   value->array = array;
   value->object = 0;
   //@ close ps2_items(data, length, _);
-  //@ leak data[length] |-> ?unused;
+  //@ close ps2_array_state(value, _);
   return value;
 }
 
@@ -268,6 +269,92 @@ static void ps2_struct_set_model(
   //@ close ps2_struct_state(value, ps2_struct_field_update(field_id, new_value, fields));
 }
 
+static void ps2_array_dispose(Ps2Value* value)
+  //@ requires ps2_array_state(value, ?items);
+  //@ ensures true;
+{
+  //@ open ps2_array_state(value, items);
+  Ps2Array* array = value->array;
+  Ps2Value** data = array->items;
+  int count = array->length;
+  //@ open ps2_items(data, count, items);
+  //@ pointers_to_pointers_((void**)data);
+  //@ assert pointer_((void**)(data + count), ?sentinel);
+  //@ close pointers_((void**)(data + count), 1, cons(sentinel, nil));
+  //@ pointers__join((void**)data);
+  //@ pointers__to_chars_((void**)data);
+  free(data);
+  free(array);
+  free(value);
+}
+
+/*@
+lemma void ps2_fields_to_arrays(int* ids, Ps2Value** values, int count)
+  requires ps2_fields(ids, values, count, ?fields);
+  ensures ints(ids, count, ?field_ids) &*& pointers((void**)values, count, ?field_values);
+{
+  open ps2_fields(ids, values, count, fields);
+  if (count == 0) {
+    close ints(ids, 0, nil);
+    close pointers((void**)values, 0, nil);
+  } else {
+    assert ids[0] |-> ?field_id;
+    assert values[0] |-> ?field_value;
+    ps2_fields_to_arrays(ids + 1, values + 1, count - 1);
+    assert ints(ids + 1, count - 1, ?field_ids);
+    assert pointers((void**)(values + 1), count - 1, ?field_values);
+    close ints(ids, count, cons(field_id, field_ids));
+    close pointers((void**)values, count, cons(field_value, field_values));
+  }
+}
+@*/
+
+static void ps2_struct_dispose(Ps2Value* value)
+  //@ requires ps2_struct_state(value, ?fields);
+  //@ ensures true;
+{
+  //@ open ps2_struct_state(value, fields);
+  Ps2Struct* object = value->object;
+  int count = object->field_count;
+  int* ids = object->field_ids;
+  Ps2Value** values = object->values;
+  //@ ps2_fields_to_arrays(ids, values, count);
+  //@ ints_to_ints_(ids);
+  //@ assert int_(ids + count, ?sentinel_id);
+  //@ close ints_(ids + count, 1, cons(sentinel_id, nil));
+  //@ ints__join(ids);
+  //@ ints__to_chars_(ids);
+  free(ids);
+  //@ pointers_to_pointers_((void**)values);
+  //@ assert pointer_((void**)(values + count), ?sentinel_value);
+  //@ close pointers_((void**)(values + count), 1, cons(sentinel_value, nil));
+  //@ pointers__join((void**)values);
+  //@ pointers__to_chars_((void**)values);
+  free(values);
+  free(object);
+  free(value);
+}
+
+static void ps2_struct_replace_owned_array(
+    Ps2Value* parent, int field_id, Ps2Value* replacement)
+  /*@ requires
+    ps2_struct_state(parent, ?fields) &*&
+    ps2_struct_field_lookup(field_id, fields) != 0 &*&
+    ps2_struct_field_lookup(field_id, fields) != replacement &*&
+    ps2_array_state(ps2_struct_field_lookup(field_id, fields), ?previous_items) &*&
+    ps2_array_state(replacement, ?replacement_items);
+  @*/
+  /*@ ensures
+    ps2_struct_state(
+      parent, ps2_struct_field_update(field_id, replacement, fields)) &*&
+    ps2_array_state(replacement, replacement_items);
+  @*/
+{
+  Ps2Value* previous = ps2_struct_get_model(parent, field_id);
+  ps2_struct_set_model(parent, field_id, replacement);
+  ps2_array_dispose(previous);
+}
+
 int main(void)
   //@ requires true;
   //@ ensures true;
@@ -293,9 +380,25 @@ int main(void)
   item = ps2_struct_get_model(object, 20);
   //@ assert item == first;
 
-  //@ leak ps2_array_state(array, _);
-  //@ leak ps2_struct_state(object, _);
-  //@ leak first->kind |-> _ &*& first->array |-> _ &*& first->object |-> _ &*& malloc_block_Ps2Value(first);
-  //@ leak second->kind |-> _ &*& second->array |-> _ &*& second->object |-> _ &*& malloc_block_Ps2Value(second);
+  Ps2Value* old_child = ps2_array_create(1);
+  Ps2Value* new_child = ps2_array_create(1);
+  //@ open ps2_array_state(old_child, ?old_items);
+  //@ open ps2_array_state(new_child, ?new_items);
+  //@ assert old_child != new_child;
+  //@ close ps2_array_state(old_child, old_items);
+  //@ close ps2_array_state(new_child, new_items);
+  Ps2Struct* parent_builder = ps2_struct_create(1);
+  ps2_struct_define(parent_builder, 0, 30, old_child);
+  Ps2Value* parent = ps2_struct_value(parent_builder);
+  ps2_struct_replace_owned_array(parent, 30, new_child);
+  item = ps2_struct_get_model(parent, 30);
+  //@ assert item == new_child;
+
+  ps2_array_dispose(array);
+  ps2_struct_dispose(object);
+  ps2_struct_dispose(parent);
+  ps2_array_dispose(new_child);
+  free(first);
+  free(second);
   return 0;
 }

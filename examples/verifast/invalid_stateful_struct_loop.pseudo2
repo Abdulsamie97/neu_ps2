@@ -1,0 +1,15 @@
+struct Counter
+  num value
+
+@requires true
+@ensures vf_struct(result) && vf_int(vf_field(result, "value")) == 4
+func countStruct()
+  var counter = new Counter
+  counter.value = 0
+  var i = 0
+  @invariant vf_struct(counter) && vf_integer(vf_field(counter, "value")) && vf_int(vf_field(counter, "value")) == vf_int(i) && vf_integer(i) && vf_int(i) >= 0 && vf_int(i) <= 3
+  while i < 3
+    counter.value = counter.value + 1
+    i = i + 1
+
+  return counter

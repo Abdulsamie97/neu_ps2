@@ -1,4 +1,4 @@
-@requires vf_array(A) && vf_int(vf_elem(A, 1)) == 7
+@requires vf_array(A) && vf_in_bounds(A, 1) && vf_int(vf_elem(A, 1)) == 7
 @ensures vf_int(result) == 7
 func first(A[1..n])
   return A[1]

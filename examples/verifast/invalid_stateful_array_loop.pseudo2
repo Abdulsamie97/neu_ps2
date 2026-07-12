@@ -1,0 +1,11 @@
+@requires true
+@ensures vf_array(result) && vf_int(vf_elem(result, 1)) == 4
+func countArray()
+  var A[1] = 0
+  var i = 0
+  @invariant vf_array(A) && vf_len(A) == 1 && vf_integer(vf_elem(A, 1)) && vf_int(vf_elem(A, 1)) == vf_int(i) && vf_integer(i) && vf_int(i) >= 0 && vf_int(i) <= 3
+  while i < 3
+    A[1] = A[1] + 1
+    i = i + 1
+
+  return A

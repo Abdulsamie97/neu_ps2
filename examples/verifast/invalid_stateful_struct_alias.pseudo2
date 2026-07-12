@@ -1,0 +1,9 @@
+struct Box
+  num value
+
+func mutateAlias()
+  var box = new Box
+  var alias = box
+  alias.value = 7
+  @assert vf_struct(box) && vf_int(vf_field(box, "value")) == 8
+  return box

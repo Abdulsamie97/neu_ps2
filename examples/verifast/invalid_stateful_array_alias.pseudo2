@@ -1,0 +1,6 @@
+func mutateAlias()
+  var A[1] = 0
+  var B = A
+  B[1] = 7
+  @assert vf_array(A) && vf_int(vf_elem(A, 1)) == 8
+  return A

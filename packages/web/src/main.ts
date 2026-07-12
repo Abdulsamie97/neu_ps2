@@ -526,6 +526,7 @@ function installPseudo2KeywordDecorations(editor: monaco.editor.IStandaloneCodeE
         'vf_number',
         'vf_real',
         'vf_ratio',
+        'vf_same',
         'vf_string',
         'vf_truthy',
         'vf_struct',

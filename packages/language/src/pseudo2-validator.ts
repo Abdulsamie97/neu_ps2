@@ -1505,7 +1505,7 @@ export class Pseudo2Validator {
     }
 
     const actualArity = (node.args ?? []).length;
-    const expectedArity = node.kind === 'vf_elem' || node.kind === 'vf_field' || node.kind === 'vf_in_bounds' || node.kind === 'vf_ratio' ? 2 : 1;
+    const expectedArity = node.kind === 'vf_elem' || node.kind === 'vf_field' || node.kind === 'vf_in_bounds' || node.kind === 'vf_ratio' || node.kind === 'vf_same' ? 2 : 1;
     const validArity = node.kind === 'vf_string'
       ? actualArity === 1 || actualArity === 2
       : actualArity === expectedArity;

@@ -1,0 +1,32 @@
+struct Cell
+  num value
+
+@requires true
+@ensures vf_int(result) == 7
+func nestedArrayValue()
+  if true
+    var A[1] = 0
+    var alias = A
+    alias[1] = 7
+    return A[1]
+
+@requires true
+@ensures vf_int(result) == 9
+func nestedStructValue()
+  if true
+    var cell = new Cell
+    var alias = cell
+    alias.value = 9
+    return cell.value
+
+@requires true
+@ensures vf_int(result) == 2
+func loopLocalHeap()
+  var i = 0
+  @invariant vf_integer(i) && vf_int(i) >= 0 && vf_int(i) <= 2
+  while i < 2
+    var temporary[1] = 0
+    temporary[1] = i
+    @assert vf_array(temporary) && vf_int(vf_elem(temporary, 1)) == vf_int(i)
+    i = i + 1
+  return i

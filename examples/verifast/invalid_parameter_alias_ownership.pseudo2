@@ -1,0 +1,11 @@
+@requires vf_same(A, B) && vf_array(A) && vf_array(B) && vf_in_bounds(A, 1)
+@ensures vf_int(result) == 8
+func writeArrayAlias(A[1..n], B[1..m])
+  B[1] = 7
+  return A[1]
+
+@requires true
+@ensures vf_int(result) == 8
+func callArrayAlias()
+  var A[1] = 0
+  return writeArrayAlias(A, A)

@@ -15,6 +15,7 @@ import {
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url));
 const examplesRoot = path.join(repoRoot, 'examples', 'verifast');
 const verifastExe = path.join(repoRoot, 'verifast-26.01', 'bin', 'verifast.exe');
+const concreteHeapRuntime = path.join(repoRoot, 'runtime', 'c', 'pseudo2_heap_runtime.c');
 
 const validExamples = [
   'valid_array_parameter_length.pseudo2',
@@ -46,10 +47,16 @@ const validExamples = [
   'valid_model_value_int.pseudo2',
   'valid_model_truthy.pseudo2',
   'valid_multiple_asserts.pseudo2',
+  'valid_nested_heap_ownership.pseudo2',
+  'valid_parameter_alias_ownership.pseudo2',
   'valid_raw_specs.pseudo2',
   'valid_result_ensures_non_null.pseudo2',
   'valid_struct_parameter_field.pseudo2',
   'valid_struct_method.pseudo2',
+  'valid_stateful_array_loop.pseudo2',
+  'valid_stateful_array_alias.pseudo2',
+  'valid_stateful_struct_loop.pseudo2',
+  'valid_stateful_struct_alias.pseudo2',
   'valid_terminates_and_assume.pseudo2',
   'valid_top_level_assert.pseudo2'
 ];
@@ -85,10 +92,16 @@ const invalidExamples = [
   'invalid_model_string_concat.pseudo2',
   'invalid_model_struct_default_field.pseudo2',
   'invalid_model_struct_field.pseudo2',
+  'invalid_nested_heap_ownership.pseudo2',
+  'invalid_parameter_alias_ownership.pseudo2',
   'invalid_raw_assert_false.pseudo2',
   'invalid_requires_false_call.pseudo2',
   'invalid_result_ensures_null.pseudo2',
   'invalid_struct_parameter_field.pseudo2',
+  'invalid_stateful_array_loop.pseudo2',
+  'invalid_stateful_array_alias.pseudo2',
+  'invalid_stateful_struct_loop.pseudo2',
+  'invalid_stateful_struct_alias.pseudo2',
   'invalid_top_level_assert_false.pseudo2'
 ];
 
@@ -141,6 +154,16 @@ describe('VeriFast source maps', () => {
       ).toBe(true);
     }
   }, 120000);
+
+  testWithVeriFast('verifies the concrete C array and Struct heap runtime', async () => {
+    const result = await runVeriFast({
+      verifastExe,
+      file: concreteHeapRuntime,
+      compileOnly: true
+    });
+
+    expect(result.ok, formatRuntimeFailure(result)).toBe(true);
+  });
 });
 
 async function generateAndVerify(example: string, destination: string): Promise<VeriFastResult> {
@@ -165,6 +188,15 @@ function generatedBaseName(fileName: string): string {
 function formatFailure(example: string, result: VeriFastResult): string {
   return [
     `${example}: exit ${result.exitCode}`,
+    result.stdout.trim(),
+    result.stderr.trim(),
+    JSON.stringify(result.errors, null, 2)
+  ].filter(Boolean).join('\n');
+}
+
+function formatRuntimeFailure(result: VeriFastResult): string {
+  return [
+    `concrete heap runtime: exit ${result.exitCode}`,
     result.stdout.trim(),
     result.stderr.trim(),
     JSON.stringify(result.errors, null, 2)

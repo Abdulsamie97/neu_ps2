@@ -1,0 +1,26 @@
+@requires vf_same(A, B) && vf_array(A) && vf_array(B) && vf_in_bounds(A, 1)
+@ensures vf_int(result) == 7 && vf_int(vf_elem(A, 1)) == 7 && vf_int(vf_elem(B, 1)) == 7
+func writeArrayAlias(A[1..n], B[1..m])
+  B[1] = 7
+  return A[1]
+
+@requires true
+@ensures vf_int(result) == 7
+func callArrayAlias()
+  var A[1] = 0
+  return writeArrayAlias(A, A)
+
+struct Box
+  num value
+
+@requires vf_same(left, right) && vf_struct(left) && vf_struct(right)
+@ensures vf_int(result) == 9 && vf_int(vf_field(left, "value")) == 9 && vf_int(vf_field(right, "value")) == 9
+func writeStructAlias(left, right)
+  right.value = 9
+  return left.value
+
+@requires true
+@ensures vf_int(result) == 9
+func callStructAlias()
+  var box = new Box
+  return writeStructAlias(box, box)

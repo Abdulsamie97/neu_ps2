@@ -345,6 +345,7 @@ Unterstuetzte Pseudo2-Annotationen:
   - `vf_elem(array, index)` liefert das abstrakte Pseudo2-Arrayelement an der 1-basierten Pseudo2-Position `index`. Das funktioniert fuer Array-Zuweisungen, fuer Array-Literale wie `[1, 2]` und fuer konstante Array-Deklarationen mit einfachen Literal-Initializern wie `var A[2] = 7`.
   - `vf_in_bounds(array, index)` bedeutet: `index` liegt innerhalb der 1-basierten Pseudo2-Arraygrenzen von `array`.
   - `vf_field(struct, "fieldName")` liefert den abstrakten Pseudo2-Struct-Feldwert. Der Feldname ist der Pseudo2-Quellname; der C-Generator uebersetzt ihn intern auf den eindeutigen generierten Feldnamen.
+  - `vf_same(left, right)` bedeutet: Beide Ausdruecke bezeichnen dasselbe Array- oder Struct-Objekt. In `@requires` bindet dies mehrere formale Heap-Parameter an denselben Ownership-Zustand und ermoeglicht damit beispielsweise einen Aufruf `f(A, A)`.
 
 Einfache Pseudo2-Ausdruecke wie `true`, `false`, Zahlen, Variablen und einfache
 Operatoren werden direkt in VeriFast-Spec-Ausdruecke uebersetzt.
@@ -366,12 +367,28 @@ internen Invarianten, sodass `vf_integer`, `vf_int` und `vf_real` ueber die
 Iteration erhalten bleiben. Der Schleifeniterator ist sowohl in
 `@invariant` als auch in Beweisanweisungen im Schleifenrumpf sichtbar.
 
-Grenze des aktuellen Modells: `vf_elem` und `vf_field` sind noch abstrakte,
-reine Modellprojektionen. Einzelne Erzeugungen, Lesezugriffe und Zuweisungen
-sind damit abgedeckt. Praezise Invarianten ueber mehrfach veraenderte Arrays
-oder Structs, insbesondere bei Aliasen, benoetigen dagegen ein
-zustandsbehaftetes Besitzmodell. Solche Invarianten sollten bis zu dieser
-Umstellung nicht als vollstaendige Heap-Verifikation interpretiert werden.
+Arrays und Structs besitzen im generierten VeriFast-Modell jetzt explizite
+Zustandspraedikate. `ps2_array_state` traegt die aktuelle Elementliste,
+`ps2_struct_state` die aktuellen Feldwerte. Array- und Struct-Zuweisungen
+erzeugen jeweils den Folgezustand; Lesezugriffe, Funktionsvertraege,
+`@assert` und Schleifeninvarianten verwenden denselben Zustand. Dadurch lassen
+sich wiederholte Mutationen in Schleifen sowie lokale Aliase beweisen. Wenn
+beispielsweise `B = A` gilt und `B[1]` veraendert wird, beschreibt eine
+anschliessende Aussage ueber `vf_elem(A, 1)` denselben Arrayzustand.
+
+Direkt besessene Arrays und Structs werden auch in verschachtelten `if`-,
+Schleifen- und Block-Sichtbarkeiten verfolgt. Lokale Aliase und mit `vf_same`
+deklarierte Parameter-Aliase teilen denselben Zustand. Die konkrete
+Heap-Realisierung unter `runtime/c/pseudo2_heap_runtime.c` verifiziert reale
+C-Felder, Pointer-Arrays, Arrayzugriffe, Struct-Aufbau und Feldmutationen gegen
+dieselben Zustandsideen.
+
+Aktuelle Grenze: Tiefes Ownership innerhalb eines Containers, etwa Structs als
+Arrayelemente oder Arrays als Struct-Feldwerte, wird als gespeicherter Pointer
+modelliert, aber noch nicht rekursiv mit dem Containerbesitz gekoppelt. Die
+konkrete Heap-Runtime ist verifiziert; die vollstaendige skalare C-Runtime fuer
+Strings, Gleitkommazahlen, Ausgabe und Speicherfreigabe bleibt weiterhin die
+vertrauenswuerdige Vertragsgrenze.
 
 Wichtig: `@decreases` ist in Pseudo2 aktuell eine Loop-Annotation. Fuer
 C-Funktionen verwendet VeriFast `terminates`; deshalb gibt es dafuer die
@@ -476,13 +493,40 @@ func getAt(A[1..n], i)
 @ensures vf_int(result) == 7
 func readValue(s)
   return s.value
+
+@requires vf_same(A, B) && vf_array(A) && vf_array(B) && vf_in_bounds(A, 1)
+@ensures vf_int(vf_elem(A, 1)) == 7 && vf_int(vf_elem(B, 1)) == 7
+func writeAlias(A[1..n], B[1..m])
+  B[1] = 7
+  return A[1]
+
+@requires true
+@ensures vf_array(result) && vf_int(vf_elem(result, 1)) == 3
+func countArray()
+  var A[1] = 0
+  var i = 0
+  @invariant vf_array(A) && vf_integer(vf_elem(A, 1)) && vf_int(vf_elem(A, 1)) == vf_int(i) && vf_integer(i) && vf_int(i) >= 0 && vf_int(i) <= 3
+  while i < 3
+    A[1] = A[1] + 1
+    i = i + 1
+  return A
 ```
 
 Diese `vf_*`-Helfer sind absichtlich nur in VeriFast-Annotationen erlaubt.
 Ausserhalb davon meldet der Validator einen Fehler. Intern bildet der C-Generator
-sie auf abstrakte VeriFast-Fixpoints wie `ps2_model_array(...)`,
-`ps2_model_array_item(...)`, `ps2_model_struct_field(...)` und
-`ps2_model_array_length(...)` ab.
+Wertarten und Skalare auf abstrakte VeriFast-Fixpoints wie
+`ps2_model_array(...)`, `ps2_model_int(...)` und
+`ps2_model_string_content(...)` ab. Veraenderliche Arrayelemente und
+Struct-Felder werden ueber `ps2_array_state(...)`, `ps2_struct_state(...)`,
+`nth(...)` und `ps2_struct_field_lookup(...)` an den jeweils aktuellen
+Heapzustand gebunden.
+
+Die konkrete Heap-Runtime kann unabhaengig vom generierten Programm geprueft
+werden:
+
+```powershell
+node .\packages\cli\bin\cli.js verifast .\runtime\c\pseudo2_heap_runtime.c
+```
 
 ## Weboberflaeche starten
 
@@ -579,7 +623,7 @@ Die aktuelle VeriFast-Beispielgruppe deckt u. a. ab:
 - Funktions-Terminierung mit `@terminates`.
 - `result` in `@ensures`.
 - Ghost-/Proof-Statements wie `@assume`, `@open`, `@close` und `@leak`.
-- strukturierte Modellhelfer `vf_value`, `vf_number`, `vf_integer`, `vf_array`, `vf_struct`, `vf_len`, `vf_int`, `vf_real`, `vf_ratio`, `vf_bool`, `vf_truthy`, `vf_string`, `vf_null`, `vf_undefined`, `vf_elem`, `vf_in_bounds` und `vf_field`.
+- strukturierte Modellhelfer `vf_value`, `vf_number`, `vf_integer`, `vf_array`, `vf_struct`, `vf_len`, `vf_int`, `vf_real`, `vf_ratio`, `vf_bool`, `vf_truthy`, `vf_string`, `vf_null`, `vf_undefined`, `vf_elem`, `vf_in_bounds`, `vf_field` und `vf_same`.
 - rationale Zahlenbeziehungen und nicht ganzzahlige Division ueber `vf_real`.
 - praezise Arithmetik fuer `+`, `-`, `*`, `/`, `mod` und `^`, auch mit symbolischen Funktionsparametern.
 - praezise Vergleiche und Gleichheit fuer Zahlen, Booleans, Strings, Null-/Undefined-Werte sowie Identitaetsgleichheit im Runtime-Modell.

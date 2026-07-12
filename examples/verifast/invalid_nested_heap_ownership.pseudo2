@@ -1,0 +1,8 @@
+@requires true
+@ensures vf_int(result) == 8
+func nestedArrayValue()
+  if true
+    var A[1] = 0
+    var alias = A
+    alias[1] = 7
+    return A[1]

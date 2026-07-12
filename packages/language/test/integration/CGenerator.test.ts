@@ -33,7 +33,8 @@ describe('CGenerator', () => {
     expect(c).toContain('//@ requires true;');
     expect(c).toContain('ps2_array_set(A_0, ps2_int(1), ps2_int(4));');
     expect(c).toContain('s_5 = ps2_copy_value(create_S_0());');
-    expect(c).toContain('ps2_struct_set_model(s_5, "value_3", 0, func_add_0(ps2_array_get(A_0, ps2_int(1)), ps2_int(1)));');
+    expect(c).toMatch(/Ps2Value\* __heapRead_\d+ = ps2_array_get\(A_0, ps2_int\(1\)\);/);
+    expect(c).toMatch(/ps2_struct_set_model\(s_5, "value_3", 0, func_add_0\(__heapRead_\d+, ps2_int\(1\)\)\);/);
     expect(c).toContain('ps2_print(func_inc_1(s_5, ps2_int(2)));');
   });
 
@@ -259,10 +260,13 @@ describe('CGenerator', () => {
     expect(c).toContain('fixpoint int ps2_model_int(Ps2Value* value);');
     expect(c).toContain('fixpoint Ps2Value* ps2_model_array_item(Ps2Value* value, int index);');
     expect(c).toContain('fixpoint Ps2Value* ps2_model_struct_field(Ps2Value* value, int field);');
+    expect(c).toContain('predicate ps2_array_state(Ps2Value* value; list<Ps2Value*> items);');
+    expect(c).toContain('predicate ps2_struct_builder_state(Ps2Struct* value; int capacity, list<pair<int, Ps2Value*> > fields);');
+    expect(c).toContain('predicate ps2_struct_state(Ps2Value* value; list<pair<int, Ps2Value*> > fields);');
     expect(c).toContain('Ps2Value* ps2_array_literal_2(Ps2Value* item_0, Ps2Value* item_1);');
-    expect(c).toContain('ps2_model_array_item(result, 1) == item_0 &*& ps2_model_array_item(result, 2) == item_1');
+    expect(c).toContain('ps2_array_state(result, cons(item_0, cons(item_1, nil)))');
     expect(c).toContain('Ps2Value* ps2_array_filled_2(Ps2Value* item);');
-    expect(c).toContain('ps2_model_array_item(result, 1) == item &*& ps2_model_array_item(result, 2) == item');
+    expect(c).toContain('ps2_array_state(result, cons(item, cons(item, nil)))');
     expect(c).toContain('return ps2_copy_value(ps2_array_literal_2(ps2_int(1), ps2_int(2)));');
     expect(c).toContain('ps2_array_filled_2(ps2_int(7));');
     expect(c).toContain('//@ ensures ((ps2_model_value(result) == true) && (ps2_model_int(result) == 7));');
@@ -272,15 +276,19 @@ describe('CGenerator', () => {
     expect(c).toContain('ps2_model_string_content(result) == ps2_model_string_content(value)');
     expect(c).toContain('ps2_model_string_content(result) == cons(104, cons(105, nil))');
     expect(c).toContain('//@ ensures (ps2_model_null(result) == true);');
-    expect(c).toContain('//@ ensures ((ps2_model_array(result) == true) && (ps2_model_array_length(result) == 2) && (ps2_model_int(ps2_model_array_item(result, 2)) == 2));');
-    expect(c).toContain('//@ requires ((ps2_model_array(A_0) == true) && ((1 <= ps2_model_int(i_2)) && (ps2_model_int(i_2) <= ps2_model_array_length(A_0))) && (ps2_model_int(ps2_model_array_item(A_0, ps2_model_int(i_2))) == 7));');
-    expect(c).toContain('//@ ensures ((ps2_model_array(result) == true) && (ps2_model_int(ps2_model_array_item(result, 1)) == 7));');
-    expect(c).toContain('//@ ensures ((ps2_model_array(result) == true) && (ps2_model_int(ps2_model_array_item(result, 1)) == 7) && (ps2_model_int(ps2_model_array_item(result, 2)) == 7));');
-    expect(c).toContain('//@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_struct_kind &*& ps2_model_struct(result) == true &*& ps2_model_undefined(ps2_model_struct_field(result, 0)) == true;');
-    expect(c).toContain('//@ assume(ps2_model_undefined(ps2_model_struct_field(__ps2_value, 0)) == true);');
-    expect(c).toContain('//@ ensures ((ps2_model_struct(result) == true) && (ps2_model_undefined(ps2_model_struct_field(result, 0)) == true));');
-    expect(c).toContain('//@ ensures ((ps2_model_struct(result) == true) && (ps2_model_int(ps2_model_struct_field(result, 0)) == 7));');
-    expect(c).toContain('//@ requires ((ps2_model_struct(s_7) == true) && (ps2_model_int(ps2_model_struct_field(s_7, 0)) == 7));');
+    expect(c).toContain('length(__ps2_array_ensures_0) == 2');
+    expect(c).toContain('ps2_model_int(nth(2 - 1, __ps2_array_ensures_0)) == 2');
+    expect(c).toContain('ps2_array_state(A_0, ?__ps2_array_requires_0)');
+    expect(c).toContain('ps2_model_int(nth(ps2_model_int(i_2) - 1, __ps2_array_requires_0)) == 7');
+    expect(c).toContain('ps2_model_int(nth(1 - 1, __ps2_array_ensures_0)) == 7');
+    expect(c).toContain('ps2_model_int(nth(2 - 1, __ps2_array_ensures_0)) == 7');
+    expect(c).toContain('ps2_struct_state(result, ?__ps2_factory_fields)');
+    expect(c).toContain('ps2_model_undefined(ps2_struct_field_lookup(0, __ps2_factory_fields)) == true');
+    expect(c).not.toContain('//@ assume(ps2_model_undefined(ps2_model_struct_field(__ps2_value, 0)) == true);');
+    expect(c).toContain('ps2_model_undefined(ps2_struct_field_lookup(0, __ps2_struct_ensures_0)) == true');
+    expect(c).toContain('ps2_model_int(ps2_struct_field_lookup(0, __ps2_struct_ensures_0)) == 7');
+    expect(c).toContain('ps2_struct_state(s_7, ?__ps2_struct_requires_0)');
+    expect(c).toContain('ps2_model_int(ps2_struct_field_lookup(0, __ps2_struct_requires_0)) == 7');
   });
 
   test('emits precise arithmetic, comparison, equality and truthiness contracts', async () => {
@@ -341,9 +349,9 @@ describe('CGenerator', () => {
         return s
     `);
 
-    expect(c).toContain('ps2_struct_define(__ps2_obj, 0, "value_0", ps2_undefined());');
-    expect(c).toContain('ps2_struct_define(__ps2_obj, 0, "value_1", ps2_undefined());');
-    expect(c).toContain('//@ ensures ((ps2_model_struct(result) == true) && (ps2_model_int(ps2_model_struct_field(result, 1)) == 7));');
+    expect(c).toContain('ps2_struct_define(__ps2_obj, 0, 0, "value_0", ps2_undefined());');
+    expect(c).toContain('ps2_struct_define(__ps2_obj, 0, 1, "value_1", ps2_undefined());');
+    expect(c).toContain('ps2_model_int(ps2_struct_field_lookup(1, __ps2_struct_ensures_0)) == 7');
   });
 
   test('maps loop decreases annotations to Pseudo2 lines', async () => {

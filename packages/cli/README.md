@@ -60,7 +60,8 @@ Structured model helpers are available inside annotations: `vf_value(x)`, `vf_nu
 `vf_array(x)`, `vf_struct(x)`, `vf_len(x)`, `vf_int(x)`,
 `vf_real(x)`, `vf_ratio(a, b)`, `vf_bool(x)`, `vf_truthy(x)`, `vf_string(x)`, `vf_string(x, "text")`, `vf_null(x)`, `vf_undefined(x)`,
 `vf_elem(array, index)`, `vf_in_bounds(array, index)` and
-`vf_field(struct, "fieldName")`. They are translated to abstract VeriFast model
+`vf_field(struct, "fieldName")`, plus `vf_same(left, right)` for explicit
+array/Struct parameter aliasing. They are translated to abstract VeriFast model
 fixpoints in generated C. The two-argument `vf_string` form proves exact string
 content using a collision-free sequence of Unicode code points. `vf_elem` is supported for array assignments, array
 literals such as `[1, 2]`, and constant array declarations with simple literal
@@ -84,7 +85,21 @@ The denominator of `vf_ratio` must be a non-zero integer literal. Generated
 `for` loops preserve their end and step models in internal invariants, so the
 iterator can be constrained with `vf_integer`, `vf_int` and `vf_real`.
 
-Mutable array and Struct state is currently represented by abstract pure model
-projections. Precise loop invariants over repeated heap mutations and aliases
-still require the planned stateful ownership model and are not yet a complete
-verification of the concrete C heap runtime.
+Mutable arrays and Structs use explicit VeriFast ownership predicates.
+`ps2_array_state` carries the current element list and `ps2_struct_state`
+carries the current field map through reads, writes, function contracts,
+assertions and loop invariants. Repeated mutations and local aliases are covered
+by the `valid_stateful_*`, `valid_nested_*`, `valid_parameter_alias_*` and
+matching invalid examples. `vf_same(A, B)` in a precondition makes two formal
+heap parameters share one ownership state, allowing calls such as `f(A, A)`.
+
+`runtime/c/pseudo2_heap_runtime.c` verifies the concrete array and Struct memory
+representation, including pointer arrays and field mutation. Run it with:
+
+```powershell
+node .\packages\cli\bin\cli.js verifast .\runtime\c\pseudo2_heap_runtime.c
+```
+
+The remaining ownership limit is recursive ownership for heap values nested
+inside containers. Scalar runtime code for strings, floating-point values, I/O
+and deallocation also remains behind trusted abstract contracts.

@@ -8,11 +8,18 @@ export class Pseudo2Type {
   // array type over what is specified in 'name'
   isArray = false;
 
+  // Number of array wrappers. isArray is kept for compatibility with existing callers.
+  arrayDepth = 0;
+
   isStruct = false;
 
   static create(init?: Partial<Pseudo2Type>): Pseudo2Type {
     const t = new Pseudo2Type();
     Object.assign(t, init ?? {});
+    if (init?.arrayDepth === undefined && init?.isArray === true) {
+      t.arrayDepth = 1;
+    }
+    t.isArray = t.arrayDepth > 0;
     return t;
   }
 
@@ -20,21 +27,24 @@ export class Pseudo2Type {
     return Pseudo2Type.create({
       name: this.name,
       isArray: this.isArray,
+      arrayDepth: this.arrayDepth,
       isStruct: this.isStruct
     });
   }
 
-  /** Returns array-type for this (no nested arrays prevented here; validator may do it) */
+  /** Returns one additional array wrapper around this type. */
   asArrayType(): Pseudo2Type {
     const r = this.clone();
+    r.arrayDepth++;
     r.isArray = true;
     return r;
   }
 
-  /** Returns base-type for this (assumes array, but does not check) */
+  /** Removes one array wrapper, if present. */
   asBaseType(): Pseudo2Type {
     const r = this.clone();
-    r.isArray = false;
+    r.arrayDepth = Math.max(0, r.arrayDepth - 1);
+    r.isArray = r.arrayDepth > 0;
     return r;
   }
 
@@ -51,18 +61,18 @@ export class Pseudo2Type {
   }
 
   isSameAs(t: Pseudo2Type): boolean {
-    return this.isArray === t.isArray && this.isStruct === t.isStruct && this.name === t.name;
+    return this.arrayDepth === t.arrayDepth && this.isStruct === t.isStruct && this.name === t.name;
   }
 
   isSameAsIgnoringUnknown(t: Pseudo2Type): boolean {
     // Array(UNKNOWN) soll zu jedem Array passen,
     // egal ob Basis num/string/bool oder Struct ist
-    if (this.isArray && t.isArray && (this.name === '' || t.name === '')) {
+    if (this.arrayDepth === t.arrayDepth && this.isArray && (this.name === '' || t.name === '')) {
       return true;
     }
 
     return (
-      this.isArray === t.isArray &&
+      this.arrayDepth === t.arrayDepth &&
       this.isStruct === t.isStruct &&
       (this.name === '' || t.name === '' || this.name === t.name)
     );
@@ -84,10 +94,10 @@ export class Pseudo2Type {
       this.isSameAs(t) ||
       this.isSameAsIgnoringUnknown(t) ||
       (this.isPartiallyUnknown() &&
-        this.isArray === t.isArray &&
+        this.arrayDepth === t.arrayDepth &&
         this.isStruct === t.isStruct) ||
       (t.isPartiallyUnknown() &&
-        this.isArray === t.isArray &&
+        this.arrayDepth === t.arrayDepth &&
         this.isStruct === t.isStruct)
     );
   }
@@ -99,7 +109,7 @@ export class Pseudo2Type {
     let name1 = this.name;
     if (name1 === '') name1 = 'UNKNOWN';
     if (this.isStruct && this.name === '') name1 = 'NULL';
-    if (this.isArray) name1 = `Array(${name1})`;
+    for (let depth = 0; depth < this.arrayDepth; depth++) name1 = `Array(${name1})`;
     return name1;
   }
 }

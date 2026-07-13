@@ -4,6 +4,19 @@ import { generateCProgram, generateCProgramWithSourceMap } from '../../src/c-gen
 import { parseRuntimeProgram } from '../helpers/runtime-test-utils.js';
 
 describe('CGenerator', () => {
+  test('generates chained array reads and writes for nested arrays', async () => {
+    const c = await generateC(`
+      func nested()
+        var matrix = [[1, 2], [3, 4]]
+        matrix[2][1] = 9
+        return matrix[1][2]
+    `);
+
+    expect(c).toMatch(/Ps2Value\* __heapRead_\d+ = ps2_array_get\(matrix_\d+, ps2_int\(2\)\);/);
+    expect(c).toMatch(/ps2_array_set\(__heapRead_\d+, ps2_int\(1\), ps2_int\(9\)\);/);
+    expect(c).toMatch(/ps2_array_get\(__heapRead_\d+, ps2_int\(2\)\)/);
+  });
+
   test('releases replaced child ownership after its last container slot is overwritten', async () => {
     const c = await generateC(`
       struct Buffer

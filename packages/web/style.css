@@ -115,9 +115,14 @@ button:disabled {
 }
 
 .workspace-layout {
+    --editor-pane-width: calc(100% - 437px);
+    --result-pane-width: 430px;
     display: grid;
     flex: 1;
-    grid-template-columns: minmax(0, 1fr) minmax(340px, 430px);
+    grid-template-columns:
+        minmax(320px, var(--editor-pane-width))
+        7px
+        minmax(320px, var(--result-pane-width));
     min-height: 0;
     overflow: hidden;
 }
@@ -132,13 +137,58 @@ button:disabled {
 .editor-pane {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
+    min-width: 0;
+    overflow: hidden;
 }
 
 .result-pane {
-    border-left: 1px solid #303036;
     display: flex;
     flex-direction: column;
     min-width: 0;
+    overflow: hidden;
+}
+
+.workspace-splitter {
+    background-color: #29292d;
+    border-left: 1px solid #34343a;
+    border-right: 1px solid #34343a;
+    cursor: col-resize;
+    min-height: 0;
+    outline: none;
+    position: relative;
+    touch-action: none;
+}
+
+.workspace-splitter::after {
+    background-color: #777780;
+    border-radius: 2px;
+    content: "";
+    height: 44px;
+    left: 50%;
+    opacity: 0.45;
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 2px;
+}
+
+.workspace-splitter:hover,
+.workspace-splitter:focus-visible,
+.workspace-splitter.is-dragging {
+    background-color: #0e639c;
+    border-color: #1177bb;
+}
+
+.workspace-splitter:hover::after,
+.workspace-splitter:focus-visible::after,
+.workspace-splitter.is-dragging::after {
+    background-color: #ffffff;
+    opacity: 0.9;
+}
+
+body.is-resizing-workspace {
+    cursor: col-resize;
+    user-select: none;
 }
 
 .result-tabs {
@@ -283,7 +333,7 @@ button:disabled {
 }
 
 #monaco-editor-root.example-editor-root {
-    height: 80vh;
+    height: 100%;
 }
 
 .pseudo2-keyword-token {
@@ -386,6 +436,10 @@ a:visited {
     .workspace-layout {
         grid-template-columns: 1fr;
         overflow: visible;
+    }
+
+    .workspace-splitter {
+        display: none;
     }
 
     .result-pane {

@@ -23,6 +23,7 @@ import type {
   AttRef,
   MethRef,
   AttSelection,
+  IndexSelection,
   MethSelection,
   ThisExpr,
   Variable,
@@ -55,6 +56,7 @@ import {
   isStructAttDeclaration,
   isVarRef,
   isAttSelection,
+  isIndexSelection,
   isVarDecl,
   isParameterDecl,
   isReturnStmt,
@@ -93,7 +95,6 @@ export const INCOMPATIBLE_TYPES = 'INCOMPATIBLE_TYPES';
 export const INCOMPATIBLE_TYPES_EQ = 'INCOMPATIBLE_TYPES_EQ';
 export const INCOMPATIBLE_TYPES_PLUS = 'INCOMPATIBLE_TYPES_PLUS';
 export const DUPLICATE_ELEMENT = 'DUPLICATE_ELEMENT';
-export const VAR_DECL_NO_NESTED_ARRAY = 'VAR_DECL_NO_NESTED_ARRAY';
 export const DIFFERENT_TYPES_OF_RETURNS = 'DIFFERENT_TYPES_OF_RETURNS';
 export const PRINT_EXPECTS_BASE_TYPE = 'PRINT_EXPECTS_BASE_TYPE';
 export const FUNC_DECL_ONLY_GLOBAL = 'FUNC_DECL_ONLY_GLOBAL';
@@ -101,7 +102,6 @@ export const METH_DECL_ONLY_IN_STRUCT = 'METH_DECL_ONLY_IN_STRUCT';
 export const SELECTION_REQUIRES_METHODCALLS = 'SELECTION_REQUIRES_METHODCALLS';
 export const FUNCTIONCALLS_WO_RETURN_ONLY_AS_INSTRUCTION = 'FUNCTIONCALLS_WO_RETURN_ONLY_AS_INSTRUCTION';
 export const METHODCALLS_WO_RETURN_ONLY_AS_INSTRUCTION = 'METHODCALLS_WO_RETURN_ONLY_AS_INSTRUCTION';
-export const ARRAYLIT_NESTED_ARRAY = 'ARRAYLIT_NESTED_ARRAY';
 export const VAR_DECL_NO_INIT_WITH_EMPTY_ARRAY = 'VAR_DECL_NO_INIT_WITH_EMPTY_ARRAY';
 export const VAR_DECL_NO_INIT_WITH_NULL = 'VAR_DECL_NO_INIT_WITH_NULL';
 export const ASSIGNED_TO_LOOPVAR = 'ASSIGNED_TO_LOOPVAR';
@@ -167,6 +167,7 @@ export function registerValidationChecks(services: Pseudo2Services) {
     AttRef: validator.checkAttRef,
     MethRef: validator.checkMethRef,
     AttSelection: validator.checkAttSelection,
+    IndexSelection: validator.checkIndexSelection,
     MethSelection: validator.checkMethSelection,
     ThisExpr: validator.checkThisExpr,
 
@@ -609,19 +610,7 @@ export class Pseudo2Validator {
       return;
     }
 
-    // 1) Keine verschachtelten Arrays bei "var A[...] = <array>"
-    if (node.initializer) {
-      const initType = this.types.typeFor(node.initializer);
-      if (initType.isArrayType()) {
-        accept('error', 'Initialisierung eines Array-Elements darf kein Array sein.', {
-          node,
-          property: 'initializer',
-          code: VAR_DECL_NO_NESTED_ARRAY
-        });
-      }
-    }
-
-    // 2) Größe/Länge muss num sein
+    // Größe/Länge muss num sein
     const sizeExpr = node.size;
     if (sizeExpr) {
       const sizeType = this.types.typeFor(sizeExpr);
@@ -646,7 +635,7 @@ export class Pseudo2Validator {
 
   checkAssignment(node: Assignment, accept: ValidationAcceptor): void {
     const leftExpr = node.sel as Expr;
-    const validLValue = isVarRef(leftExpr) || isAttSelection(leftExpr);
+    const validLValue = isVarRef(leftExpr) || isAttSelection(leftExpr) || isIndexSelection(leftExpr);
     const left = node.sel as Expr;
 
     // this darf nie links stehen
@@ -1039,18 +1028,6 @@ export class Pseudo2Validator {
       return;
     }
 
-    for (let i = 0; i < elems.length; i++) {
-      const elemType = this.types.typeFor(elems[i]);
-      if (elemType.isArrayType()) {
-        accept('error', 'Array-Literal darf kein anderes Array als Element enthalten.', {
-          node,
-          property: 'elems',
-          index: i,
-          code: ARRAYLIT_NESTED_ARRAY
-        });
-      }
-    }
-
     if (elems.length <= 1) {
       return;
     }
@@ -1143,6 +1120,12 @@ export class Pseudo2Validator {
             code: CONSISTENT_ARRAY_TYPE_OF_PARA
           }
         );
+        continue;
+      }
+
+      // Array parameters do not declare their element type. Their concrete depth and
+      // element type are inferred from call sites and usages inside the function.
+      if (param.isArray) {
         continue;
       }
 
@@ -1482,6 +1465,26 @@ export class Pseudo2Validator {
       accept('error', `Vorzeichen '-' erwartet num, erhalten '${t.asString()}'.`, {
         node,
         property: 'value',
+        code: INCOMPATIBLE_TYPES
+      });
+    }
+  }
+
+  checkIndexSelection(node: IndexSelection, accept: ValidationAcceptor): void {
+    const receiverType = this.types.typeFor(node.receiver);
+    if (!receiverType.isArrayType() && !receiverType.isUnknown()) {
+      accept('error', 'Indexzugriff ist nur auf Array-Typen erlaubt.', {
+        node,
+        property: 'index',
+        code: ARRAY_ACCESS_ON_PLAIN_TYPE
+      });
+    }
+
+    const indexType = this.types.typeFor(node.index);
+    if (!indexType.isSameAs(TYPE_NUM) && !indexType.isUnknown()) {
+      accept('error', 'Der Array-Index muss vom Typ num sein.', {
+        node,
+        property: 'index',
         code: INCOMPATIBLE_TYPES
       });
     }

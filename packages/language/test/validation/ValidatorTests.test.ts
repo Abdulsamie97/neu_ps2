@@ -6,7 +6,6 @@ import { createPseudo2Services } from '../../src/pseudo2-module.js';
 import {
   INCOMPATIBLE_TYPES,
   INCOMPATIBLE_TYPES_EQ,
-  VAR_DECL_NO_NESTED_ARRAY,
   DIFFERENT_TYPES_OF_RETURNS,
   DIFFERENT_KINDS_OF_RETURNS,
   PRINT_EXPECTS_BASE_TYPE,
@@ -898,12 +897,14 @@ describe('ValidatorTests', () => {
   });
 
   test('nestedArrayVarDecl', async () => {
-    // Zusätzlicher Langium-Test: verschachtelte Arrays in Array-Deklaration sind unzulässig.
     const { document } = await parseModel(`
       var A[4] = [44]
+      A[1][1] = 5
+      print A[1][1]
     `);
 
-    assertHasErrorCode(document, VAR_DECL_NO_NESTED_ARRAY);
+    expect(document.parseResult.parserErrors).toHaveLength(0);
+    assertNoErrors(document);
   });
 
   test('printStructArray', async () => {

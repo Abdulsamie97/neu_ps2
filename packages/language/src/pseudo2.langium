@@ -165,7 +165,11 @@ StructAttDeclarationRule returns StructAttDeclaration:
 interface TypeRef {}
 interface NonArrayTypeRef extends TypeRef {}
 
-interface ArrayType extends TypeRef { base: NonArrayTypeRef }
+interface ArrayType extends TypeRef {
+  base: NonArrayTypeRef
+  dimensions: ArrayDimension[]
+}
+interface ArrayDimension {}
 
 interface NumType extends NonArrayTypeRef {}
 interface StringType extends NonArrayTypeRef {}
@@ -178,7 +182,11 @@ TypeRef returns TypeRef:
 ;
 
 ArrayTypeRule returns ArrayType:
-  {ArrayType} base=NonArrayTypeRefRule '[' ']'
+  {ArrayType} base=NonArrayTypeRefRule dimensions+=ArrayDimensionRule+
+;
+
+ArrayDimensionRule returns ArrayDimension:
+  {ArrayDimension} '[' ']'
 ;
 
 NonArrayTypeRefRule returns NonArrayTypeRef:
@@ -343,12 +351,14 @@ MethRefRule returns MethRef:
 // Selection chain node types
 interface AttSelection extends Expr { receiver: Expr attref: AttRef }
 interface MethSelection extends Expr { receiver: Expr methref: MethRef }
+interface IndexSelection extends Expr { receiver: Expr index: Expr }
 
 // Selection starts with VarRef or This, then .att / .meth(...) chain
 Selection returns Expr:
   (VarRefRule | This)
   (
-      ({AttSelection.receiver=current} '.' attref=AttRefRule)
+      ({IndexSelection.receiver=current} '[' index=Expression ']')
+    | ({AttSelection.receiver=current} '.' attref=AttRefRule)
     | ({MethSelection.receiver=current} '.' methref=MethRefRule)
   )*
 ;

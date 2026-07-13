@@ -42,7 +42,10 @@ node .\packages\cli\bin\cli.js verifast .\out\test1.c
 
 `verifast` uses `.\verifast-26.01\bin\verifast.exe` from the repo by default. Override it with `--vf <path>` if needed.
 
-`verifast` uses VeriFast `-c` by default, because generated C relies on external Pseudo2 runtime contracts. Use `--link` only when concrete runtime manifests/implementations are provided.
+`verifast` uses VeriFast `-c` by default. It first verifies the repo-local heap
+and scalar runtime kernels and then the generated client. Use `--no-runtime`
+only for an intentionally isolated client check. Use `--link` only when link
+checking is explicitly required.
 
 Run the positive and negative VeriFast examples:
 
@@ -93,6 +96,11 @@ by the `valid_stateful_*`, `valid_nested_*`, `valid_parameter_alias_*` and
 matching invalid examples. `vf_same(A, B)` in a precondition makes two formal
 heap parameters share one ownership state, allowing calls such as `f(A, A)`.
 
+Arrays may contain arrays. Types preserve every dimension, chained reads and
+writes use `matrix[i][j]`, and contracts use nested helpers such as
+`vf_elem(vf_elem(matrix, i), j)`. Struct fields may declare types such as
+`num[][] matrix`.
+
 `runtime/c/pseudo2_heap_runtime.c` verifies the concrete array and Struct memory
 representation, including pointer arrays, field mutation, owned-child
 replacement and container deallocation. Run both concrete runtime kernels with:
@@ -103,18 +111,18 @@ node .\packages\cli\bin\cli.js verifast .\runtime\c\pseudo2_scalar_runtime.c
 ```
 
 Nested container ownership is supported through separate transferred chunks.
-This covers arrays stored in Struct fields and Struct values stored in arrays,
-including nested reads, writes and contracts such as
-`vf_elem(vf_field(buffer, "values"), 2)`. The flat representation also permits
-cyclic Struct references without recursively expanding predicates.
+This covers arrays stored in Struct fields, Struct values stored in arrays and
+arrays stored in arrays, including chained reads, writes and contracts such as
+`vf_elem(vf_elem(matrix, 2), 1)`. The flat representation also permits cyclic
+Struct references without recursively expanding predicates.
 
 Replacing an already owned heap child is tracked per container slot. The C
 generator consumes the old array/Struct state after its last known slot is
-overwritten. Arrays of arrays remain rejected by the Pseudo2 validator.
+overwritten. The heap kernel verifies owned-child replacement in both Struct
+fields and parent arrays.
 
-`runtime/c/pseudo2_scalar_runtime.c` independently verifies scalar allocation
+`runtime/c/pseudo2_scalar_runtime.c` verifies scalar allocation
 and copying, owned strings and content equality, stored `double` values through
 VeriFast's floating-point model, standard I/O wrappers and complete scalar
-deallocation. Generated programs still use modular abstract runtime contracts;
-the concrete kernels verify the corresponding memory implementations
-separately.
+deallocation. CLI and web verification report success only after the heap
+kernel, scalar kernel and generated client have all passed.

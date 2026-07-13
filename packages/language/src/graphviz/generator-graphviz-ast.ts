@@ -6,7 +6,6 @@ import {
   isBoolLiteral,
   isExpr,
   isFunctionCall,
-  isInstruction,
   isIntLiteral,
   isMethSelection,
   isStringLiteral,
@@ -17,15 +16,8 @@ import {
 } from '../generated/ast.js';
 import { dotAttributes, dotId } from './dot-utils.js';
 
-const MAX_NO_INSTRUCTIONS = 10;
-
 export function generateGraphvizAst(program: Program): string {
   const contents = [...AstUtils.streamAllContents(program)];
-  const instructionCount = contents.filter(isInstruction).length;
-
-  if (instructionCount > MAX_NO_INSTRUCTIONS) {
-    return `digraph G { Number_of_Instructions_has_exceeded_${MAX_NO_INSTRUCTIONS} }`;
-  }
 
   const ids = new Map<AstNode, string>();
   let nextId = 0;

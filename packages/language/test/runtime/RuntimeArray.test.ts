@@ -115,4 +115,22 @@ describe('RuntimeTestsArray', () => {
       printLen(A)
     `, '2 0');
   });
+
+  test('nested arrays support chained reads and writes', async () => {
+    await assertExecResult(`
+      var matrix = [[1, 2], [3, 4]]
+      matrix[2][1] = 9
+      print matrix[1][2]
+      print matrix[2][1]
+    `, '2 9');
+  });
+
+  test('array declarations can contain arrays', async () => {
+    await assertExecResult(`
+      var row = [1, 2]
+      var matrix[2] = row
+      matrix[1][2] = 7
+      print matrix[2][2]
+    `, '7');
+  });
 });

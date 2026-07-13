@@ -45,6 +45,7 @@ import {
   isThisExpr,
   isVarRef,
   isAttSelection,
+  isIndexSelection,
   isMethSelection,
   isFunctionCall,
   isFunctionDeclaration,
@@ -134,6 +135,7 @@ export class Pseudo2TypeComputer {
     // ---- references / selection ----
     if (isVarRef(e)) return this.handleVarRef(e, ctx);
     if (isAttSelection(e)) return this.handleAttSelection(e, ctx);
+    if (isIndexSelection(e)) return this.typeFor(e.receiver, ctx).asBaseType();
     if (isMethSelection(e)) return this.handleMethSelection(e, ctx);
     if (isFunctionCall(e)) return this.handleFunctionCall(e, ctx);
 
@@ -160,11 +162,7 @@ export class Pseudo2TypeComputer {
     const elems = e.elems ?? [];
     if (elems.length === 0) return TYPE_ARRAY_UNKNOWN;
     const firstType = this.typeFor(elems[0], ctx.copy());
-    return Pseudo2Type.create({
-      name: firstType.name,
-      isStruct: firstType.isStruct,
-      isArray: true
-    });
+    return firstType.asArrayType();
   }
 
   private handleSpecPredicate(e: SpecPredicateExpr): Pseudo2Type {
@@ -223,11 +221,7 @@ export class Pseudo2TypeComputer {
       if ((target as any).isArrayVariable === true) {
         if (target.initializer) {
           const initType = this.typeFor(target.initializer, c2);
-          t = Pseudo2Type.create({
-            name: initType.name,
-            isStruct: initType.isStruct,
-            isArray: true
-          });
+          t = initType.asArrayType();
         } else {
           t = TYPE_ARRAY_UNKNOWN;
         }
@@ -396,7 +390,10 @@ export class Pseudo2TypeComputer {
     if (isArrayType(tr as unknown as ArrayType)) {
       const base = (tr as unknown as ArrayType).base;
       const bt = this.typeForTypeRef(base as unknown as TypeRef);
-      return Pseudo2Type.create({ name: bt.name, isStruct: bt.isStruct, isArray: true });
+      const dimensions = (tr as unknown as ArrayType).dimensions?.length ?? 1;
+      let result = bt;
+      for (let index = 0; index < dimensions; index++) result = result.asArrayType();
+      return result;
     }
 
     const k = (tr as any).$type as string;

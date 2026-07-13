@@ -105,6 +105,16 @@ describe('GraphvizArtifacts', () => {
     expect(artifacts.map(artifact => artifact.fileName)).toEqual(['graphvizDep.dot']);
     expect(artifacts[0].code).toContain('label="add", shape="hexagon"');
   });
+
+  test('generates the complete AST for programs with more than ten instructions', async () => {
+    const declarations = Array.from({ length: 15 }, (_, index) => `var value${index} = ${index}`).join('\n');
+    const { model, document } = await parseRuntimeProgram(declarations);
+    expectErrors(document);
+
+    const ast = artifactCode(generateGraphvizArtifacts(model, { kinds: ['ast'] }), 'graphvizAST.dot');
+    expect(ast).not.toContain('Number_of_Instructions_has_exceeded');
+    expect(ast.match(/label="VarDecl\\n------\\nvalue\d+"/g)).toHaveLength(15);
+  });
 });
 
 function artifactCode(artifacts: Array<{ fileName: string; code: string }>, fileName: string): string {

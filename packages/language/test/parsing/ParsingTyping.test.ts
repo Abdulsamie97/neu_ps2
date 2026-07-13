@@ -13,7 +13,6 @@ import {
   isPrintCommand,
   isReturnStmt,
   isFunctionDeclaration,
-  isVarDecl,
   isIntLiteral,
   isStringLiteral,
   isNullLiteral,
@@ -39,7 +38,6 @@ import {
   INCOMPATIBLE_TYPES,
   INCOMPATIBLE_TYPES_EQ,
   INCOMPATIBLE_TYPES_PLUS,
-  VAR_DECL_NO_NESTED_ARRAY,
   DIFFERENT_TYPES_OF_RETURNS,
   PRINT_EXPECTS_BASE_TYPE
 } from '../../src/pseudo2-validator.js';
@@ -544,9 +542,12 @@ test('varNumAndStringPlus2', async () => {
   });
 
   test('arrayDecl_Nested', async () => {
-    await assertErrorOnNode(`
+    const { document } = await parseModel(`
       var A[4] = [44]
-    `, isVarDecl, VAR_DECL_NO_NESTED_ARRAY);
+      A[1][1] = 5
+      print A[1][1]
+    `);
+    assertNoErrors(document);
   });
 
   test('arrayDecl_WrongSizeType', async () => {

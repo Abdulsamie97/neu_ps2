@@ -1,5 +1,6 @@
 // packages/cli/src/verifast.ts
 import { spawn } from 'node:child_process';
+import * as path from 'node:path';
 
 export type VeriFastError = {
   file: string;
@@ -18,6 +19,18 @@ export type VeriFastResult = {
   stdout: string;
   stderr: string;
   errors: VeriFastError[];
+};
+
+export type VeriFastRuntimeCheck = {
+  component: string;
+  ok: boolean;
+  exitCode: number;
+  summary: string;
+};
+
+export type VeriFastBundleResult = VeriFastResult & {
+  runtimeChecks: VeriFastRuntimeCheck[];
+  verificationTarget: 'runtime' | 'program';
 };
 
 export type CSourceMapEntry = {
@@ -82,6 +95,40 @@ export async function runVeriFast(args: {
       });
     });
   });
+}
+
+export async function runVeriFastBundle(args: {
+  verifastExe: string;
+  file: string;
+  runtimeFiles: string[];
+  extraArgs?: string[];
+  compileOnly?: boolean;
+}): Promise<VeriFastBundleResult> {
+  const runtimeChecks: VeriFastRuntimeCheck[] = [];
+  for (const runtimeFile of args.runtimeFiles) {
+    const result = await runVeriFast({
+      verifastExe: args.verifastExe,
+      file: runtimeFile,
+      compileOnly: true
+    });
+    runtimeChecks.push({
+      component: path.basename(runtimeFile),
+      ok: result.ok,
+      exitCode: result.exitCode,
+      summary: (result.stdout || result.stderr).trim()
+    });
+    if (!result.ok) {
+      return { ...result, runtimeChecks, verificationTarget: 'runtime' };
+    }
+  }
+
+  const programResult = await runVeriFast({
+    verifastExe: args.verifastExe,
+    file: args.file,
+    extraArgs: args.extraArgs,
+    compileOnly: args.compileOnly
+  });
+  return { ...programResult, runtimeChecks, verificationTarget: 'program' };
 }
 
 export function applyCSourceMapToVeriFastResult(result: VeriFastResult, sourceMap: CSourceMapFile): VeriFastResult {

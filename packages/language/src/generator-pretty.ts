@@ -31,6 +31,7 @@ import {
   isFunctionDeclaration,
   isGrouping,
   isIfStatement,
+  isIndexSelection,
   isIntLiteral,
   isMethSelection,
   isMultiplication,
@@ -238,7 +239,7 @@ function printStructAttribute(attribute: StructAttDeclaration, level: number, ct
 
 function printType(type: TypeRef): string {
   if (isArrayType(type)) {
-    return `${printType(type.base)}[]`;
+    return `${printType(type.base)}${'[]'.repeat(type.dimensions.length)}`;
   }
 
   if (isNumType(type)) return 'num';
@@ -310,6 +311,10 @@ function printExpr(expr: Expr): string {
   if (isAttSelection(expr)) {
     const index = expr.attref.index ? `[${printExpr(expr.attref.index)}]` : '';
     return `${printExpr(expr.receiver)}.${expr.attref.ref.ref?.name ?? '<unresolved-att>'}${index}`;
+  }
+
+  if (isIndexSelection(expr)) {
+    return `${printExpr(expr.receiver)}[${printExpr(expr.index)}]`;
   }
 
   if (isFunctionCall(expr)) {

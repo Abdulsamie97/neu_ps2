@@ -46,6 +46,7 @@ import {
   isFunctionDeclaration,
   isGrouping,
   isIfStatement,
+  isIndexSelection,
   isIndentedBlock,
   isIntLiteral,
   isMethSelection,
@@ -447,6 +448,7 @@ function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_S
   if (isThisExpr(expr)) return state.thisName;
   if (isVarRef(expr)) return genVarRef(expr, context, state);
   if (isAttSelection(expr)) return genAttSelection(expr, context, state);
+  if (isIndexSelection(expr)) return genArrayGet(genExpr(expr.receiver, context, state), expr.index, context, state);
   if (isMethSelection(expr)) return genMethSelectionCall(expr, context, state);
   if (isGrouping(expr)) return `(${genExpr(expr.value, context, state)})`;
   if (isNot(expr)) return `(!${genExpr(expr.value, context, state)})`;
@@ -560,6 +562,10 @@ function genAssignmentTarget(
       return genArraySet(genStructGet(receiver, attName), target.attref.index, value, context, state);
     }
     return genStructSet(receiver, attName, value, decl ? runtimeKindForStructAtt(decl) : 'scalar');
+  }
+
+  if (isIndexSelection(target)) {
+    return genArraySet(genExpr(target.receiver, context, state), target.index, value, context, state);
   }
 
   return `${genExpr(target, context, state)} = ${value}`;

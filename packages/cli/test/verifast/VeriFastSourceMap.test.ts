@@ -8,6 +8,7 @@ import { generateCAction } from '../../src/main.js';
 import {
   applyCSourceMapToVeriFastResult,
   runVeriFast,
+  runVeriFastBundle,
   type CSourceMapFile,
   type VeriFastResult
 } from '../../src/verifast.js';
@@ -50,6 +51,7 @@ const validExamples = [
   'valid_multiple_asserts.pseudo2',
   'valid_nested_heap_ownership.pseudo2',
   'valid_nested_container_ownership.pseudo2',
+  'valid_nested_arrays.pseudo2',
   'valid_parameter_alias_ownership.pseudo2',
   'valid_replaced_child_ownership.pseudo2',
   'valid_raw_specs.pseudo2',
@@ -178,6 +180,23 @@ describe('VeriFast source maps', () => {
     });
 
     expect(result.ok, formatRuntimeFailure(result)).toBe(true);
+  });
+
+  testWithVeriFast('verifies runtime kernels and a generated program as one bundle', async () => {
+    const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-verifast-bundle-'));
+    const example = 'valid_nested_arrays.pseudo2';
+    await generateCAction(path.join(examplesRoot, example), { destination });
+    const cPath = path.join(destination, `${generatedBaseName(example)}.c`);
+    const result = await runVeriFastBundle({
+      verifastExe,
+      file: cPath,
+      runtimeFiles: [concreteHeapRuntime, concreteScalarRuntime],
+      compileOnly: true
+    });
+
+    expect(result.ok, formatRuntimeFailure(result)).toBe(true);
+    expect(result.runtimeChecks).toHaveLength(2);
+    expect(result.runtimeChecks.every(check => check.ok)).toBe(true);
   });
 });
 

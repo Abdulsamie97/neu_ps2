@@ -244,6 +244,24 @@ describe('PrettyPseudo2Generator', () => {
     const reparsed = await parseRuntimeProgram(pretty);
     expectErrors(reparsed.document);
   });
+
+  test('preserves nested array types and chained indices', async () => {
+    const { model, document } = await parseRuntimeProgram(`
+      struct Grid
+        num[][] cells
+
+      var matrix = [[1, 2], [3, 4]]
+      matrix[2][1] = 9
+    `);
+    expectErrors(document);
+
+    const pretty = generatePrettyPseudo2(model);
+    expect(pretty).toContain('num[][] cells');
+    expect(pretty).toContain('matrix[2][1] = 9');
+
+    const reparsed = await parseRuntimeProgram(pretty);
+    expectErrors(reparsed.document);
+  });
 });
 
 function expectErrors(document: { diagnostics?: Array<{ severity?: number; message: string }> }): void {

@@ -15,6 +15,10 @@ import vsixPlugin from '@codingame/monaco-vscode-rollup-vsix-plugin';
 /// <reference lib="rolldown-vite/config" />
 
 const DEFAULT_VERIFAST_EXE = path.resolve(__dirname, 'verifast-26.01', 'bin', 'verifast.exe');
+const VERIFIED_RUNTIME_FILES = [
+    path.resolve(__dirname, 'runtime', 'c', 'pseudo2_heap_runtime.c'),
+    path.resolve(__dirname, 'runtime', 'c', 'pseudo2_scalar_runtime.c')
+];
 const MAX_VERIFAST_BODY_BYTES = 5 * 1024 * 1024;
 const VF_LINE_RE = /^(.*)\((\d+),(\d+)-(\d+)\):\s*(error|note):\s*(.*)$/;
 
@@ -214,6 +218,20 @@ async function handleVeriFastApi(req: IncomingMessage, res: ServerResponse): Pro
         return;
     }
 
+    const runtimeChecks: Array<{ component: string; ok: boolean; exitCode: number }> = [];
+    for (const runtimeFile of VERIFIED_RUNTIME_FILES) {
+        const runtimeResult = await runVeriFastProcess(verifastExe, runtimeFile, []);
+        runtimeChecks.push({
+            component: path.basename(runtimeFile),
+            ok: runtimeResult.ok,
+            exitCode: runtimeResult.exitCode
+        });
+        if (!runtimeResult.ok) {
+            sendJson(res, 200, { ...runtimeResult, runtimeChecks });
+            return;
+        }
+    }
+
     const result = mapVeriFastResultToSource(
         await runVeriFastProcess(verifastExe, file, extraArgs),
         parseSourceMap(body.sourceMap),
@@ -221,9 +239,7 @@ async function handleVeriFastApi(req: IncomingMessage, res: ServerResponse): Pro
     );
     sendJson(res, 200, {
         ...result,
-        file,
-        verifastExe,
-        command: [quoteForDisplay(verifastExe), '-c', ...extraArgs, quoteForDisplay(file)].join(' ')
+        runtimeChecks
     });
 }
 
@@ -373,10 +389,6 @@ function parseVeriFastErrors(stdout: string, stderr: string): VeriFastError[] {
 function sanitizeCFileName(fileName: string): string {
     const baseName = path.basename(fileName).replace(/[^a-zA-Z0-9_.-]/g, '_');
     return baseName.endsWith('.c') ? baseName : `${baseName || 'program'}.c`;
-}
-
-function quoteForDisplay(value: string): string {
-    return `"${value.replace(/"/g, '\\"')}"`;
 }
 
 function sendJson(res: ServerResponse, status: number, value: unknown): void {

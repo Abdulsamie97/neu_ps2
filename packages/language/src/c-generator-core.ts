@@ -46,6 +46,7 @@ import {
   isFunctionDeclaration,
   isGrouping,
   isIfStatement,
+  isIndexSelection,
   isIndentedBlock,
   isIntLiteral,
   isMethSelection,
@@ -162,7 +163,15 @@ function generateCProgramInternal(
   const arrayFillHelpers = generateArrayFillHelpers(arrayFillArities, options.runtime ?? 'contracts');
   const stringLiteralHelpers = generateStringLiteralHelpers(stringLiterals, options.runtime ?? 'contracts');
   const divisionLiteralHelpers = generateDivisionLiteralHelpers(divisionLiterals, options.runtime ?? 'contracts');
-  const rootState = { ...DEFAULT_STATE, sourceMap, globalNames, arrayFillDecls, stringLiteralNames, divisionLiteralNames };
+  const rootState: CGeneratorState = {
+    ...DEFAULT_STATE,
+    sourceMap,
+    globalNames,
+    arrayFillDecls,
+    stringLiteralNames,
+    divisionLiteralNames,
+    ownedHeapLocals: []
+  };
   const statements = program.instructions.filter(instruction => !isTopLevelDeclaration(instruction) && !isVarDecl(instruction));
 
   const prototypes = [
@@ -189,7 +198,7 @@ function generateCProgramInternal(
     prototypes,
     globals,
     definitions,
-    generateMain(mainBody, globalVariables, context, moduleName)
+    generateMain(mainBody, globalVariables, context, moduleName, rootState.ownedHeapLocals ?? [])
   ].filter(Boolean).join('\n\n');
 }
 
@@ -527,7 +536,8 @@ function generateMain(
   body: string,
   globalVariables: VarDecl[],
   context: Pseudo2GeneratorContext,
-  moduleName: string
+  moduleName: string,
+  generatedHeaps: Array<Omit<SpecHeapState, 'stateName'>>
 ): string {
   const globalNames = globalVariables.map(variable => context.getVarName(variable));
   const usesGlobals = globalNames.length > 0;
@@ -556,6 +566,7 @@ function generateMain(
         return `${name} |-> ?${valueName} &*& ${predicate}(${valueName}, _)`;
       }).join(' &*& ')};`]
     : [];
+  const generatedHeapLeaks = generateHeapLeaks(generatedHeaps, undefined, context, '  ', DEFAULT_STATE);
 
   return [
     mainSignature,
@@ -563,6 +574,7 @@ function generateMain(
     '{',
     ...moduleOpen,
     body,
+    ...generatedHeapLeaks,
     ...globalLeak,
     '  return 0;',
     '}'
@@ -647,17 +659,20 @@ function generateBlock(block: Block, context: Pseudo2GeneratorContext, indent = 
 
   const inner = `${indent}  `;
   const localHeaps = collectOwnedHeapLocals(body, context);
+  const inheritedHeapCount = state.ownedHeapLocals?.length ?? 0;
   const blockState = {
     ...state,
     ownedHeapLocals: [...(state.ownedHeapLocals ?? []), ...localHeaps]
   };
   const nested = body
     .map(instruction => generateInstruction(instruction, context, inner, blockState))
-    .filter(Boolean)
-    .concat(canCompleteNormally(body) ? generateHeapLeaks(localHeaps, undefined, context, inner, blockState) : [])
-    .join('\n');
+    .filter(Boolean);
+  const ownedInBlock = (blockState.ownedHeapLocals ?? []).slice(inheritedHeapCount);
+  const cleanup = canCompleteNormally(body)
+    ? generateHeapLeaks(ownedInBlock, undefined, context, inner, blockState)
+    : [];
 
-  return `${indent}{\n${nested}\n${indent}}`;
+  return `${indent}{\n${[...nested, ...cleanup].join('\n')}\n${indent}}`;
 }
 
 function generateIfStatement(
@@ -789,6 +804,7 @@ function generateForLoopBody(
   const body = loop.body.instructions ?? [];
   const inner = `${indent}  `;
   const localHeaps = collectOwnedHeapLocals(body, context);
+  const inheritedHeapCount = state.ownedHeapLocals?.length ?? 0;
   const bodyState = {
     ...state,
     ownedHeapLocals: [...(state.ownedHeapLocals ?? []), ...localHeaps]
@@ -797,8 +813,9 @@ function generateForLoopBody(
     .map(instruction => generateInstruction(instruction, context, inner, bodyState))
     .filter(Boolean);
   const update = `${inner}${iterName} = ps2_copy_value(${stepFunction}(${iterName}, ${stepName}));`;
+  const ownedInBody = (bodyState.ownedHeapLocals ?? []).slice(inheritedHeapCount);
   const cleanup = canCompleteNormally(body)
-    ? generateHeapLeaks(localHeaps, undefined, context, inner, bodyState)
+    ? generateHeapLeaks(ownedInBody, undefined, context, inner, bodyState)
     : [];
 
   return `${indent}{\n${[...nested, update, ...cleanup].join('\n')}\n${indent}}`;
@@ -1171,6 +1188,12 @@ function heapSlotForAssignment(
     return target.attref.index ? arrayElementSlot(field, target.attref.index, context, state) : field;
   }
 
+
+  if (isIndexSelection(target)) {
+    const receiver = directHeapValueReceiver(target.receiver, context, state);
+    return receiver ? arrayElementSlot(`array:${receiver}`, target.index, context, state) : undefined;
+  }
+
   return undefined;
 }
 
@@ -1203,6 +1226,9 @@ function directHeapValueReceiver(
   if (isThisExpr(unwrapped)) {
     return state.thisName;
   }
+  if (isIndexSelection(unwrapped) || (isVarRef(unwrapped) && unwrapped.index) || isAttSelection(unwrapped)) {
+    return genExpr(unwrapped, context, state);
+  }
   return undefined;
 }
 
@@ -1222,6 +1248,9 @@ function containmentTargetReceiver(
     }
   }
   if (isAttSelection(target)) {
+    return directHeapValueReceiver(target.receiver, context, state);
+  }
+  if (isIndexSelection(target)) {
     return directHeapValueReceiver(target.receiver, context, state);
   }
   return undefined;
@@ -1270,10 +1299,22 @@ function generateFunctionContracts(
   if (returnedReceiver) {
     heapAliases.set('result', resolveHeapAlias(returnedReceiver, heapAliases));
   }
+  const preservesHeapState = ![...AstUtils.streamAllContents(fn.body)].some(isAssignment);
+  const requiredStates = createSpecHeapStates(requiredReceivers, 'requires', heapAliases, context, state);
 
   return [
     generateStatefulContractLine('requires', requires, requiredReceivers, fn, context, indent, state, heapAliases),
-    generateStatefulContractLine('ensures', ensures, ensuredReceivers, fn, context, indent, state, heapAliases),
+    generateStatefulContractLine(
+      'ensures',
+      ensures,
+      ensuredReceivers,
+      fn,
+      context,
+      indent,
+      state,
+      heapAliases,
+      preservesHeapState ? requiredStates : undefined
+    ),
     ...terminates.map(annotation => sourceMapped(annotation, `${indent}//@ terminates;`, state))
   ];
 }
@@ -1319,11 +1360,18 @@ function generateStatefulContractLine(
   context: Pseudo2GeneratorContext,
   indent: string,
   state: CGeneratorState,
-  aliases: ReadonlyMap<string, string> = new Map()
+  aliases: ReadonlyMap<string, string> = new Map(),
+  preservedStates?: ReadonlyMap<string, SpecHeapState>
 ): string {
-  const heapStates = createSpecHeapStates(receivers, kind, aliases, context, state);
+  const heapStates = createSpecHeapStates(receivers, kind, aliases, context, state, preservedStates);
   const specState = { ...state, specHeapStates: heapStates };
-  const chunks = uniqueHeapStates(heapStates).map(heapStatePredicate);
+  const preserved = new Set(uniqueHeapStates(preservedStates ?? new Map()).map(heapState =>
+    heapStateKey(heapState.kind, `${heapState.receiver}:${heapState.stateName}`)
+  ));
+  const chunks = uniqueHeapStates(heapStates).map(heapState => heapStatePredicate(
+    heapState,
+    !preserved.has(heapStateKey(heapState.kind, `${heapState.receiver}:${heapState.stateName}`))
+  ));
   const conditions = annotations
     .map(annotation => annotation.condition)
     .filter((condition): condition is Expr => condition !== undefined)
@@ -1446,7 +1494,8 @@ function createSpecHeapStates(
   phase: string,
   aliases: ReadonlyMap<string, string> = new Map(),
   context?: Pseudo2GeneratorContext,
-  generatorState: CGeneratorState = DEFAULT_STATE
+  generatorState: CGeneratorState = DEFAULT_STATE,
+  preservedStates?: ReadonlyMap<string, SpecHeapState>
 ): ReadonlyMap<string, SpecHeapState> {
   const canonical = mergeHeapReceivers(receivers.map(receiver => ({
     ...receiver,
@@ -1457,6 +1506,12 @@ function createSpecHeapStates(
     .sort((left, right) => expressionComplexity(left.expression) - expressionComplexity(right.expression))
     .forEach((receiver, index) => {
     const fallbackReceiver = receiver.receiver;
+    const preserved = preservedStates?.get(heapStateKey(receiver.kind, fallbackReceiver));
+    if (preserved) {
+      states.set(heapStateKey(receiver.kind, preserved.receiver), preserved);
+      states.set(heapStateKey(receiver.kind, fallbackReceiver), preserved);
+      return;
+    }
     const resolvedReceiver = receiver.expression && context
       ? genSpecExpr(receiver.expression, context, { ...generatorState, specHeapStates: states })
       : fallbackReceiver;
@@ -1493,9 +1548,9 @@ function heapStateKey(kind: HeapKind, receiver: string): string {
   return `${kind}:${receiver}`;
 }
 
-function heapStatePredicate(state: SpecHeapState): string {
+function heapStatePredicate(state: SpecHeapState, bindState = true): string {
   const predicate = state.kind === 'array' ? 'ps2_array_state' : 'ps2_struct_state';
-  return `${predicate}(${state.receiver}, ?${state.stateName})`;
+  return `${predicate}(${state.receiver}, ${bindState ? '?' : ''}${state.stateName})`;
 }
 
 function containsReturn(instructions: Instruction[]): boolean {
@@ -1611,16 +1666,51 @@ function generateGlobalVarInit(
   return sourceMapped(decl, generateVarDecl(decl, context, indent, { ...state, topLevel: true }), state);
 }
 
+function materializeNestedHeapCreations(
+  expr: Expr,
+  context: Pseudo2GeneratorContext,
+  indent: string,
+  state: CGeneratorState,
+  includeRoot: boolean
+): { prelude: string[]; value: string } {
+  const expressionTemps = new Map(state.expressionTemps ?? []);
+  const prelude: string[] = [];
+  const rootHeap = unwrapSingletonSpecExpr(expr);
+  const nodes = [expr, ...AstUtils.streamAllContents(expr)]
+    .filter((node): node is Expr => isArrayLiteral(node) || isNewExpr(node))
+    .reverse();
+
+  for (const node of nodes) {
+    if (node === rootHeap && !includeRoot) {
+      continue;
+    }
+    const kind: HeapKind = isArrayLiteral(node) ? 'array' : 'struct';
+    const tempName = context.getAnonymousVarName('__nestedHeap');
+    const value = genExpr(node, context, { ...state, expressionTemps });
+    prelude.push(`${indent}Ps2Value* ${tempName} = ${value};`);
+    expressionTemps.set(node, tempName);
+    state.ownedHeapLocals?.push({ kind, receiver: tempName });
+  }
+
+  return {
+    prelude,
+    value: genExpr(expr, context, { ...state, expressionTemps })
+  };
+}
+
 function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   const name = context.getVarName(decl);
   const prefix = state.topLevel ? '' : 'Ps2Value* ';
+  const materializedInitializer = decl.initializer
+    ? materializeNestedHeapCreations(decl.initializer, context, indent, state, decl.isArrayVariable)
+    : { prelude: [] as string[], value: 'ps2_null()' };
 
   if (decl.isArrayVariable) {
     const sizeExpr = decl.size ? genExpr(decl.size, context, state) : 'ps2_int(0)';
-    const initExpr = decl.initializer ? genExpr(decl.initializer, context, state) : 'ps2_null()';
+    const initExpr = materializedInitializer.value;
     const fillArity = state.arrayFillDecls?.has(decl) ? arrayFillArityFor(decl) : undefined;
     if (fillArity !== undefined) {
-      return `${indent}${prefix}${name} = ${arrayFillHelperName(fillArity)}(${initExpr});`;
+      return [...materializedInitializer.prelude, `${indent}${prefix}${name} = ${arrayFillHelperName(fillArity)}(${initExpr});`].join('\n');
     }
 
     const indexName = context.getAnonymousVarName('__arrInit');
@@ -1628,6 +1718,7 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
     const initializerName = context.getAnonymousVarName('__arrValue');
     const stateName = '__ps2_array_loop_0';
     return [
+      ...materializedInitializer.prelude,
       `${indent}Ps2Value* ${initializerName} = ps2_copy_value(${initExpr});`,
       `${indent}${prefix}${name} = ps2_array_create(ps2_as_int(${sizeExpr}));`,
       `${indent}int ${lengthName} = ps2_array_length(${name});`,
@@ -1650,8 +1741,10 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
     ].join('\n');
   }
 
-  const initializer = decl.initializer ? genExpr(decl.initializer, context, state) : 'ps2_null()';
-  return `${indent}${prefix}${name} = ps2_copy_value(${initializer});`;
+  return [
+    ...materializedInitializer.prelude,
+    `${indent}${prefix}${name} = ps2_copy_value(${materializedInitializer.value});`
+  ].join('\n');
 }
 
 function generateAssignment(assign: Assignment, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
@@ -1753,6 +1846,15 @@ function materializeAssignmentTarget(
     };
   }
 
+
+  if (isIndexSelection(target)) {
+    const receiver = materializeHeapReads(target.receiver, context, indent, state);
+    return {
+      prelude: receiver.prelude,
+      statement: genArraySet(receiver.value, target.index, value, context, state)
+    };
+  }
+
   if (isVarRef(target) && target.index) {
     const declaration = target.ref?.ref;
     if (declaration && isStructAttDeclaration(declaration)) {
@@ -1774,7 +1876,7 @@ function materializeHeapReads(
   state: CGeneratorState
 ): { prelude: string[]; value: string } {
   const reads = [expr, ...AstUtils.streamAllContents(expr)]
-    .filter((node): node is Expr => isVarRef(node) && node.index !== undefined || isAttSelection(node));
+    .filter((node): node is Expr => isVarRef(node) && node.index !== undefined || isAttSelection(node) || isIndexSelection(node));
   const expressionTemps = new Map<AstNode, string>();
   const prelude: string[] = [];
 
@@ -1809,6 +1911,11 @@ function materializeHeapReadExpression(
     const fieldTemp = context.getAnonymousVarName('__heapField');
     prelude.push(`${indent}Ps2Value* ${fieldTemp} = ${genStructGet(genExpr(read.receiver, context, state), fieldName, fieldId)};`);
     return genArrayGet(fieldTemp, read.attref.index, context, state);
+  }
+
+
+  if (isIndexSelection(read)) {
+    return genArrayGet(genExpr(read.receiver, context, state), read.index, context, state);
   }
 
   if (isVarRef(read) && read.index) {
@@ -1928,9 +2035,10 @@ function generateVerificationStatement(
   state = DEFAULT_STATE
 ): string {
   const receivers = collectExprHeapReceivers(statement.condition, context, state);
-  const heapStates = createSpecHeapStates(receivers, 'assert', new Map(), context, state);
+  const phase = context.getAnonymousVarName('assert').replace(/[^a-zA-Z0-9_]/g, '_');
+  const heapStates = createSpecHeapStates(receivers, phase, new Map(), context, state);
   const spec = genSpecExpr(statement.condition, context, { ...state, specHeapStates: heapStates });
-  const heapChunks = [...heapStates.values()].map(heapStatePredicate);
+  const heapChunks = uniqueHeapStates(heapStates).map(heapState => heapStatePredicate(heapState));
   const statefulSpec = [...heapChunks, spec].join(' &*& ');
 
   switch (statement.kind) {
@@ -1972,6 +2080,7 @@ function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_S
   if (isThisExpr(expr)) return state.thisName;
   if (isVarRef(expr)) return genVarRef(expr, context, state);
   if (isAttSelection(expr)) return genAttSelection(expr, context, state);
+  if (isIndexSelection(expr)) return genArrayGet(genExpr(expr.receiver, context, state), expr.index, context, state);
   if (isMethSelection(expr)) return genMethSelectionCall(expr, context, state);
   if (isGrouping(expr)) return genExpr(expr.value, context, state);
   if (isNot(expr)) return `ps2_bool(!ps2_truthy(${genExpr(expr.value, context, state)}))`;
@@ -2028,6 +2137,9 @@ function genSpecExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAU
     }
     const target = expr.ref?.ref;
     return target ? context.getVarName(target) : '/* unresolved */';
+  }
+  if (isIndexSelection(expr)) {
+    throw new Error('Array access in VeriFast annotations must use vf_elem(array, index).');
   }
   if (isGrouping(expr)) return `(${genSpecExpr(expr.value, context, state)})`;
   if (isNot(expr)) return `(!${genSpecExpr(expr.value, context, state)})`;
@@ -2395,6 +2507,11 @@ function genAssignmentTarget(target: Expr, value: string, context: Pseudo2Genera
     return genStructSet(receiver, attName, fieldId, value);
   }
 
+
+  if (isIndexSelection(target)) {
+    return genArraySet(genExpr(target.receiver, context, state), target.index, value, context, state);
+  }
+
   throw new Error(`Unsupported assignment target for C generator: ${target.$type}`);
 }
 
@@ -2430,7 +2547,7 @@ function generateLoopInvariants(
     ? state.globalNames.map(name => `${name} |-> _`).join(' &*& ')
     : 'true';
   const invariants = [
-    ...uniqueHeapStates(heapStates).map(heapStatePredicate),
+    ...uniqueHeapStates(heapStates).map(heapState => heapStatePredicate(heapState)),
     ...invariantAnnotations.map(annotation => genSpecExpr(annotation.condition, context, specState)),
     ...additionalInvariants,
     generatedInvariant

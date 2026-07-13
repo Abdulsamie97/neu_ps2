@@ -8,7 +8,7 @@ import { NodeFileSystem } from 'langium/node';
 import * as url from 'node:url';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { applyCSourceMapToVeriFastResult, runVeriFast, type CSourceMapFile } from './verifast.js';
+import { applyCSourceMapToVeriFastResult, runVeriFast, runVeriFastBundle, type CSourceMapFile } from './verifast.js';
 import { generateC } from './generator-c.js';
 
 const __dirname = url.fileURLToPath(new URL('.', import.meta.url));
@@ -17,6 +17,10 @@ const packagePath = path.resolve(__dirname, '..', 'package.json');
 const packageContent = await fs.readFile(packagePath, 'utf-8');
 const workspaceRoot = path.resolve(__dirname, '..', '..', '..');
 const DEFAULT_VERIFAST_EXE = path.join(workspaceRoot, 'verifast-26.01', 'bin', 'verifast.exe');
+const VERIFIED_RUNTIME_FILES = [
+    path.join(workspaceRoot, 'runtime', 'c', 'pseudo2_heap_runtime.c'),
+    path.join(workspaceRoot, 'runtime', 'c', 'pseudo2_scalar_runtime.c')
+];
 
 export type GenerateOptions = {
     destination?: string;
@@ -83,8 +87,9 @@ export default function(): void {
         .option('--vf <path>', 'path to verifast.exe; defaults to repo-local verifast-26.01')
         .option('--extra <args...>', 'extra args passed to verifast (optional)')
         .option('--link', 'enable VeriFast link checking; default verifies generated C only with -c')
+        .option('--no-runtime', 'skip verification of the repo-local concrete runtime kernels')
         .description('runs VeriFast on a C file and prints JSON result')
-        .action(async (file: string, opts: { vf?: string; extra?: string[]; link?: boolean }) => {
+        .action(async (file: string, opts: { vf?: string; extra?: string[]; link?: boolean; runtime?: boolean }) => {
             const verifastExe = opts.vf ?? DEFAULT_VERIFAST_EXE;
             try {
                 await fs.access(verifastExe);
@@ -99,14 +104,28 @@ export default function(): void {
                 process.exit(2);
             }
 
-            const result = await runVeriFast({
-                verifastExe,
-                file,
-                extraArgs: opts.extra ?? [],
-                compileOnly: opts.link !== true,
+            const runtimeFiles = opts.runtime === false || VERIFIED_RUNTIME_FILES.some(runtime => path.resolve(runtime) === path.resolve(file))
+                ? []
+                : VERIFIED_RUNTIME_FILES;
+            const result = runtimeFiles.length > 0
+                ? await runVeriFastBundle({
+                    verifastExe,
+                    file,
+                    runtimeFiles,
+                    extraArgs: opts.extra ?? [],
+                    compileOnly: opts.link !== true,
+                })
+                : await runVeriFast({
+                    verifastExe,
+                    file,
+                    extraArgs: opts.extra ?? [],
+                    compileOnly: opts.link !== true,
             });
             const sourceMap = await readCSourceMap(file);
-            const mappedResult = sourceMap ? applyCSourceMapToVeriFastResult(result, sourceMap) : result;
+            const mapsProgramDiagnostics = !('verificationTarget' in result) || result.verificationTarget === 'program';
+            const mappedResult = sourceMap && mapsProgramDiagnostics
+                ? applyCSourceMapToVeriFastResult(result, sourceMap)
+                : result;
 
             // JSON auf stdout (ideal für Web-UI)
             console.log(JSON.stringify(mappedResult, null, 2));

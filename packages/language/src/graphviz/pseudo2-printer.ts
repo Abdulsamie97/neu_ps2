@@ -10,6 +10,7 @@ import type {
   ForLoop,
   FunctionCall,
   IfStatement,
+  IndexSelection,
   Instruction,
   MethSelection,
   PrintCommand,
@@ -37,6 +38,7 @@ import {
   isFunctionCall,
   isGrouping,
   isIfStatement,
+  isIndexSelection,
   isIndentedBlock,
   isIntLiteral,
   isMethSelection,
@@ -72,6 +74,7 @@ export function printExpr(expr: Expr): string {
   if (isNewExpr(expr)) return `new ${expr.type?.ref?.name ?? '/*unresolved*/'}`;
   if (isVarRef(expr)) return printVarRef(expr);
   if (isAttSelection(expr)) return printAttSelection(expr);
+  if (isIndexSelection(expr)) return printIndexSelection(expr);
   if (isMethSelection(expr)) return printMethSelection(expr);
   if (isFunctionCall(expr)) return printFunctionCall(expr);
 
@@ -127,6 +130,10 @@ function printAttSelection(expr: AttSelection): string {
   const name = expr.attref.ref?.ref?.name ?? '/*unresolved*/';
   const access = expr.attref.index ? `${name}[${printExpr(expr.attref.index)}]` : name;
   return `${printExpr(expr.receiver)}.${access}`;
+}
+
+function printIndexSelection(expr: IndexSelection): string {
+  return `${printExpr(expr.receiver)}[${printExpr(expr.index)}]`;
 }
 
 function printMethSelection(expr: MethSelection): string {

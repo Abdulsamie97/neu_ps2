@@ -355,6 +355,25 @@ static void ps2_struct_replace_owned_array(
   ps2_array_dispose(previous);
 }
 
+static void ps2_array_replace_owned_array(
+    Ps2Value* parent, int index, Ps2Value* replacement)
+  /*@ requires
+    ps2_array_state(parent, ?items) &*&
+    0 <= index &*& index < length(items) &*&
+    nth(index, items) != replacement &*&
+    ps2_array_state(nth(index, items), ?previous_items) &*&
+    ps2_array_state(replacement, ?replacement_items);
+  @*/
+  /*@ ensures
+    ps2_array_state(parent, update(index, replacement, items)) &*&
+    ps2_array_state(replacement, replacement_items);
+  @*/
+{
+  Ps2Value* previous = ps2_array_get_zero_based(parent, index);
+  ps2_array_set_zero_based(parent, index, replacement);
+  ps2_array_dispose(previous);
+}
+
 int main(void)
   //@ requires true;
   //@ ensures true;
@@ -394,10 +413,25 @@ int main(void)
   item = ps2_struct_get_model(parent, 30);
   //@ assert item == new_child;
 
+  Ps2Value* old_row = ps2_array_create(2);
+  Ps2Value* new_row = ps2_array_create(2);
+  //@ open ps2_array_state(old_row, ?old_row_items);
+  //@ open ps2_array_state(new_row, ?new_row_items);
+  //@ assert old_row != new_row;
+  //@ close ps2_array_state(old_row, old_row_items);
+  //@ close ps2_array_state(new_row, new_row_items);
+  Ps2Value* matrix = ps2_array_create(1);
+  ps2_array_set_zero_based(matrix, 0, old_row);
+  ps2_array_replace_owned_array(matrix, 0, new_row);
+  item = ps2_array_get_zero_based(matrix, 0);
+  //@ assert item == new_row;
+
   ps2_array_dispose(array);
   ps2_struct_dispose(object);
   ps2_struct_dispose(parent);
   ps2_array_dispose(new_child);
+  ps2_array_dispose(matrix);
+  ps2_array_dispose(new_row);
   free(first);
   free(second);
   return 0;

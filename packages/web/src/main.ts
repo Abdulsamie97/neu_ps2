@@ -38,6 +38,9 @@ let lastGeneratedCSourceMap: CSourceMapEntry[] = [];
 let graphArtifacts: GeneratedArtifact[] = [];
 let vizPromise: Promise<Viz> | undefined;
 let keywordDecorationDisposable: monaco.IDisposable | undefined;
+const RESULT_PANE_RATIO_KEY = 'pseudo2.resultPaneRatio';
+const DEFAULT_RESULT_PANE_WIDTH = 430;
+const MIN_WORKSPACE_PANE_WIDTH = 320;
 
 type SaveFilePicker = (options: {
     suggestedName?: string;
@@ -67,6 +70,11 @@ type VeriFastApiResult = {
         message: string;
         sourceFile?: string;
         sourceLine?: number;
+    }>;
+    runtimeChecks?: Array<{
+        component: string;
+        ok: boolean;
+        exitCode: number;
     }>;
     file?: string;
     command?: string;
@@ -343,8 +351,6 @@ const renderSelectedGraph = async () => {
         vizPromise ??= instance();
         const viz = await vizPromise;
         const svg = viz.renderSVGElement(artifact.code, { engine: 'dot' });
-        svg.removeAttribute('width');
-        svg.removeAttribute('height');
         const canvas = document.querySelector<HTMLElement>('#graph-canvas');
         canvas?.replaceChildren(svg);
         setGraphStatus(`${graphArtifactLabel(artifact.fileName)} rendered.`);
@@ -515,10 +521,15 @@ function getSuggestedCFileName(): string {
 
 function formatVeriFastResult(result: VeriFastApiResult): string {
     const diagnostics = formatVeriFastDiagnostics(result);
+    const runtimeChecks = result.runtimeChecks ?? [];
+    const runtimeSummary = runtimeChecks.length > 0
+        ? `Runtime kernels: ${runtimeChecks.filter(check => check.ok).length}/${runtimeChecks.length} verified`
+        : undefined;
 
     return [
         result.ok ? 'VeriFast OK' : 'VeriFast failed',
         `Exit code: ${result.exitCode}`,
+        runtimeSummary,
         '',
         'Diagnostics:',
         diagnostics
@@ -866,9 +877,117 @@ function isAbortError(error: unknown): boolean {
     return error instanceof DOMException && error.name === 'AbortError';
 }
 
+function installWorkspaceSplitter(): void {
+    const layout = document.querySelector<HTMLElement>('.workspace-layout');
+    const splitter = document.querySelector<HTMLElement>('#workspace-splitter');
+    if (!layout || !splitter) return;
+
+    let resultRatio = readStoredResultPaneRatio();
+    let resultWidth = DEFAULT_RESULT_PANE_WIDTH;
+    let dragging = false;
+
+    const applyWidth = (requestedWidth: number, persist = false) => {
+        const layoutWidth = layout.getBoundingClientRect().width;
+        const splitterWidth = splitter.getBoundingClientRect().width || 7;
+        const availableWidth = Math.max(0, layoutWidth - splitterWidth);
+        const maxResultWidth = Math.max(
+            MIN_WORKSPACE_PANE_WIDTH,
+            availableWidth - MIN_WORKSPACE_PANE_WIDTH
+        );
+        resultWidth = Math.min(Math.max(requestedWidth, MIN_WORKSPACE_PANE_WIDTH), maxResultWidth);
+        const editorWidth = Math.max(MIN_WORKSPACE_PANE_WIDTH, availableWidth - resultWidth);
+        resultRatio = availableWidth > 0 ? resultWidth / availableWidth : 0.5;
+        layout.style.setProperty('--editor-pane-width', `${Math.round(editorWidth)}px`);
+        layout.style.setProperty('--result-pane-width', `${Math.round(resultWidth)}px`);
+        splitter.setAttribute('aria-valuemin', String(MIN_WORKSPACE_PANE_WIDTH));
+        splitter.setAttribute('aria-valuemax', String(Math.round(maxResultWidth)));
+        splitter.setAttribute('aria-valuenow', String(Math.round(resultWidth)));
+        splitter.setAttribute('aria-valuetext', `${Math.round(resultWidth)} pixels`);
+
+        if (persist) {
+            try {
+                localStorage.setItem(RESULT_PANE_RATIO_KEY, String(resultRatio));
+            } catch {
+                // Storage can be unavailable in restricted browser contexts.
+            }
+        }
+        requestAnimationFrame(layoutEditorToPane);
+    };
+
+    const resizeFromPointer = (event: PointerEvent) => {
+        if (!dragging) return;
+        const layoutBounds = layout.getBoundingClientRect();
+        applyWidth(layoutBounds.right - event.clientX);
+    };
+
+    const stopDragging = () => {
+        if (!dragging) return;
+        dragging = false;
+        splitter.classList.remove('is-dragging');
+        document.body.classList.remove('is-resizing-workspace');
+        applyWidth(resultWidth, true);
+    };
+
+    splitter.addEventListener('pointerdown', event => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        dragging = true;
+        splitter.classList.add('is-dragging');
+        document.body.classList.add('is-resizing-workspace');
+    });
+    window.addEventListener('pointermove', resizeFromPointer);
+    window.addEventListener('pointerup', stopDragging);
+    window.addEventListener('pointercancel', stopDragging);
+    splitter.addEventListener('dblclick', () => applyWidth(DEFAULT_RESULT_PANE_WIDTH, true));
+    splitter.addEventListener('keydown', event => {
+        const step = event.shiftKey ? 64 : 16;
+        if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            applyWidth(resultWidth + step, true);
+        } else if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            applyWidth(resultWidth - step, true);
+        } else if (event.key === 'Home') {
+            event.preventDefault();
+            applyWidth(MIN_WORKSPACE_PANE_WIDTH, true);
+        } else if (event.key === 'End') {
+            event.preventDefault();
+            applyWidth(Number.MAX_SAFE_INTEGER, true);
+        }
+    });
+    window.addEventListener('resize', () => {
+        const availableWidth = Math.max(0, layout.getBoundingClientRect().width - 7);
+        applyWidth(availableWidth * resultRatio);
+    });
+    requestAnimationFrame(() => {
+        const availableWidth = Math.max(0, layout.getBoundingClientRect().width - 7);
+        applyWidth(resultRatio ? availableWidth * resultRatio : resultWidth);
+    });
+}
+
+function layoutEditorToPane(): void {
+    const editor = editorApp?.getEditor();
+    const container = document.querySelector<HTMLElement>('#monaco-editor-root');
+    if (!editor || !container) return;
+    editor.layout({
+        width: container.clientWidth,
+        height: container.clientHeight
+    });
+}
+
+function readStoredResultPaneRatio(): number {
+    try {
+        const stored = Number(localStorage.getItem(RESULT_PANE_RATIO_KEY));
+        return Number.isFinite(stored) && stored > 0 && stored < 1 ? stored : 0;
+    } catch {
+        return 0;
+    }
+}
+
 
 export const runDsl = async () => {
     try {
+        installWorkspaceSplitter();
         document.querySelector('#button-start')?.addEventListener('click', startEditor);
         document.querySelector('#button-dispose')?.addEventListener('click', disposeEditor);
         document.querySelector('#button-summary')?.addEventListener('click', updateSummary);

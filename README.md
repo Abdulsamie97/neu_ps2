@@ -212,6 +212,10 @@ Der Standardmodus ist Compile-only mit `-c`.
 node .\packages\cli\bin\cli.js verifast .\out\test1.c
 ```
 
+Dieser eine Aufruf verifiziert zuerst die beiden konkreten Runtime-Kernel im
+Repo und danach das generierte Programm gegen die Runtime-Vertraege. Ein
+Runtime-Fehler bricht das Buendel ab.
+
 Die CLI verwendet dabei automatisch `.\verifast-26.01\bin\verifast.exe`.
 Alternativ kann ein anderer Pfad explizit angegeben werden:
 
@@ -227,7 +231,11 @@ Die Ausgabe ist JSON, z. B.:
   "exitCode": 0,
   "stdout": "0 errors found ...",
   "stderr": "",
-  "errors": []
+  "errors": [],
+  "runtimeChecks": [
+    { "component": "pseudo2_heap_runtime.c", "ok": true, "exitCode": 0 },
+    { "component": "pseudo2_scalar_runtime.c", "ok": true, "exitCode": 0 }
+  ]
 }
 ```
 
@@ -262,6 +270,9 @@ node .\packages\cli\bin\cli.js verifast .\out\test1.c --extra <arg1> <arg2>
 
 # Link-Checking aktivieren
 node .\packages\cli\bin\cli.js verifast .\out\test1.c --link
+
+# Nur das angegebene C-Programm pruefen
+node .\packages\cli\bin\cli.js verifast .\out\test1.c --no-runtime
 ```
 
 `--link` sollte nur verwendet werden, wenn konkrete Runtime-Manifeste oder
@@ -384,10 +395,13 @@ C-Felder, Pointer-Arrays, Arrayzugriffe, Struct-Aufbau und Feldmutationen gegen
 dieselben Zustandsideen.
 
 Heapwerte innerhalb von Containern werden als getrennte, uebertragene
-Ownership-Chunks modelliert. Damit sind insbesondere Structs als Arrayelemente
-und Arrays in Struct-Feldern inklusive tiefer Lese- und Schreibzugriffe
-verifizierbar. Verschachtelte Vertrage verwenden dieselbe Pseudo2-Syntax, zum
-Beispiel `vf_elem(vf_field(buffer, "values"), 2)` oder
+Ownership-Chunks modelliert. Damit sind Structs als Arrayelemente, Arrays in
+Struct-Feldern und Arrays in Arrays inklusive tiefer Lese- und Schreibzugriffe
+verifizierbar. Die Typisierung erhaelt jede Arraydimension; Quellcode kann
+`matrix[i][j]` und Struct-Felder beispielsweise `num[][] matrix` verwenden.
+Verschachtelte Vertraege verwenden dieselbe Pseudo2-Syntax, zum Beispiel
+`vf_elem(vf_elem(matrix, 2), 1)`,
+`vf_elem(vf_field(buffer, "values"), 2)` oder
 `vf_field(vf_elem(cells, 1), "value")`. Da die Chunks flach gekoppelt werden,
 bleiben auch erlaubte zyklische Struct-Referenzen endlich modellierbar.
 
@@ -396,8 +410,8 @@ vorherige Belegung. Sobald das alte Child keinen weiteren bekannten
 Container-Slot mehr besitzt, materialisiert der Generator den alten Wert und
 konsumiert automatisch dessen `ps2_array_state`- oder `ps2_struct_state`-Chunk.
 Das gilt fuer Struct-Felder und statisch verfolgbare Arrayelemente; mehrere
-Slots fuer dasselbe Child werden beruecksichtigt. Arrays von Arrays bleiben
-entsprechend der Pseudo2-Sprachvalidierung unzulaessig.
+Slots fuer dasselbe Child werden beruecksichtigt. Der konkrete Heap-Kernel
+verifiziert die Child-Ersetzung sowohl in Structs als auch in Parent-Arrays.
 
 Die konkreten Runtime-Kernel liegen getrennt vom Generator unter `runtime/c`:
 
@@ -407,10 +421,12 @@ Die konkreten Runtime-Kernel liegen getrennt vom Generator unter `runtime/c`:
   Stringgleichheit, den gespeicherten `double`-Wert ueber `fp_of_double`,
   Ein-/Ausgabewrapper sowie die vollstaendige Freigabe der skalaren Objekte.
 
-Der generierte Programmcode verwendet weiterhin abstrakte Runtime-Vertraege,
-damit Pseudo2-Vertraege modular bewiesen werden koennen. Die beiden konkreten
-Kernel pruefen unabhaengig davon, dass die zugrunde liegenden C-Speicherideen
-implementierbar und speichersicher sind.
+Der generierte Programmcode verwendet abstrakte Runtime-Vertraege, damit
+Pseudo2-Vertraege modular bewiesen werden koennen. CLI und Weboberflaeche
+verifizieren diese Client-Vertraege und beide konkreten Runtime-Kernel in einem
+verpflichtenden Buendel. Ein Aufruf ist nur erfolgreich, wenn Heap-Kernel,
+Scalar-Kernel und generiertes Programm erfolgreich sind; `--no-runtime` dient
+nur der gezielten Einzeldiagnose.
 
 Wichtig: `@decreases` ist in Pseudo2 aktuell eine Loop-Annotation. Fuer
 C-Funktionen verwendet VeriFast `terminates`; deshalb gibt es dafuer die
@@ -552,8 +568,9 @@ Struct-Felder werden ueber `ps2_array_state(...)`, `ps2_struct_state(...)`,
 `nth(...)` und `ps2_struct_field_lookup(...)` an den jeweils aktuellen
 Heapzustand gebunden.
 
-Die konkreten Runtime-Kernel koennen unabhaengig vom generierten Programm
-geprueft werden:
+Die konkreten Runtime-Kernel werden beim normalen `verifast`-Aufruf automatisch
+mitgeprueft. Fuer eine isolierte Diagnose koennen sie weiterhin einzeln gestartet
+werden:
 
 ```powershell
 node .\packages\cli\bin\cli.js verifast .\runtime\c\pseudo2_heap_runtime.c
@@ -611,11 +628,16 @@ Der Server nutzt den repo-lokalen Standardpfad:
     Graphviz-Artefakte aus dem aktuellen, validierten Editor-AST erzeugt.
 11. Das Auswahlmenue enthaelt den Abstract Syntax Tree, den Dependency-Graph
     und fuer jede Pseudo2-Funktion einen eigenen Control Flow Graph.
+12. Der vertikale Splitter zwischen Editor und Ergebnisbereich kann horizontal
+    gezogen werden. Mit `Pfeil links/rechts` wird die Breite per Tastatur
+    veraendert; ein Doppelklick setzt sie auf den Standardwert zurueck.
 
 Die Graphen werden lokal mit `@viz-js/viz` als SVG gerendert. Eine separate
 Graphviz-Systeminstallation ist fuer die Webansicht nicht erforderlich. Der
 zugehoerige DOT-Quelltext bleibt unter `DOT Source` einsehbar. Grosse Graphen
-werden innerhalb der Graphflaeche gescrollt.
+werden in ihrer natuerlichen Graphviz-Groesse innerhalb der Graphflaeche
+gescrollt. Der AST-Generator besitzt keine alte Begrenzung auf zehn
+Instruktionen mehr.
 
 Wenn VeriFast einen Fehler meldet und das Source-Mapping vorhanden ist, zeigt
 das VeriFast-Fenster die Pseudo2-Zeile statt nur der generierten C-Zeile. Die

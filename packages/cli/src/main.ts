@@ -1,5 +1,5 @@
 import type { Program } from 'pseudo2-language';
-import { createPseudo2Services, Pseudo2LanguageMetaData } from 'pseudo2-language';
+import { createPseudo2Services, generateCProgram, Pseudo2LanguageMetaData } from 'pseudo2-language';
 import chalk from 'chalk';
 import { Command } from 'commander';
 import { extractAstNode } from './util.js';
@@ -10,6 +10,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { applyCSourceMapToVeriFastResult, runVeriFast, runVeriFastBundle, type CSourceMapFile } from './verifast.js';
 import { generateC } from './generator-c.js';
+import { compileAndRunCFile, runCSource, type CExecutionResult } from './c-runner.js';
 
 const __dirname = url.fileURLToPath(new URL('.', import.meta.url));
 
@@ -46,11 +47,54 @@ export const generateAction = async (fileName: string, opts: GenerateOptions): P
     console.log(chalk.green(`Generated ${writtenFiles.length} file(s): ${writtenFiles.join(', ')}`));
 };
 
-export const generateCAction = async (fileName: string, opts: { destination?: string }): Promise<void> => {
+export type GenerateCActionOptions = {
+    destination?: string;
+    runtime?: string;
+};
+
+export type RunCOptions = {
+    cc?: string;
+    timeout?: string;
+};
+
+export const generateCAction = async (fileName: string, opts: GenerateCActionOptions): Promise<void> => {
     const services = createPseudo2Services(NodeFileSystem).Pseudo2;
     const programAst = await extractAstNode<Program>(fileName, services);
-    const generatedFilePath = generateC(programAst, fileName, opts.destination);
+    const generatedFilePath = generateC(programAst, fileName, {
+        destination: opts.destination,
+        runtime: parseCRuntime(opts.runtime)
+    });
     console.log(chalk.green(`C code generated successfully: ${generatedFilePath}`));
+};
+
+export const runCAction = async (fileName: string, opts: RunCOptions): Promise<CExecutionResult> => {
+    const extension = path.extname(fileName).toLowerCase();
+    const timeoutMs = parseTimeout(opts.timeout);
+    let result: CExecutionResult;
+
+    if (extension === '.c') {
+        result = await compileAndRunCFile(fileName, { compiler: opts.cc, timeoutMs });
+    } else if (Pseudo2LanguageMetaData.fileExtensions.some(candidate => candidate === extension)) {
+        const services = createPseudo2Services(NodeFileSystem).Pseudo2;
+        const programAst = await extractAstNode<Program>(fileName, services);
+        const moduleName = path.basename(fileName, extension);
+        const cCode = generateCProgram(programAst, undefined, {
+            moduleName,
+            runtime: 'implementation'
+        });
+        result = await runCSource(cCode, `${moduleName}.c`, { compiler: opts.cc, timeoutMs });
+    } else {
+        result = {
+            ok: false,
+            stage: 'compiler',
+            exitCode: 2,
+            stdout: '',
+            stderr: `run-c expects a .pseudo2 or .c file, received: ${fileName}`
+        };
+    }
+
+    console.log(JSON.stringify(result, null, 2));
+    return result;
 };
 
 export const generatePrettyAction = async (fileName: string, opts: { destination?: string }): Promise<void> => {
@@ -136,8 +180,20 @@ export default function(): void {
             .command('generate-c')
             .argument('<file>', `source file (possible file extensions: ${fileExtensions})`)
             .option('-d, --destination <dir>', 'destination directory of generating')
+            .option('--runtime <mode>', 'runtime mode: contracts for VeriFast or implementation for execution', 'contracts')
             .description('generates VeriFast-ready C code from a Pseudo2 source file')
             .action(generateCAction);
+
+        program
+            .command('run-c')
+            .argument('<file>', 'Pseudo2 source or runnable C implementation file')
+            .option('--cc <path>', 'C compiler command or path; otherwise auto-detect GCC, Clang, or MSVC')
+            .option('--timeout <ms>', 'program timeout in milliseconds', '10000')
+            .description('generates implementation C when needed, compiles it, and runs the executable')
+            .action(async (file: string, opts: RunCOptions) => {
+                const result = await runCAction(file, opts);
+                process.exitCode = result.ok ? 0 : 1;
+            });
 
         program
             .command('generate-pretty')
@@ -165,4 +221,18 @@ function selectedGraphvizKinds(opts: GenerateOptions): Array<'ast' | 'dep' | 'cf
     if (opts.dep) selected.push('dep');
     if (opts.cfg) selected.push('cfg');
     return selected.length > 0 ? selected : undefined;
+}
+
+function parseCRuntime(value: string | undefined): 'contracts' | 'implementation' {
+    if (value === undefined || value === 'contracts') return 'contracts';
+    if (value === 'implementation') return 'implementation';
+    throw new Error(`Unsupported C runtime mode "${value}". Use "contracts" or "implementation".`);
+}
+
+function parseTimeout(value: string | undefined): number {
+    const timeout = Number(value ?? 10_000);
+    if (!Number.isFinite(timeout) || timeout <= 0) {
+        throw new Error(`Invalid C execution timeout: ${value}`);
+    }
+    return Math.floor(timeout);
 }

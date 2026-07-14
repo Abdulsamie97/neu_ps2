@@ -6,16 +6,20 @@ import { extractDestinationAndName } from './util.js';
 
 export type GenerateCOptions = {
   destination?: string;
+  runtime?: 'contracts' | 'implementation';
 };
 
-export function generateC(program: Program, sourceFileName: string, destination?: string): string {
-  const data = extractDestinationAndName(sourceFileName, destination);
+export function generateC(program: Program, sourceFileName: string, options: GenerateCOptions = {}): string {
+  const data = extractDestinationAndName(sourceFileName, options.destination);
   const outDir = path.resolve(data.destination);
 
   fs.mkdirSync(outDir, { recursive: true });
 
   const outFile = path.join(outDir, `${data.name}.c`);
-  const generated = generateCProgramWithSourceMap(program, undefined, { moduleName: data.name });
+  const generated = generateCProgramWithSourceMap(program, undefined, {
+    moduleName: data.name,
+    runtime: options.runtime
+  });
   fs.writeFileSync(outFile, generated.code, { encoding: 'utf8' });
   fs.writeFileSync(`${outFile}.map.json`, JSON.stringify({
     sourceFile: path.resolve(sourceFileName),

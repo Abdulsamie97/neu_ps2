@@ -146,12 +146,12 @@ describe('VeriFast source maps', () => {
 
   testWithVeriFast('runs all VeriFast examples and maps failing diagnostics to Pseudo2 lines', async () => {
     const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-verifast-examples-'));
-
+    //Testet die validen Beispiele
     for (const example of validExamples) {
       const result = await generateAndVerify(example, destination);
       expect(result.ok, formatFailure(example, result)).toBe(true);
     }
-
+    //Testet der Invaliden Beispiele
     for (const example of invalidExamples) {
       const result = await generateAndVerify(example, destination);
       expect(result.ok, `${example} should fail VeriFast`).toBe(false);

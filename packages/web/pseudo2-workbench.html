@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -12,15 +12,16 @@
       <header class="toolbar">
         <div class="brand">
           <b>Pseudo2 Workbench</b>
-          <span>Editor, JavaScript, C und VeriFast</span>
+          <span>Editor, JavaScript, C, VeriFast und Graphviz</span>
         </div>
         <div class="toolbar-actions">
           <button type="button" id="button-start">Start</button>
           <button type="button" id="button-dispose" disabled>Dispose</button>
           <button type="button" id="button-save">Save Pseudo2</button>
           <button type="button" id="button-execute">Run JavaScript</button>
-          <button type="button" id="button-generate-c">Generate C + Verify</button>
-          <button type="button" id="button-save-c">Save C</button>
+          <button type="button" id="button-generate-c">Generate &amp; Verify C</button>
+          <button type="button" id="button-run-c">Run C</button>
+          <button type="button" id="button-save-c">Save VeriFast C</button>
           <button type="button" id="button-run-verifast">Verify C</button>
           <button type="button" id="button-summary">Summary</button>
           <button type="button" id="button-code">Show Source</button>
@@ -40,16 +41,20 @@
           role="separator"
           aria-label="Resize editor and result panes"
           aria-orientation="vertical"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="50"
           tabindex="0"
         ></div>
 
         <aside class="result-pane">
           <div class="result-tabs" role="tablist" aria-label="Result view">
-            <button type="button" id="button-view-output" class="result-tab is-active" role="tab" aria-selected="true" aria-controls="output-view">Outputs</button>
-            <button type="button" id="button-view-graphs" class="result-tab" role="tab" aria-selected="false" aria-controls="graph-view">Graphs</button>
+            <button type="button" id="button-view-javascript" class="result-tab is-active" role="tab" aria-selected="true" aria-controls="javascript-view">JavaScript</button>
+            <button type="button" id="button-view-c" class="result-tab" role="tab" aria-selected="false" aria-controls="c-view">C &amp; VeriFast</button>
+            <button type="button" id="button-view-graphs" class="result-tab" role="tab" aria-selected="false" aria-controls="graph-view">Graphen</button>
           </div>
 
-          <div id="output-view" class="output-pane result-view" role="tabpanel" aria-labelledby="button-view-output">
+          <div id="javascript-view" class="output-pane javascript-pane result-view" role="tabpanel" aria-labelledby="button-view-javascript">
             <section class="output-section output-primary">
               <div class="pane-header">JavaScript Output</div>
               <pre id="exespan"></pre>
@@ -59,20 +64,6 @@
               <details open>
                 <summary>Generated JavaScript</summary>
                 <pre id="generatedspan"></pre>
-              </details>
-            </section>
-
-            <section class="output-section">
-              <details open>
-                <summary>Generated C</summary>
-                <pre id="cspan"></pre>
-              </details>
-            </section>
-
-            <section class="output-section">
-              <details open>
-                <summary>VeriFast</summary>
-                <pre id="verifastspan"></pre>
               </details>
             </section>
 
@@ -87,6 +78,34 @@
               <details>
                 <summary>Source Echo</summary>
                 <pre id="codespan"></pre>
+              </details>
+            </section>
+          </div>
+
+          <div id="c-view" class="output-pane c-pane result-view" role="tabpanel" aria-labelledby="button-view-c" hidden>
+            <section class="output-section output-primary">
+              <div class="pane-header">C Program Output</div>
+              <pre id="c-outputspan"></pre>
+            </section>
+
+            <section class="output-section">
+              <details open>
+                <summary>Generated C for VeriFast</summary>
+                <pre id="cspan"></pre>
+              </details>
+            </section>
+
+            <section class="output-section">
+              <details>
+                <summary>Runnable C Implementation</summary>
+                <pre id="c-runtimespan"></pre>
+              </details>
+            </section>
+
+            <section class="output-section">
+              <details open>
+                <summary>VeriFast Verification</summary>
+                <pre id="verifastspan"></pre>
               </details>
             </section>
           </div>

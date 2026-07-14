@@ -5,6 +5,7 @@ import * as vm from 'node:vm';
 import { describe, expect, test } from 'vitest';
 
 import { generateAction, generateCAction, generatePrettyAction } from '../../src/main.js';
+import { resolveCCompiler, runCSource } from '../../src/c-runner.js';
 
 describe('CLI generator', () => {
   test('generateAction writes JavaScript and Graphviz artifacts to explicit destination', async () => {
@@ -124,6 +125,33 @@ describe('CLI generator', () => {
     expect(sourceMap.mappings?.some(entry => entry.sourceLine === 2)).toBe(true);
     expect(sourceMap.mappings?.some(entry => entry.sourceLine === 5)).toBe(true);
   });
+
+  test('generateCAction can write a runnable C implementation', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-cli-c-runtime-'));
+    const sourcePath = path.join(tmp, 'sample-c-runtime.pseudo2');
+    const destination = path.join(tmp, 'out');
+
+    fs.writeFileSync(sourcePath, sampleProgram(), 'utf8');
+
+    await generateCAction(sourcePath, { destination, runtime: 'implementation' });
+
+    const cPath = path.join(destination, 'samplecruntime.c');
+    const c = fs.readFileSync(cPath, 'utf8');
+    expect(c).toContain('typedef enum {');
+    expect(c).toContain('PS2_UNDEFINED');
+    expect(c).toContain('int main(void)');
+    expect(c).not.toContain('typedef struct Ps2Value { int _; } Ps2Value;');
+  });
+
+  test('C runner compiles and executes source when a compiler is available', async () => {
+    if (!resolveCCompiler()) return;
+
+    const result = await runCSource('#include <stdio.h>\nint main(void) { puts("C OK"); return 0; }');
+
+    expect(result.ok).toBe(true);
+    expect(result.stage).toBe('run');
+    expect(result.stdout.trim()).toBe('C OK');
+  }, 30_000);
 });
 
 function sampleProgram(): string {

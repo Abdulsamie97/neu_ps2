@@ -34,6 +34,17 @@ This writes both `out\test1.c` and `out\test1.c.map.json`. The map file is used
 to translate VeriFast diagnostics from generated C lines back to Pseudo2 source
 lines.
 
+Generate runnable implementation C or compile and run Pseudo2 directly:
+
+```powershell
+node .\packages\cli\bin\cli.js generate-c .\examples\test1.pseudo2 -d .\out\runnable --runtime implementation
+node .\packages\cli\bin\cli.js run-c .\examples\serverExamples\arithmetic\fibonacci.pseudo2
+```
+
+`run-c` detects GCC, Clang, and MSVC, including Visual Studio installations
+whose developer environment is not active. Override detection with `--cc` or
+`PSEUDO2_C_COMPILER`; use `--timeout <ms>` to change the execution timeout.
+
 Run VeriFast:
 
 ```powershell

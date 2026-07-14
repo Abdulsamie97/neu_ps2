@@ -19,7 +19,7 @@ V[2]=toEdgeList([4,5])
 
 
 print "print '4 5 null' in next line:"
-print(edgeListToString(V[2])) // TODO: does not work -> throws runtime exception
+print(edgeListToString(V[2]))
 
 var p = new edgeElem
 p = V[2]

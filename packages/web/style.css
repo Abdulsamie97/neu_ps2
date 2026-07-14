@@ -54,6 +54,7 @@ button:disabled {
 }
 
 #button-generate-c,
+#button-run-c,
 #button-save-c,
 #button-run-verifast {
     background-color: #604b1f;
@@ -61,6 +62,7 @@ button:disabled {
 }
 
 #button-generate-c:hover:not(:disabled),
+#button-run-c:hover:not(:disabled),
 #button-save-c:hover:not(:disabled),
 #button-run-verifast:hover:not(:disabled) {
     background-color: #765d27;
@@ -197,6 +199,7 @@ body.is-resizing-workspace {
     display: flex;
     flex: 0 0 45px;
     gap: 4px;
+    overflow-x: auto;
     padding: 6px 12px;
 }
 
@@ -207,6 +210,7 @@ body.is-resizing-workspace {
     color: #a7a7a7;
     font-size: 12px;
     font-weight: 700;
+    flex: 0 0 auto;
     text-transform: uppercase;
 }
 
@@ -389,7 +393,13 @@ pre {
     min-height: 150px;
 }
 
-#cspan {
+#c-outputspan {
+    border-color: #3f642f;
+    min-height: 150px;
+}
+
+#cspan,
+#c-runtimespan {
     border-color: #5e4a20;
     min-height: 220px;
 }

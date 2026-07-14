@@ -18,6 +18,7 @@ import { EmptyFileSystem, URI } from 'langium';
 
 import {
     createPseudo2Services,
+    generateCProgram,
     generateCProgramWithSourceMap,
     generateGraphvizArtifacts,
     generateProgram,
@@ -34,6 +35,7 @@ let lcWrapper: LanguageClientWrapper;
 let executionDocCounter = 0;
 let executionServices: ReturnType<typeof createPseudo2Services> | undefined;
 let lastGeneratedCCode = '';
+let lastGeneratedCExecutableCode = '';
 let lastGeneratedCSourceMap: CSourceMapEntry[] = [];
 let graphArtifacts: GeneratedArtifact[] = [];
 let vizPromise: Promise<Viz> | undefined;
@@ -79,6 +81,19 @@ type VeriFastApiResult = {
     file?: string;
     command?: string;
     verifastExe?: string;
+};
+
+type CExecutionApiResult = {
+    ok: boolean;
+    stage: 'compiler' | 'compile' | 'run';
+    compiler?: string;
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+    compileStdout?: string;
+    compileStderr?: string;
+    timedOut?: boolean;
+    error?: string;
 };
 
 const startEditor = async () => {
@@ -153,6 +168,7 @@ const disposeEditor = async () => {
 };
 
 const updateSummary = async () => {
+    await showResultView('javascript');
     //TODO: make it nicer
     const sumelem = document.querySelector("#summaryspan");
     if (sumelem != null) {
@@ -162,6 +178,7 @@ const updateSummary = async () => {
 };
 
 const updateCode = async () => {
+    await showResultView('javascript');
     //TODO: make it nicer
     const codeelem = document.querySelector("#codespan");
     if (codeelem != null) {
@@ -213,6 +230,7 @@ const saveCurrentCode = async () => {
 };
 
 const updateExecution = async () => {
+    await showResultView('javascript');
     setTextContent('#exespan', 'Running...');
     setTextContent('#generatedspan', '');
 
@@ -247,25 +265,29 @@ const updateExecution = async () => {
 };
 
 const updateCGeneration = async () => {
+    await showResultView('c');
     const generated = await generateCCodeFromEditor();
     if (generated) {
         await verifyLastGeneratedCCode();
     }
 };
 
-const showResultView = async (view: 'output' | 'graphs') => {
-    const outputView = document.querySelector<HTMLElement>('#output-view');
+const showResultView = async (view: 'javascript' | 'c' | 'graphs') => {
+    const javascriptView = document.querySelector<HTMLElement>('#javascript-view');
+    const cView = document.querySelector<HTMLElement>('#c-view');
     const graphView = document.querySelector<HTMLElement>('#graph-view');
-    const outputButton = document.querySelector<HTMLButtonElement>('#button-view-output');
+    const javascriptButton = document.querySelector<HTMLButtonElement>('#button-view-javascript');
+    const cButton = document.querySelector<HTMLButtonElement>('#button-view-c');
     const graphButton = document.querySelector<HTMLButtonElement>('#button-view-graphs');
-    const showGraphs = view === 'graphs';
 
-    if (outputView) outputView.hidden = showGraphs;
-    if (graphView) graphView.hidden = !showGraphs;
-    setActiveResultTab(outputButton, !showGraphs);
-    setActiveResultTab(graphButton, showGraphs);
+    if (javascriptView) javascriptView.hidden = view !== 'javascript';
+    if (cView) cView.hidden = view !== 'c';
+    if (graphView) graphView.hidden = view !== 'graphs';
+    setActiveResultTab(javascriptButton, view === 'javascript');
+    setActiveResultTab(cButton, view === 'c');
+    setActiveResultTab(graphButton, view === 'graphs');
 
-    if (showGraphs && graphArtifacts.length === 0) {
+    if (view === 'graphs' && graphArtifacts.length === 0) {
         await updateGraphvizArtifacts();
     }
 };
@@ -373,10 +395,13 @@ function setGraphStatus(message: string, error = false): void {
 }
 
 const generateCCodeFromEditor = async (): Promise<boolean> => {
+    setTextContent('#c-outputspan', '');
     setTextContent('#cspan', 'Generating C...');
+    setTextContent('#c-runtimespan', 'Generating runnable C...');
     setTextContent('#verifastspan', '');
     clearVeriFastEditorDiagnostics();
     lastGeneratedCCode = '';
+    lastGeneratedCExecutableCode = '';
     lastGeneratedCSourceMap = [];
 
     if (!editorApp?.getEditor()) {
@@ -397,18 +422,68 @@ const generateCCodeFromEditor = async (): Promise<boolean> => {
             return false;
         }
 
-        const generated = generateCProgramWithSourceMap(program, undefined, { moduleName: getSuggestedCFileName() });
+        const moduleName = getSuggestedCFileName();
+        const generated = generateCProgramWithSourceMap(program, undefined, { moduleName });
         lastGeneratedCCode = generated.code;
+        lastGeneratedCExecutableCode = generateCProgram(program, undefined, {
+            moduleName,
+            runtime: 'implementation'
+        });
         lastGeneratedCSourceMap = generated.sourceMap;
         setTextContent('#cspan', lastGeneratedCCode);
+        setTextContent('#c-runtimespan', lastGeneratedCExecutableCode);
         return true;
     } catch (error) {
         setTextContent('#cspan', `C generation failed:\n${formatError(error)}`);
+        setTextContent('#c-runtimespan', '');
         return false;
     }
 };
 
+const runCFromWeb = async () => {
+    await showResultView('c');
+    setTextContent('#c-outputspan', 'Generating and compiling C...');
+    disableElement('button-run-c', true);
+
+    try {
+        const generated = await generateCCodeFromEditor();
+        if (!generated || !lastGeneratedCExecutableCode) {
+            setTextContent('#c-outputspan', 'No runnable C code generated.');
+            return;
+        }
+
+        setTextContent('#c-outputspan', 'Compiling and running C...');
+        const response = await fetch('/api/run-c', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                code: lastGeneratedCExecutableCode,
+                fileName: getSuggestedCFileName(),
+                timeoutMs: 10_000
+            })
+        });
+        const responseText = await response.text();
+        const result = JSON.parse(responseText) as CExecutionApiResult;
+        if (!response.ok) {
+            setTextContent('#c-outputspan', `C execution request failed (${response.status}):\n${result.error ?? formatValue(result)}`);
+            return;
+        }
+        setTextContent('#c-outputspan', formatCExecutionResult(result));
+    } catch (error) {
+        setTextContent(
+            '#c-outputspan',
+            `C execution request failed: ${formatError(error)}\n` +
+            'Open the app through the local Vite server so /api/run-c is available.'
+        );
+    } finally {
+        disableElement('button-run-c', false);
+    }
+};
+
 const runVeriFastFromWeb = async () => {
+    await showResultView('c');
     if (!lastGeneratedCCode) {
         const generated = await generateCCodeFromEditor();
         if (!generated) {
@@ -425,6 +500,7 @@ const runVeriFastFromWeb = async () => {
 };
 
 const verifyLastGeneratedCCode = async () => {
+    await showResultView('c');
     setTextContent('#verifastspan', 'Running VeriFast...');
 
     try {
@@ -461,6 +537,7 @@ const verifyLastGeneratedCCode = async () => {
 };
 
 const saveCurrentCCode = async () => {
+    await showResultView('c');
     if (!lastGeneratedCCode) {
         await generateCCodeFromEditor();
     }
@@ -533,6 +610,35 @@ function formatVeriFastResult(result: VeriFastApiResult): string {
         '',
         'Diagnostics:',
         diagnostics
+    ].filter((line): line is string => line !== undefined).join('\n');
+}
+
+function formatCExecutionResult(result: CExecutionApiResult): string {
+    if (result.stage === 'compiler') {
+        return `C compiler unavailable\n\n${result.stderr || result.error || 'No compiler was found.'}`;
+    }
+
+    if (result.stage === 'compile') {
+        return [
+            result.timedOut ? 'C compilation timed out' : 'C compilation failed',
+            `Exit code: ${result.exitCode}`,
+            '',
+            result.stderr || result.stdout || 'No compiler diagnostic was produced.'
+        ].join('\n');
+    }
+
+    const output = result.stdout.trim().length > 0 ? result.stdout.trimEnd() : '(no output)';
+    const runtimeError = result.stderr.trim().length > 0 ? `\n\nstderr:\n${result.stderr.trimEnd()}` : '';
+    if (result.ok) {
+        return output + runtimeError;
+    }
+
+    return [
+        result.timedOut ? 'C execution timed out' : 'C execution failed',
+        `Exit code: ${result.exitCode}`,
+        result.compiler ? `Compiler: ${result.compiler}` : undefined,
+        '',
+        output + runtimeError
     ].filter((line): line is string => line !== undefined).join('\n');
 }
 
@@ -995,13 +1101,16 @@ export const runDsl = async () => {
         document.querySelector('#button-save')?.addEventListener('click', saveCurrentCode);
         document.querySelector('#button-execute')?.addEventListener('click', updateExecution);
         document.querySelector('#button-generate-c')?.addEventListener('click', updateCGeneration);
+        document.querySelector('#button-run-c')?.addEventListener('click', runCFromWeb);
         document.querySelector('#button-save-c')?.addEventListener('click', saveCurrentCCode);
         document.querySelector('#button-run-verifast')?.addEventListener('click', runVeriFastFromWeb);
-        document.querySelector('#button-view-output')?.addEventListener('click', () => void showResultView('output'));
+        document.querySelector('#button-view-javascript')?.addEventListener('click', () => void showResultView('javascript'));
+        document.querySelector('#button-view-c')?.addEventListener('click', () => void showResultView('c'));
         document.querySelector('#button-view-graphs')?.addEventListener('click', () => void showResultView('graphs'));
         document.querySelector('#button-generate-graphs')?.addEventListener('click', () => void updateGraphvizArtifacts());
         document.querySelector('#graph-select')?.addEventListener('change', () => void renderSelectedGraph());
         setTextContent('#verifastspan', '');
+        setTextContent('#c-outputspan', '');
 
     } catch (e) {
         console.error(e);

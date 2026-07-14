@@ -11,6 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import importMetaUrlPlugin from '@codingame/esbuild-import-meta-url-plugin';
 import vsixPlugin from '@codingame/monaco-vscode-rollup-vsix-plugin';
+import { runCSource } from './packages/cli/src/c-runner.js';
 
 /// <reference lib="rolldown-vite/config" />
 
@@ -21,6 +22,7 @@ const VERIFIED_RUNTIME_FILES = [
 ];
 const MAX_VERIFAST_BODY_BYTES = 5 * 1024 * 1024;
 const VF_LINE_RE = /^(.*)\((\d+),(\d+)-(\d+)\):\s*(error|note):\s*(.*)$/;
+let cRunInProgress = false;
 
 export const definedViteConfig = defineConfig({
     build: {
@@ -96,6 +98,7 @@ export const definedViteConfig = defineConfig({
     plugins: [
         pseudo2WorkbenchRoutePlugin(),
         pseudo2VeriFastApiPlugin(),
+        pseudo2CRunApiPlugin(),
         vsixPlugin()  // Enable to load VS Code extensions packaged as .vsix files,
         //    react()
     ],
@@ -117,6 +120,13 @@ type VeriFastApiRequest = {
     sourceFile?: unknown;
     sourceMap?: unknown;
     extraArgs?: unknown;
+};
+
+type CRunApiRequest = {
+    code?: unknown;
+    fileName?: unknown;
+    stdin?: unknown;
+    timeoutMs?: unknown;
 };
 
 type VeriFastError = {
@@ -161,7 +171,7 @@ function pseudo2WorkbenchRoutePlugin(): Plugin {
                     const baseUrl = localUrls[0] ?? `http://localhost:${server.config.server.port ?? 20002}/`;
                     const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
                     server.config.logger.info(`  -> Pseudo2 Workbench: ${normalizedBaseUrl}pseudo2-workbench`);
-                    server.config.logger.info('     Full editor with JavaScript/C generation and VeriFast verification.');
+                    server.config.logger.info('     JavaScript execution, C execution, VeriFast verification, and Graphviz views.');
                 }, 0);
             });
         }
@@ -179,9 +189,76 @@ function pseudo2VeriFastApiPlugin(): Plugin {
     };
 }
 
+function pseudo2CRunApiPlugin(): Plugin {
+    return {
+        name: 'pseudo2-c-run-api',
+        configureServer(server) {
+            server.middlewares.use('/api/run-c', (req, res) => {
+                void handleCRunApi(req, res);
+            });
+        }
+    };
+}
+
+async function handleCRunApi(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method !== 'POST') {
+        sendJson(res, 405, { ok: false, error: 'Use POST /api/run-c.' });
+        return;
+    }
+    if (!isTrustedLocalOrigin(req)) {
+        sendJson(res, 403, { ok: false, error: 'Cross-origin local tool requests are not allowed.' });
+        return;
+    }
+    let body: CRunApiRequest;
+    try {
+        body = await readJsonBody<CRunApiRequest>(req);
+    } catch (error) {
+        sendJson(res, 400, { ok: false, error: formatServerError(error) });
+        return;
+    }
+
+    if (typeof body.code !== 'string' || body.code.trim().length === 0) {
+        sendJson(res, 400, { ok: false, error: 'Request body must contain non-empty string property "code".' });
+        return;
+    }
+
+    const requestedTimeout = typeof body.timeoutMs === 'number' ? body.timeoutMs : 10_000;
+    const timeoutMs = Math.min(Math.max(Math.floor(requestedTimeout), 100), 60_000);
+    if (cRunInProgress) {
+        sendJson(res, 429, { ok: false, error: 'Another C program is already running.' });
+        return;
+    }
+    cRunInProgress = true;
+    try {
+        const result = await runCSource(
+            body.code,
+            sanitizeCFileName(typeof body.fileName === 'string' ? body.fileName : 'program.c'),
+            {
+                timeoutMs,
+                stdin: typeof body.stdin === 'string' ? body.stdin : undefined
+            }
+        );
+        sendJson(res, 200, result);
+    } catch (error) {
+        sendJson(res, 200, {
+            ok: false,
+            stage: 'run',
+            exitCode: 1,
+            stdout: '',
+            stderr: formatServerError(error)
+        });
+    } finally {
+        cRunInProgress = false;
+    }
+}
+
 async function handleVeriFastApi(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method !== 'POST') {
         sendJson(res, 405, { ok: false, error: 'Use POST /api/verifast.' });
+        return;
+    }
+    if (!isTrustedLocalOrigin(req)) {
+        sendJson(res, 403, { ok: false, error: 'Cross-origin local tool requests are not allowed.' });
         return;
     }
 
@@ -290,7 +367,7 @@ function mapVeriFastResultToSource(
     };
 }
 
-function readJsonBody(req: IncomingMessage): Promise<VeriFastApiRequest> {
+function readJsonBody<T = VeriFastApiRequest>(req: IncomingMessage): Promise<T> {
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
         let size = 0;
@@ -308,7 +385,7 @@ function readJsonBody(req: IncomingMessage): Promise<VeriFastApiRequest> {
         req.on('error', reject);
         req.on('end', () => {
             try {
-                resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')) as VeriFastApiRequest);
+                resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')) as T);
             } catch (error) {
                 reject(error);
             }
@@ -389,6 +466,17 @@ function parseVeriFastErrors(stdout: string, stderr: string): VeriFastError[] {
 function sanitizeCFileName(fileName: string): string {
     const baseName = path.basename(fileName).replace(/[^a-zA-Z0-9_.-]/g, '_');
     return baseName.endsWith('.c') ? baseName : `${baseName || 'program'}.c`;
+}
+
+function isTrustedLocalOrigin(req: IncomingMessage): boolean {
+    const origin = req.headers.origin;
+    if (origin === undefined) return true;
+    try {
+        const url = new URL(origin);
+        return url.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+    } catch {
+        return false;
+    }
 }
 
 function sendJson(res: ServerResponse, status: number, value: unknown): void {

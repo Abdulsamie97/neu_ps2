@@ -10,6 +10,7 @@ unterstuetzt einfache Pseudo2-Annotationen fuer VeriFast.
 - Node.js 20 oder neuer
 - npm 10 oder neuer
 - VeriFast im Repo unter `verifast-26.01`
+- Fuer die C-Ausfuehrung: GCC, Clang oder Visual Studio C++ Build Tools
 
 Der standardmaessig verwendete VeriFast-Pfad ist repo-lokal:
 
@@ -21,11 +22,16 @@ Wenn ausnahmsweise ein anderer VeriFast verwendet werden soll, kann der Pfad
 bei der CLI explizit ueber `--vf` ueberschrieben werden. Die Weboberflaeche
 verwendet bewusst den repo-lokalen VeriFast.
 
+Der C-Runner erkennt `gcc`, `clang`, `cc` und `cl` automatisch. Unter Windows
+wird eine Visual-Studio-Installation auch dann gefunden, wenn `cl.exe` nicht im
+normalen `PATH` steht. Ein abweichender Compiler kann mit
+`PSEUDO2_C_COMPILER` oder der CLI-Option `--cc` gewaehlt werden.
+
 ## Projektstruktur
 
 - `packages/language`: Grammatik, AST, Scoping, Validator, Typing und alle Generator-Kernfunktionen.
 - `packages/cli`: Kommandozeilenwerkzeug fuer JS-, Pretty-Pseudo2-, Graphviz-, C-Generierung und VeriFast.
-- `packages/web`: Monaco/Langium-Weboberflaeche mit JS-Ausfuehrung, C-Ausgabe, VeriFast und gerenderten Graphviz-Graphen.
+- `packages/web`: Monaco/Langium-Weboberflaeche mit JS- und C-Ausfuehrung, VeriFast und gerenderten Graphviz-Graphen.
 - `packages/extension`: VS-Code-Erweiterung.
 - `examples`: Pseudo2-Beispielprogramme.
 - `out`: uebliches Zielverzeichnis fuer generierte Ausgaben.
@@ -182,6 +188,13 @@ Der C-Generator wird separat aufgerufen:
 node .\packages\cli\bin\cli.js generate-c .\examples\test1.pseudo2 -d .\out
 ```
 
+Ohne weitere Option wird der Vertragsmodus fuer VeriFast erzeugt. Fuer eine
+kompilierbare Runtime-Implementierung wird `--runtime implementation` benutzt:
+
+```powershell
+node .\packages\cli\bin\cli.js generate-c .\examples\test1.pseudo2 -d .\out\runnable --runtime implementation
+```
+
 Ergebnis:
 
 ```powershell
@@ -202,6 +215,32 @@ Der erzeugte C-Code enthaelt:
 Die zusaetzliche Datei `.c.map.json` enthaelt das Mapping von generierten
 C-Zeilen zur urspruenglichen Pseudo2-Zeile. Sie wird von `verifast` automatisch
 gelesen, wenn sie neben der `.c`-Datei liegt.
+
+### C-Code kompilieren und ausfuehren
+
+`run-c` kann Pseudo2 direkt in Implementierungs-C uebersetzen, kompilieren und
+ausfuehren:
+
+```powershell
+node .\packages\cli\bin\cli.js run-c .\examples\serverExamples\arithmetic\fibonacci.pseudo2
+```
+
+Alternativ kann eine mit `--runtime implementation` erzeugte C-Datei gestartet
+werden:
+
+```powershell
+node .\packages\cli\bin\cli.js run-c .\out\runnable\test1.c
+```
+
+Compiler und Timeout koennen explizit gesetzt werden:
+
+```powershell
+node .\packages\cli\bin\cli.js run-c .\examples\test1.pseudo2 --cc clang --timeout 15000
+$env:PSEUDO2_C_COMPILER = "C:\Pfad\zu\gcc.exe"
+```
+
+Die JSON-Ausgabe unterscheidet die Phasen `compiler`, `compile` und `run`.
+Programm- und Compiler-Ausgaben enthalten keine internen temporaeren Pfade.
 
 ### VeriFast ueber CLI ausfuehren
 
@@ -286,6 +325,7 @@ normalerweise der richtige Modus.
 npm run build
 node .\packages\cli\bin\cli.js generate-c .\examples\verifast_annotations.pseudo2 -d .\out
 node .\packages\cli\bin\cli.js verifast .\out\verifast_annotations.c
+node .\packages\cli\bin\cli.js run-c .\examples\serverExamples\arithmetic\fibonacci.pseudo2
 ```
 
 ## Pseudo2-Annotationen fuer VeriFast
@@ -596,7 +636,7 @@ Konsole.
 
 Hinweis: `http://localhost:20002` oeffnet die Root-`index.html`, die als
 einfacherer Runner ohne alle C-/VeriFast-Controls aufgebaut ist. Fuer den
-vollstaendigen Workflow mit `Generate C + Verify`, `Save C` und `Verify C` die
+vollstaendigen Workflow mit `Run C`, `Generate & Verify C` und `Verify C` die
 `/pseudo2-workbench`-Adresse verwenden. Die eigentliche HTML-Datei liegt unter
 `packages/web/pseudo2-workbench.html`.
 
@@ -604,7 +644,10 @@ vollstaendigen Workflow mit `Generate C + Verify`, `Save C` und `Verify C` die
 
 Die Weboberflaeche kann VeriFast nur starten, wenn sie ueber den lokalen
 Vite/Node-Server laeuft. Der Browser selbst startet keine lokalen `.exe`-Dateien;
-stattdessen ruft die Oberflaeche den lokalen Endpoint `/api/verifast` auf.
+stattdessen ruft die Oberflaeche den lokalen Endpoint `/api/verifast` auf. Die
+C-Ausfuehrung verwendet entsprechend `/api/run-c`; dort wird die
+Implementierungsvariante kompiliert und als lokaler Prozess mit Timeout
+gestartet.
 
 Der Server nutzt den repo-lokalen Standardpfad:
 
@@ -616,19 +659,25 @@ Der Server nutzt den repo-lokalen Standardpfad:
 
 1. `Start` startet den Monaco-Editor und den Langium-Language-Client.
 2. `Save Pseudo2` speichert oder laedt den aktuellen Pseudo2-Code herunter.
-3. `Run JavaScript` generiert JavaScript und fuehrt es direkt im Browser aus.
-4. `Generate C + Verify` erzeugt C-Code im C-Ausgabefenster und startet danach VeriFast.
-5. `Save C` speichert oder laedt den zuletzt erzeugten C-Code herunter.
-6. `Verify C` sendet den zuletzt erzeugten C-Code erneut an `/api/verifast` und zeigt das Ergebnis im VeriFast-Fenster.
-7. `Summary` erzeugt eine kurze Strukturuebersicht des Programms.
-8. `Show Source` zeigt den aktuellen Pseudo2-Quelltext im Ausgabefenster.
-9. Mit den Registern `Outputs` und `Graphs` wird zwischen Textausgaben und der
-   visuellen Graphansicht gewechselt.
-10. Beim ersten Oeffnen von `Graphs` oder mit `Refresh` werden alle
+3. Das Register `JavaScript` enthaelt Programmausgabe, generiertes JavaScript,
+   Summary und Source Echo. `Run JavaScript` wechselt automatisch dorthin.
+4. Das Register `C & VeriFast` enthaelt C-Programmausgabe, VeriFast-C,
+   ausfuehrbares Implementierungs-C und das Verifikationsergebnis.
+5. `Run C` generiert Implementierungs-C, kompiliert es mit dem lokal erkannten
+   Compiler und zeigt nur die relevante Programmausgabe bzw. Compilerdiagnose.
+6. `Generate & Verify C` erzeugt beide C-Varianten und startet VeriFast auf der
+   Vertragsvariante.
+7. `Save VeriFast C` speichert den zuletzt erzeugten Vertrags-C-Code.
+8. `Verify C` sendet den zuletzt erzeugten Vertrags-C-Code erneut an
+   `/api/verifast`.
+9. `Summary` erzeugt eine kurze Strukturuebersicht; `Show Source` zeigt den
+   aktuellen Pseudo2-Quelltext. Beide wechseln in das JavaScript-Register.
+10. Das Register `Graphen` rendert AST, Dependency-Graph und CFGs.
+11. Beim ersten Oeffnen von `Graphen` oder mit `Refresh` werden alle
     Graphviz-Artefakte aus dem aktuellen, validierten Editor-AST erzeugt.
-11. Das Auswahlmenue enthaelt den Abstract Syntax Tree, den Dependency-Graph
+12. Das Auswahlmenue enthaelt den Abstract Syntax Tree, den Dependency-Graph
     und fuer jede Pseudo2-Funktion einen eigenen Control Flow Graph.
-12. Der vertikale Splitter zwischen Editor und Ergebnisbereich kann horizontal
+13. Der vertikale Splitter zwischen Editor und Ergebnisbereich kann horizontal
     gezogen werden. Mit `Pfeil links/rechts` wird die Breite per Tastatur
     veraendert; ein Doppelklick setzt sie auf den Standardwert zurueck.
 
@@ -644,9 +693,14 @@ das VeriFast-Fenster die Pseudo2-Zeile statt nur der generierten C-Zeile. Die
 Weboberflaeche springt zusaetzlich zur ersten gemappten Pseudo2-Diagnose im
 Monaco-Editor.
 
-Der VeriFast-Button funktioniert nur im lokalen Dev-Server-Kontext. Wenn die UI
-statisch ohne Node/Vite-Backend ausgeliefert wird, muss VeriFast ueber die CLI
-ausgefuehrt werden.
+VeriFast und `Run C` funktionieren nur im lokalen Dev-Server-Kontext. Wenn die
+UI statisch ohne Node/Vite-Backend ausgeliefert wird, muessen Verifikation und
+C-Ausfuehrung ueber die CLI erfolgen.
+
+Der lokale C-Endpunkt fuehrt nativen Code auf dem Entwicklungsrechner aus.
+Deshalb akzeptiert er keine Anfragen von fremden Browser-Origins und verarbeitet
+hoechstens einen C-Lauf gleichzeitig. Der Vite-Server sollte nicht mit
+`--host` in ein nicht vertrauenswuerdiges Netzwerk freigegeben werden.
 
 ## Generatoren als TypeScript-API
 
@@ -749,9 +803,9 @@ npm run dev
 ```
 
 Dann im Browser `http://localhost:20002/pseudo2-workbench` oeffnen
-und die Buttons `Run JavaScript`, `Generate C + Verify` und `Verify C` pruefen.
-Zusaetzlich im Register `Graphs` AST, Dependency-Graph und mindestens einen CFG
-auswaehlen.
+und die Buttons `Run JavaScript`, `Run C`, `Generate & Verify C` und `Verify C`
+pruefen. Zusaetzlich im Register `Graphen` AST, Dependency-Graph und mindestens
+einen CFG auswaehlen.
 
 ### Nach einer C-/VeriFast-Aenderung
 
@@ -759,6 +813,7 @@ auswaehlen.
 npm run build
 node .\packages\cli\bin\cli.js generate-c .\examples\verifast_annotations.pseudo2 -d .\out
 node .\packages\cli\bin\cli.js verifast .\out\verifast_annotations.c
+node .\packages\cli\bin\cli.js run-c .\examples\serverExamples\arithmetic\fibonacci.pseudo2
 node .\packages\cli\bin\cli.js verifast .\runtime\c\pseudo2_heap_runtime.c
 node .\packages\cli\bin\cli.js verifast .\runtime\c\pseudo2_scalar_runtime.c
 ```

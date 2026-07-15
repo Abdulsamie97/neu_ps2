@@ -1,5 +1,13 @@
 <!DOCTYPE html>
+<!--!
+  @file pseudo2-workbench.html
+  @brief Definiert die vollständige Bedienoberfläche für Pseudo2, JavaScript, C, VeriFast und Graphviz.
+  @author Abdul
+-->
 <html lang="de">
+  <!--!
+    @brief Lädt Metadaten, Seitentitel und das gemeinsame Stylesheet der Workbench.
+  -->
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,7 +16,16 @@
   </head>
 
   <body>
+    <!--!
+      @brief Umschließt Werkzeugleiste und den in zwei Breitenbereiche aufgeteilten Arbeitsraum.
+    -->
     <div class="app-shell">
+      <!--!
+        @brief Enthält Branding, sämtliche Benutzeraktionen und den gemeinsamen Speicherstatus.
+
+        Die Aktionen steuern Editor-Lebenszyklus, Pseudo2-Speicherung, JavaScript-
+        Ausführung, beide C-Varianten, VeriFast, Zusammenfassung und Quelltextansicht.
+      -->
       <header class="toolbar">
         <div class="brand">
           <b>Pseudo2 Workbench</b>
@@ -29,12 +46,21 @@
         <span id="save-status" class="status-pill"></span>
       </header>
 
+      <!--!
+        @brief Ordnet Monaco-Editor, barrierefreien Splitter und Ergebnisbereich horizontal an.
+      -->
       <main class="workspace-layout">
+        <!--!
+          @brief Beherbergt die Pseudo2-Quelldatei im von TypeScript initialisierten Monaco-Editor.
+        -->
         <section class="editor-pane">
           <div class="pane-header">Pseudo2 Source</div>
           <div id="monaco-editor-root" class="example-editor-root"></div>
         </section>
 
+        <!--!
+          @brief Ermöglicht die Größenänderung zwischen Editor und Ergebnisbereich per Pointer und Tastatur.
+        -->
         <div
           id="workspace-splitter"
           class="workspace-splitter"
@@ -47,13 +73,22 @@
           tabindex="0"
         ></div>
 
+        <!--!
+          @brief Bündelt die umschaltbaren Ergebnisansichten JavaScript, C/VeriFast und Graphviz.
+        -->
         <aside class="result-pane">
+          <!--!
+            @brief Dient als ARIA-konforme Tabnavigation zwischen den drei Ergebnisarten.
+          -->
           <div class="result-tabs" role="tablist" aria-label="Result view">
             <button type="button" id="button-view-javascript" class="result-tab is-active" role="tab" aria-selected="true" aria-controls="javascript-view">JavaScript</button>
             <button type="button" id="button-view-c" class="result-tab" role="tab" aria-selected="false" aria-controls="c-view">C &amp; VeriFast</button>
             <button type="button" id="button-view-graphs" class="result-tab" role="tab" aria-selected="false" aria-controls="graph-view">Graphen</button>
           </div>
 
+          <!--!
+            @brief Zeigt JavaScript-Programmausgabe, generierten Code, Programmzusammenfassung und Source-Echo.
+          -->
           <div id="javascript-view" class="output-pane javascript-pane result-view" role="tabpanel" aria-labelledby="button-view-javascript">
             <section class="output-section output-primary">
               <div class="pane-header">JavaScript Output</div>
@@ -82,6 +117,9 @@
             </section>
           </div>
 
+          <!--!
+            @brief Zeigt native C-Ausgabe, VeriFast-C, ausführbaren C-Code und Verifikationsergebnis getrennt an.
+          -->
           <div id="c-view" class="output-pane c-pane result-view" role="tabpanel" aria-labelledby="button-view-c" hidden>
             <section class="output-section output-primary">
               <div class="pane-header">C Program Output</div>
@@ -110,6 +148,9 @@
             </section>
           </div>
 
+          <!--!
+            @brief Ermöglicht Auswahl, SVG-Darstellung und DOT-Quellansicht aller erzeugten Graphviz-Artefakte.
+          -->
           <div id="graph-view" class="graph-pane result-view" role="tabpanel" aria-labelledby="button-view-graphs" hidden>
             <div class="graph-toolbar">
               <label for="graph-select">Graph</label>
@@ -128,6 +169,9 @@
         </aside>
       </main>
     </div>
+    <!--!
+      @brief Importiert den Webeinstieg und startet nach Aufbau des DOM die Pseudo2-Workbench.
+    -->
     <script type="module">
       import { runPseudo2 } from "/packages/web/src/main.ts";
 

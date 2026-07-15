@@ -3,12 +3,28 @@
  * Licensed under the MIT License. See LICENSE in the package root for license information.
  * ------------------------------------------------------------------------------------------ */
 
+/**
+ * @file language-server-runner.ts
+ * @brief Startet einen HTTP-/WebSocket-Host und verbindet Browserclients mit einem externen Language-Server-Prozess.
+ */
+
 import { WebSocketServer } from 'ws';
 import { Server } from 'node:http';
 import express from 'express';
 import { getLocalDirectory, type LanguageServerRunConfig, upgradeWsServer } from './server-commons.js';
 
-/** LSP server runner */
+/**
+ * LSP server runner
+ *
+ * @brief Initialisiert den vollständigen Node-Host für einen per WebSocket erreichbaren Sprachserver.
+ *
+ * Installiert zuerst eine Ausgabe für unbehandelte Prozessfehler, stellt anschließend
+ * statische Webdateien aus dem Modulverzeichnis über Express bereit und öffnet den
+ * konfigurierten HTTP-Port. Ein separater WebSocketServer übernimmt nur Upgrade-
+ * Verbindungen; `upgradeWsServer` startet für passende Pfade den externen Sprachserver.
+ *
+ * @param languageServerRunConfig Prozess-, Port-, Pfad- und WebSocket-Konfiguration des Sprachservers.
+ */
 export const runLanguageServer = (
     languageServerRunConfig: LanguageServerRunConfig
 ) => {

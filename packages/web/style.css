@@ -1,7 +1,17 @@
+/**
+ * @file style.css
+ * @brief Gestaltet Layout, Bedienelemente, Ausgaben, Graphen und Syntaxhervorhebung der Pseudo2-Workbench.
+ * @author Abdul
+ */
+
+/** @brief Vereinheitlicht die Größenberechnung aller Elemente auf `border-box`. */
 * {
     box-sizing: border-box;
 }
 
+/**
+ * @brief Definiert die dunkle, den gesamten Viewport füllende Grundfläche und Standardschrift.
+ */
 html,
 body {
     height: 100%;
@@ -14,6 +24,9 @@ body {
     font-family: Helvetica, Arial, sans-serif;
 }
 
+/**
+ * @brief Gestaltet gemeinsame Zustände aller Buttons sowie farbliche Gruppen für JavaScript- und C-Aktionen.
+ */
 button {
     border: 1px solid #3f3f46;
     border-radius: 6px;
@@ -68,6 +81,9 @@ button:disabled {
     background-color: #765d27;
 }
 
+/**
+ * @brief Ordnet die Anwendung vertikal in Werkzeugleiste und verbleibenden Arbeitsbereich.
+ */
 .app-shell {
     display: flex;
     flex-direction: column;
@@ -75,6 +91,9 @@ button:disabled {
     min-height: 100%;
 }
 
+/**
+ * @brief Gestaltet Werkzeugleiste, Branding, umbrechende Aktionsgruppe und Speicherstatus.
+ */
 .toolbar {
     align-items: center;
     border-bottom: 1px solid #303036;
@@ -116,6 +135,12 @@ button:disabled {
     padding: 0 2px;
 }
 
+/**
+ * @brief Teilt den Arbeitsraum über CSS-Variablen in Editor, Splitter und Ergebnisbereich.
+ *
+ * Beide Inhaltsbereiche bleiben mindestens 320 Pixel breit. TypeScript aktualisiert
+ * die beiden Breitenvariablen während Pointer-, Tastatur- und Fensteränderungen.
+ */
 .workspace-layout {
     --editor-pane-width: calc(100% - 437px);
     --result-pane-width: 430px;
@@ -129,6 +154,7 @@ button:disabled {
     overflow: hidden;
 }
 
+/** @brief Verhindert, dass die drei Hauptbereiche ihre Grid- beziehungsweise Flex-Eltern überragen. */
 .editor-pane,
 .result-pane,
 .output-pane,
@@ -150,6 +176,9 @@ button:disabled {
     overflow: hidden;
 }
 
+/**
+ * @brief Stellt den verschiebbaren Splitter samt Griff und aktiven Hover-/Fokuszuständen dar.
+ */
 .workspace-splitter {
     background-color: #29292d;
     border-left: 1px solid #34343a;
@@ -193,6 +222,9 @@ body.is-resizing-workspace {
     user-select: none;
 }
 
+/**
+ * @brief Gestaltet die horizontal scrollbar bleibende Tabnavigation des Ergebnisbereichs.
+ */
 .result-tabs {
     align-items: center;
     border-bottom: 1px solid #303036;
@@ -220,6 +252,9 @@ body.is-resizing-workspace {
     color: #ffffff;
 }
 
+/**
+ * @brief Definiert gemeinsame Größen- und Scrollregeln der JavaScript-, C- und Graphansichten.
+ */
 .result-view {
     flex: 1;
 }
@@ -244,6 +279,9 @@ body.is-resizing-workspace {
     display: none;
 }
 
+/**
+ * @brief Gestaltet Graphauswahl, Status, hellen SVG-Canvas und einklappbaren DOT-Quelltext.
+ */
 .graph-toolbar {
     align-items: center;
     display: grid;
@@ -313,6 +351,9 @@ body.is-resizing-workspace {
     max-height: 180px;
 }
 
+/**
+ * @brief Vereinheitlicht Überschriften der Editor- und Ausgabebereiche.
+ */
 .pane-header {
     align-items: center;
     border-bottom: 1px solid #303036;
@@ -331,6 +372,9 @@ body.is-resizing-workspace {
     padding: 0;
 }
 
+/**
+ * @brief Lässt Monaco die vollständige verfügbare Höhe des Editorbereichs belegen.
+ */
 #monaco-editor-root {
     height: 100%;
     min-height: 0;
@@ -340,6 +384,9 @@ body.is-resizing-workspace {
     height: 100%;
 }
 
+/**
+ * @brief Definiert die zusätzlichen Tokenfarben für Pseudo2-Schlüsselwörter, Literale und Kommentare.
+ */
 .pseudo2-keyword-token {
     color: #af00db !important;
     font-weight: 500;
@@ -359,6 +406,9 @@ body.is-resizing-workspace {
     font-style: italic;
 }
 
+/**
+ * @brief Trennt Ausgabeabschnitte und gestaltet Quelltext- beziehungsweise Programmausgaben als scrollbare Codeflächen.
+ */
 .output-section {
     border-bottom: 1px solid #303036;
     padding-bottom: 12px;
@@ -408,6 +458,7 @@ pre {
     border-color: #284b70;
 }
 
+/** @brief Gestaltet einklappbare Detailbereiche und ihre klickbaren Überschriften. */
 details {
     margin: 0;
 }
@@ -421,6 +472,7 @@ summary {
     text-transform: uppercase;
 }
 
+/** @brief Definiert unterscheidbare Zustände für Links innerhalb der Workbench. */
 a:link {
     color: #d7ba7d;
 }
@@ -433,6 +485,9 @@ a:visited {
     color: #3794ff;
 }
 
+/**
+ * @brief Wechselt auf schmalen Viewports in ein vertikal gestapeltes, splitterloses Layout.
+ */
 @media (max-width: 900px) {
     .toolbar {
         align-items: flex-start;

@@ -2,6 +2,11 @@
  * Copyright (c) 2024 TypeFox and others.
  * Licensed under the MIT License. See LICENSE in the package root for license information.
  * ------------------------------------------------------------------------------------------ */
+
+/**
+ * @file server-commons.ts
+ * @brief Verbindet WebSocket-Clients bidirektional mit extern gestarteten Language-Server-Prozessen.
+ */
 import { WebSocketServer, type ServerOptions } from 'ws';
 import { IncomingMessage, Server } from 'node:http';
 import { URL } from 'node:url';
@@ -13,21 +18,43 @@ import { type IWebSocket, WebSocketMessageReader, WebSocketMessageWriter } from 
 import { createConnection, createServerProcess, forward } from 'vscode-ws-jsonrpc/server';
 import { Message, InitializeRequest, type InitializeParams, type RequestMessage, type ResponseMessage } from 'vscode-languageserver-protocol';
 
+/** @brief Konfiguriert HTTP-Endpunkt, Language-Server-Prozess und optionale LSP-Nachrichtenfilter. */
 export interface LanguageServerRunConfig {
+    /** @brief Lesbarer Name für Prozess- und Protokollausgaben. */
     serverName: string;
+    /** @brief URL-Pfad, auf dem WebSocket-Upgrades angenommen werden. */
     pathName: string;
+    /** @brief TCP-Port des übergeordneten HTTP-Servers. */
     serverPort: number;
+    /** @brief Auszuführender Language-Server-Befehl oder absoluter Programmpfad. */
     runCommand: string;
+    /** @brief Argumente, die unverändert an den Language-Server-Prozess übergeben werden. */
     runCommandArgs: string[];
+    /** @brief Optionen des WebSocketServers, beispielsweise Port- oder `noServer`-Konfiguration. */
     wsServerOptions: ServerOptions,
+    /** @brief Optionale Node-Spawn-Einstellungen für den Language-Server-Prozess. */
     spawnOptions?: cp.SpawnOptions;
+    /** @brief Aktiviert die Ausgabe weitergeleiteter LSP-Anfragen und -Antworten. */
     logMessages?: boolean;
+    /** @brief Kann ausgehende Clientanfragen vor der Weiterleitung verändern. */
     requestMessageHandler?: (message: RequestMessage) => RequestMessage;
+    /** @brief Kann eingehende Serverantworten vor der Weiterleitung verändern. */
     responseMessageHandler?: (message: ResponseMessage) => ResponseMessage;
 }
 
 /**
  * start the language server inside the current process
+ *
+ * @brief Startet einen externen Language Server und koppelt ihn an eine bestehende WebSocket-Verbindung.
+ *
+ * Für den Browser-Socket werden JSON-RPC-Reader und -Writer angelegt. Der externe
+ * Prozess erhält eine zweite JSON-RPC-Verbindung; `forward` überträgt Nachrichten
+ * in beide Richtungen. Bei der LSP-Initialisierung wird die Node-Prozess-ID gesetzt.
+ * Optionale Handler dürfen Requests beziehungsweise Responses vor der Weitergabe
+ * ersetzen, und die Socket-Verbindung wird beim Dispose ordnungsgemäß geschlossen.
+ *
+ * @param runconfig Prozessdaten, Logging und optionale Nachrichtenhandler.
+ * @param socket Bereits akzeptierter WebSocket in der JSON-RPC-Abstraktion.
  */
 export const launchLanguageServer = (runconfig: LanguageServerRunConfig, socket: IWebSocket) => {
     const { serverName, runCommand, runCommandArgs, spawnOptions } = runconfig;
@@ -66,9 +93,22 @@ export const launchLanguageServer = (runconfig: LanguageServerRunConfig, socket:
     }
 };
 
+/**
+ * @brief Verarbeitet HTTP-Upgrades für den konfigurierten Sprachserverpfad.
+ *
+ * Die Funktion ignoriert Upgrades anderer URL-Pfade. Für einen passenden Pfad
+ * übernimmt der WebSocketServer den vorhandenen TCP-Socket. Danach wird der native
+ * WebSocket in `IWebSocket` adaptiert und der Language Server sofort oder nach dem
+ * `open`-Ereignis gestartet.
+ *
+ * @param runconfig Erwarteter WebSocket-Pfad und Language-Server-Prozesskonfiguration.
+ * @param config Bereits laufender HTTP-Server und WebSocketServer für das Upgrade.
+ */
 export const upgradeWsServer = (runconfig: LanguageServerRunConfig,
     config: {
+        /** @brief HTTP-Server, dessen `upgrade`-Ereignisse ausgewertet werden. */
         server: Server,
+        /** @brief WebSocketServer, der passende TCP-Verbindungen übernimmt. */
         wss: WebSocketServer
     }) => {
     config.server.on('upgrade', (request: IncomingMessage, socket: Socket, head: Buffer) => {
@@ -104,6 +144,10 @@ export const upgradeWsServer = (runconfig: LanguageServerRunConfig,
 
 /**
  * Solves: __dirname is not defined in ES module scope
+ *
+ * @brief Ermittelt das lokale Verzeichnis eines ES-Moduls ohne CommonJS-`__dirname`.
+ * @param referenceUrl Modul-URL, üblicherweise `import.meta.url`.
+ * @return Dateisystemverzeichnis der referenzierten Moduldatei.
  */
 export const getLocalDirectory = (referenceUrl: string | URL) => {
     const __filename = fileURLToPath(referenceUrl);

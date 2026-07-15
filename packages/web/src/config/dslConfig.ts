@@ -3,6 +3,11 @@
  * Licensed under the MIT License. See LICENSE in the package root for license information.
  * ------------------------------------------------------------------------------------------ */
 
+/**
+ * @file dslConfig.ts
+ * @brief Erzeugt die Monaco-, VS-Code- und Langium-Clientkonfiguration der Pseudo2-Workbench.
+ */
+
 import getKeybindingsServiceOverride from '@codingame/monaco-vscode-keybindings-service-override';
 import getLifecycleServiceOverride from '@codingame/monaco-vscode-lifecycle-service-override';
 import getLocalizationServiceOverride from '@codingame/monaco-vscode-localization-service-override';
@@ -21,12 +26,30 @@ import languageConfig from './language-configuration.json?raw';
 import responseDslTm from '../../../language/syntaxes/pseudo2.tmLanguage.json?raw'; //TBC
 import type { ExampleAppConfig } from '../common/client/utils.js';
 
+/**
+ * @brief Erstellt die aufeinander abgestimmten Konfigurationen für Editor, VS-Code-Dienste und Language Client.
+ *
+ * Die Funktion registriert Pseudo2-Sprachkonfiguration und TextMate-Grammatik als
+ * virtuelle Erweiterungsdateien. Sie richtet Monaco-Service-Overrides für Theme,
+ * TextMate, Tastenkürzel, Lebenszyklus und Lokalisierung ein und verbindet den
+ * Language Client direkt mit dem angegebenen Web Worker. Der übergebene Quelltext
+ * wird als veränderte Editorressource geöffnet.
+ *
+ * @param params Kennung, Editorinhalt, Worker, optionale Transporte und Editorcontainer.
+ * @return Konsistentes Konfigurationsbündel zum Start aller Workbench-Komponenten.
+ */
 export const createLangiumGlobalConfig = (params: {
+    /** @brief Eindeutige Kennung zur Benennung der virtuellen Erweiterungsdateien. */
     languageServerId: string,
+    /** @brief Anfangsinhalt und URI des im Editor zu öffnenden Pseudo2-Dokuments. */
     codeContent: CodeContent,
+    /** @brief Web Worker, in dem der Pseudo2-Language-Server läuft. */
     worker: Worker,
+    /** @brief Optionaler expliziter MessagePort für die Worker-Verbindung. */
     messagePort?: MessagePort,
+    /** @brief Optional bereits erzeugte Reader-/Writer-Transporte des Language Clients. */
     messageTransports?: MessageTransports,
+    /** @brief Optionaler DOM-Container, in den der Monaco-Editor eingebettet wird. */
     htmlContainer?: HTMLElement
 }): ExampleAppConfig => {
     const extensionFilesOrContents = new Map<string, string | URL>();

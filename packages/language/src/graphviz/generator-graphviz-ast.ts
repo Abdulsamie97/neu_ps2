@@ -1,3 +1,9 @@
+/**
+ * @file generator-graphviz-ast.ts
+ * @brief Erzeugt eine vollständige Graphviz-Darstellung des Pseudo2-AST.
+ * @author Abdul
+ */
+
 import { AstUtils } from 'langium';
 import type { AstNode } from 'langium';
 import type { Program } from '../generated/ast.js';
@@ -16,12 +22,28 @@ import {
 } from '../generated/ast.js';
 import { dotAttributes, dotId } from './dot-utils.js';
 
+/**
+ * Wandelt das Programm und sämtliche enthaltenen AST-Knoten in einen DOT-Graphen um.
+ *
+ * Jeder AST-Knoten erhält eine eindeutige ID und einen typabhängigen Beschriftungstext.
+ * Die Containerbeziehung wird als gerichtete Kante dargestellt; der Name der
+ * Container-Eigenschaft erscheint als Kantenlabel.
+ *
+ * @param program Wurzel des vollständig gelinkten Pseudo2-AST.
+ * @returns Vollständiger DOT-Quelltext des AST-Graphen.
+ */
 export function generateGraphvizAst(program: Program): string {
   const contents = [...AstUtils.streamAllContents(program)];
 
   const ids = new Map<AstNode, string>();
   let nextId = 0;
 
+  /**
+   * Liefert die bereits vergebene Knoten-ID oder reserviert die nächste freie ID.
+   *
+   * @param node AST-Knoten, dessen DOT-ID benötigt wird.
+   * @returns Innerhalb dieses Graphen eindeutige Knoten-ID.
+   */
   const idFor = (node: AstNode): string => {
     let id = ids.get(node);
     if (!id) {
@@ -56,6 +78,15 @@ export function generateGraphvizAst(program: Program): string {
   return lines.join('\n');
 }
 
+/**
+ * Bestimmt Label und visuelle Grundform eines AST-Knotens.
+ *
+ * Ausdrucksknoten verwenden die DOT-Standardform. Deklarationen, Anweisungen
+ * und andere Nicht-Ausdrücke werden rot und als Parallelogramm hervorgehoben.
+ *
+ * @param node Zu klassifizierender AST-Knoten.
+ * @returns Attributsammlung für die DOT-Knotendeklaration.
+ */
 function astNodeAttributes(node: AstNode): Record<string, string> {
   const attrs: Record<string, string> = {
     label: astNodeLabel(node)
@@ -69,6 +100,16 @@ function astNodeAttributes(node: AstNode): Record<string, string> {
   return attrs;
 }
 
+/**
+ * Erzeugt das fachliche Label eines AST-Knotens.
+ *
+ * Neben dem konkreten AST-Typ werden bei Literalen ihre Werte und bei
+ * Deklarationen oder Referenzen ihre Quellnamen ausgegeben. Nicht aufgelöste
+ * Cross-References werden sichtbar mit `unresolved` markiert.
+ *
+ * @param node AST-Knoten, der im Graphen beschriftet werden soll.
+ * @returns Mehrzeiliges DOT-Label.
+ */
 function astNodeLabel(node: AstNode): string {
   let label = node.$type;
 

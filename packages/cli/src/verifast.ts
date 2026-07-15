@@ -19,6 +19,7 @@ export type VeriFastResult = {
   stdout: string;
   stderr: string;
   errors: VeriFastError[];
+  timedOut?: boolean;
 };
 
 export type VeriFastRuntimeCheck = {
@@ -45,15 +46,18 @@ export type CSourceMapFile = {
 
 const VF_LINE_RE =
   /^(.*)\((\d+),(\d+)-(\d+)\):\s*(error|note):\s*(.*)$/;
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 export async function runVeriFast(args: {
   verifastExe: string;
   file: string;
   extraArgs?: string[];
   compileOnly?: boolean;
+  timeoutMs?: number;
 }): Promise<VeriFastResult> {
   const { verifastExe, file, extraArgs = [], compileOnly = true } = args;
-  const vfArgs = [...(compileOnly ? ['-c'] : []), ...extraArgs, file];
+  const timeoutMs = normalizeTimeout(args.timeoutMs);
+  const vfArgs = [...(compileOnly ? ['-c'] : []), ...withSourceOptions(extraArgs), file];
 
   return await new Promise((resolve) => {
     const child = spawn(verifastExe, vfArgs, {
@@ -63,37 +67,42 @@ export async function runVeriFast(args: {
 
     let stdout = '';
     let stderr = '';
+    let settled = false;
+    let timedOut = false;
+    let timeout: NodeJS.Timeout | undefined;
 
-    child.stdout.on('data', (d: Buffer) => (stdout += d.toString('utf8')));
-    child.stderr.on('data', (d: Buffer) => (stderr += d.toString('utf8')));
-
-    child.on('close', (code: number | null) => {
-    const exitCode = code ?? 1;
-
-      const text = (stdout + '\n' + stderr).split(/\r?\n/);
-
-      const errors: VeriFastError[] = [];
-      for (const line of text) {
-        const m = line.match(VF_LINE_RE);
-        if (!m) continue;
-        errors.push({
-          file: m[1],
-          line: Number(m[2]),
-          colFrom: Number(m[3]),
-          colTo: Number(m[4]),
-          kind: m[5] as 'error' | 'note',
-          message: m[6].trim(),
-        });
+    const finish = (exitCode: number, errorMessage?: string): void => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      if (errorMessage) {
+        stderr += `${stderr ? '\n' : ''}${errorMessage}`;
       }
 
       resolve({
-        ok: exitCode === 0,
+        ok: exitCode === 0 && !timedOut,
         exitCode,
         stdout,
         stderr,
-        errors,
+        errors: parseVeriFastErrors(stdout, stderr),
+        timedOut
       });
+    };
+
+    child.stdout.on('data', (d: Buffer) => (stdout += d.toString('utf8')));
+    child.stderr.on('data', (d: Buffer) => (stderr += d.toString('utf8')));
+    child.on('error', error => {
+      finish(1, error.message);
     });
+    child.on('close', code => {
+      finish(timedOut ? 124 : (code ?? 1));
+    });
+
+    timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+      finish(124, `VeriFast timed out after ${timeoutMs} ms.`);
+    }, timeoutMs);
   });
 }
 
@@ -103,13 +112,15 @@ export async function runVeriFastBundle(args: {
   runtimeFiles: string[];
   extraArgs?: string[];
   compileOnly?: boolean;
+  timeoutMs?: number;
 }): Promise<VeriFastBundleResult> {
   const runtimeChecks: VeriFastRuntimeCheck[] = [];
   for (const runtimeFile of args.runtimeFiles) {
     const result = await runVeriFast({
       verifastExe: args.verifastExe,
       file: runtimeFile,
-      compileOnly: true
+      compileOnly: true,
+      timeoutMs: args.timeoutMs
     });
     runtimeChecks.push({
       component: path.basename(runtimeFile),
@@ -126,9 +137,39 @@ export async function runVeriFastBundle(args: {
     verifastExe: args.verifastExe,
     file: args.file,
     extraArgs: args.extraArgs,
-    compileOnly: args.compileOnly
+    compileOnly: args.compileOnly,
+    timeoutMs: args.timeoutMs
   });
   return { ...programResult, runtimeChecks, verificationTarget: 'program' };
+}
+
+function withSourceOptions(extraArgs: string[]): string[] {
+  return extraArgs.includes('-prover') || extraArgs.includes('-read_options_from_source_file')
+    ? extraArgs
+    : ['-read_options_from_source_file', ...extraArgs];
+}
+
+function normalizeTimeout(timeoutMs: number | undefined): number {
+  return Number.isFinite(timeoutMs) && (timeoutMs ?? 0) > 0
+    ? Math.floor(timeoutMs as number)
+    : DEFAULT_TIMEOUT_MS;
+}
+
+function parseVeriFastErrors(stdout: string, stderr: string): VeriFastError[] {
+  const errors: VeriFastError[] = [];
+  for (const line of `${stdout}\n${stderr}`.split(/\r?\n/)) {
+    const match = line.match(VF_LINE_RE);
+    if (!match) continue;
+    errors.push({
+      file: match[1],
+      line: Number(match[2]),
+      colFrom: Number(match[3]),
+      colTo: Number(match[4]),
+      kind: match[5] as 'error' | 'note',
+      message: match[6].trim()
+    });
+  }
+  return errors;
 }
 
 export function applyCSourceMapToVeriFastResult(result: VeriFastResult, sourceMap: CSourceMapFile): VeriFastResult {

@@ -3,7 +3,6 @@
  * Licensed under the MIT License. See LICENSE in the package root for license information.
  * ------------------------------------------------------------------------------------------ */
 
-import { spawn } from 'node:child_process';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { defineConfig, type Plugin } from 'vite';
 import fs from 'node:fs';
@@ -12,6 +11,7 @@ import * as path from 'node:path';
 import importMetaUrlPlugin from '@codingame/esbuild-import-meta-url-plugin';
 import vsixPlugin from '@codingame/monaco-vscode-rollup-vsix-plugin';
 import { runCSource } from './packages/cli/src/c-runner.js';
+import { runVeriFast, type VeriFastResult } from './packages/cli/src/verifast.js';
 
 /// <reference lib="rolldown-vite/config" />
 
@@ -21,7 +21,7 @@ const VERIFIED_RUNTIME_FILES = [
     path.resolve(__dirname, 'runtime', 'c', 'pseudo2_scalar_runtime.c')
 ];
 const MAX_VERIFAST_BODY_BYTES = 5 * 1024 * 1024;
-const VF_LINE_RE = /^(.*)\((\d+),(\d+)-(\d+)\):\s*(error|note):\s*(.*)$/;
+const DEFAULT_VERIFAST_TIMEOUT_MS = 60_000;
 let cRunInProgress = false;
 
 export const definedViteConfig = defineConfig({
@@ -120,6 +120,7 @@ type VeriFastApiRequest = {
     sourceFile?: unknown;
     sourceMap?: unknown;
     extraArgs?: unknown;
+    timeoutMs?: unknown;
 };
 
 type CRunApiRequest = {
@@ -129,24 +130,7 @@ type CRunApiRequest = {
     timeoutMs?: unknown;
 };
 
-type VeriFastError = {
-    file: string;
-    line: number;
-    colFrom: number;
-    colTo: number;
-    kind: 'error' | 'note';
-    message: string;
-    sourceFile?: string;
-    sourceLine?: number;
-};
-
-type VeriFastProcessResult = {
-    ok: boolean;
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-    errors: VeriFastError[];
-};
+type VeriFastProcessResult = VeriFastResult;
 
 type CSourceMapEntry = {
     generatedLine: number;
@@ -277,6 +261,7 @@ async function handleVeriFastApi(req: IncomingMessage, res: ServerResponse): Pro
 
     const verifastExe = DEFAULT_VERIFAST_EXE;
     const extraArgs = Array.isArray(body.extraArgs) ? body.extraArgs.filter((arg): arg is string => typeof arg === 'string') : [];
+    const timeoutMs = normalizeVeriFastTimeout(body.timeoutMs);
     const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'pseudo2-verifast-'));
     const file = path.join(tempDir, sanitizeCFileName(typeof body.fileName === 'string' ? body.fileName : 'program.c'));
 
@@ -297,7 +282,7 @@ async function handleVeriFastApi(req: IncomingMessage, res: ServerResponse): Pro
 
     const runtimeChecks: Array<{ component: string; ok: boolean; exitCode: number }> = [];
     for (const runtimeFile of VERIFIED_RUNTIME_FILES) {
-        const runtimeResult = await runVeriFastProcess(verifastExe, runtimeFile, []);
+        const runtimeResult = await runVeriFastProcess(verifastExe, runtimeFile, [], timeoutMs);
         runtimeChecks.push({
             component: path.basename(runtimeFile),
             ok: runtimeResult.ok,
@@ -310,7 +295,7 @@ async function handleVeriFastApi(req: IncomingMessage, res: ServerResponse): Pro
     }
 
     const result = mapVeriFastResultToSource(
-        await runVeriFastProcess(verifastExe, file, extraArgs),
+        await runVeriFastProcess(verifastExe, file, extraArgs, timeoutMs),
         parseSourceMap(body.sourceMap),
         typeof body.sourceFile === 'string' ? body.sourceFile : undefined
     );
@@ -397,70 +382,25 @@ function destroyReadable(stream: IncomingMessage): void {
     stream.destroy();
 }
 
-function runVeriFastProcess(verifastExe: string, file: string, extraArgs: string[]): Promise<VeriFastProcessResult> {
-    return new Promise(resolve => {
-        const child = spawn(verifastExe, ['-c', ...extraArgs, file], {
-            windowsHide: true,
-            shell: false
-        });
-
-        let stdout = '';
-        let stderr = '';
-        let settled = false;
-
-        child.stdout.on('data', (chunk: Buffer) => {
-            stdout += chunk.toString('utf8');
-        });
-        child.stderr.on('data', (chunk: Buffer) => {
-            stderr += chunk.toString('utf8');
-        });
-        child.on('error', error => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            resolve({
-                ok: false,
-                exitCode: 1,
-                stdout,
-                stderr: `${stderr}${stderr ? '\n' : ''}${formatServerError(error)}`,
-                errors: parseVeriFastErrors(stdout, stderr)
-            });
-        });
-        child.on('close', code => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            const exitCode = code ?? 1;
-            resolve({
-                ok: exitCode === 0,
-                exitCode,
-                stdout,
-                stderr,
-                errors: parseVeriFastErrors(stdout, stderr)
-            });
-        });
+function runVeriFastProcess(
+    verifastExe: string,
+    file: string,
+    extraArgs: string[],
+    timeoutMs: number
+): Promise<VeriFastProcessResult> {
+    return runVeriFast({
+        verifastExe,
+        file,
+        extraArgs,
+        compileOnly: true,
+        timeoutMs
     });
 }
 
-function parseVeriFastErrors(stdout: string, stderr: string): VeriFastError[] {
-    const errors: VeriFastError[] = [];
-    for (const line of `${stdout}\n${stderr}`.split(/\r?\n/)) {
-        const match = line.match(VF_LINE_RE);
-        if (!match) {
-            continue;
-        }
-        errors.push({
-            file: match[1],
-            line: Number(match[2]),
-            colFrom: Number(match[3]),
-            colTo: Number(match[4]),
-            kind: match[5] as 'error' | 'note',
-            message: match[6].trim()
-        });
-    }
-    return errors;
+function normalizeVeriFastTimeout(value: unknown): number {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+        ? Math.min(Math.floor(value), 5 * 60_000)
+        : DEFAULT_VERIFAST_TIMEOUT_MS;
 }
 
 function sanitizeCFileName(fileName: string): string {

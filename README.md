@@ -262,6 +262,20 @@ Alternativ kann ein anderer Pfad explizit angegeben werden:
 node .\packages\cli\bin\cli.js verifast .\out\test1.c --vf "C:\Pfad\zu\verifast.exe"
 ```
 
+Ein VeriFast-Prozess wird standardmaessig nach 60 Sekunden beendet. Das Limit
+kann fuer aufwendigere Beweise angepasst werden:
+
+```powershell
+node .\packages\cli\bin\cli.js verifast .\out\test1.c --timeout 120000
+```
+
+Redux bleibt der Standard-Prover fuer Programme und die konkreten Runtimes.
+Bei annotierten Schleifen, die Struct-Felder veraendern, schreibt der
+C-Generator automatisch eine VeriFast-Option fuer `Z3v4.5` in die C-Datei.
+Der gemeinsame Runner liest diese Option. Diese gezielte Auswahl verhindert
+nicht terminierende Redux-Beweissuchen, ohne die Runtime-Pruefung auf den dort
+ungeeigneten Z3-Prover umzustellen.
+
 Die Ausgabe ist JSON, z. B.:
 
 ```json
@@ -312,6 +326,9 @@ node .\packages\cli\bin\cli.js verifast .\out\test1.c --link
 
 # Nur das angegebene C-Programm pruefen
 node .\packages\cli\bin\cli.js verifast .\out\test1.c --no-runtime
+
+# Prozesslimit auf zwei Minuten setzen
+node .\packages\cli\bin\cli.js verifast .\out\test1.c --timeout 120000
 ```
 
 `--link` sollte nur verwendet werden, wenn konkrete Runtime-Manifeste oder

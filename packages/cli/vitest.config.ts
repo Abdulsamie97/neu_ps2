@@ -5,6 +5,7 @@ export default defineConfig({
     deps: {
       interopDefault: true
     },
-    include: ['test/**/*.test.ts']
+    include: ['test/**/*.test.ts'],
+    watch: false
   }
 });

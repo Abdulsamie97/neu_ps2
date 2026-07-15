@@ -431,6 +431,44 @@ describe('CGenerator', () => {
     expect(c).toContain('ps2_model_int(ps2_struct_field_lookup(1, __ps2_struct_ensures_0)) == 7');
   });
 
+  test('selects Z3 for annotated loops that mutate Struct fields', async () => {
+    const c = await generateC(`
+      struct Counter
+        num value
+
+      @requires true
+      @ensures vf_struct(result) && vf_int(vf_field(result, "value")) == 1
+      func count()
+        var counter = new Counter
+        counter.value = 0
+        var i = 0
+        @invariant vf_struct(counter) && vf_integer(vf_field(counter, "value")) && vf_int(vf_field(counter, "value")) == vf_int(i) && vf_integer(i) && vf_int(i) >= 0 && vf_int(i) <= 1
+        while i < 1
+          counter.value = counter.value + 1
+          i = i + 1
+        return counter
+    `);
+
+    expect(c).toMatch(/^\/\/verifast_options\{prover:Z3v4\.5\}/);
+  });
+
+  test('keeps the default prover for array-only loops', async () => {
+    const c = await generateC(`
+      @requires true
+      @ensures vf_array(result) && vf_len(result) == 1
+      func fill()
+        var values[1] = 0
+        var i = 0
+        @invariant vf_array(values) && vf_len(values) == 1 && vf_integer(i) && vf_int(i) >= 0 && vf_int(i) <= 1
+        while i < 1
+          values[1] = i
+          i = i + 1
+        return values
+    `);
+
+    expect(c).not.toContain('//verifast_options{prover:Z3v4.5}');
+  });
+
   test('maps loop decreases annotations to Pseudo2 lines', async () => {
     const source = [
       'var i = 0',

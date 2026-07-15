@@ -56,7 +56,10 @@ node .\packages\cli\bin\cli.js verifast .\out\test1.c
 `verifast` uses VeriFast `-c` by default. It first verifies the repo-local heap
 and scalar runtime kernels and then the generated client. Use `--no-runtime`
 only for an intentionally isolated client check. Use `--link` only when link
-checking is explicitly required.
+checking is explicitly required. Each process has a 60-second timeout; change
+it with `--timeout <ms>`. Redux remains the default prover. Generated programs
+with annotated Struct-mutating loops select `Z3v4.5` through a source option,
+which the shared CLI/Web runner reads automatically.
 
 Run the positive and negative VeriFast examples:
 

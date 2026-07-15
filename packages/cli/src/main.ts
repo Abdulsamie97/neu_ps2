@@ -130,11 +130,13 @@ export default function(): void {
         .argument('<file>', 'C file to verify (e.g. out/generated.c)')
         .option('--vf <path>', 'path to verifast.exe; defaults to repo-local verifast-26.01')
         .option('--extra <args...>', 'extra args passed to verifast (optional)')
+        .option('--timeout <ms>', 'maximum VeriFast runtime in milliseconds', '60000')
         .option('--link', 'enable VeriFast link checking; default verifies generated C only with -c')
         .option('--no-runtime', 'skip verification of the repo-local concrete runtime kernels')
         .description('runs VeriFast on a C file and prints JSON result')
-        .action(async (file: string, opts: { vf?: string; extra?: string[]; link?: boolean; runtime?: boolean }) => {
+        .action(async (file: string, opts: { vf?: string; extra?: string[]; timeout?: string; link?: boolean; runtime?: boolean }) => {
             const verifastExe = opts.vf ?? DEFAULT_VERIFAST_EXE;
+            const timeoutMs = parseVeriFastTimeout(opts.timeout);
             try {
                 await fs.access(verifastExe);
             } catch {
@@ -158,12 +160,14 @@ export default function(): void {
                     runtimeFiles,
                     extraArgs: opts.extra ?? [],
                     compileOnly: opts.link !== true,
+                    timeoutMs,
                 })
                 : await runVeriFast({
                     verifastExe,
                     file,
                     extraArgs: opts.extra ?? [],
                     compileOnly: opts.link !== true,
+                    timeoutMs,
             });
             const sourceMap = await readCSourceMap(file);
             const mapsProgramDiagnostics = !('verificationTarget' in result) || result.verificationTarget === 'program';
@@ -233,6 +237,14 @@ function parseTimeout(value: string | undefined): number {
     const timeout = Number(value ?? 10_000);
     if (!Number.isFinite(timeout) || timeout <= 0) {
         throw new Error(`Invalid C execution timeout: ${value}`);
+    }
+    return Math.floor(timeout);
+}
+
+function parseVeriFastTimeout(value: string | undefined): number {
+    const timeout = Number(value ?? 60_000);
+    if (!Number.isFinite(timeout) || timeout <= 0) {
+        throw new Error(`Invalid VeriFast timeout: ${value}`);
     }
     return Math.floor(timeout);
 }

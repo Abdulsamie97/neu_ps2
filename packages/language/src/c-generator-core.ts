@@ -163,6 +163,9 @@ function generateCProgramInternal(
   const arrayFillHelpers = generateArrayFillHelpers(arrayFillArities, options.runtime ?? 'contracts');
   const stringLiteralHelpers = generateStringLiteralHelpers(stringLiterals, options.runtime ?? 'contracts');
   const divisionLiteralHelpers = generateDivisionLiteralHelpers(divisionLiterals, options.runtime ?? 'contracts');
+  const verifastOptions = options.runtime !== 'implementation' && hasMutatingStructLoop(program)
+    ? '//verifast_options{prover:Z3v4.5}'
+    : '';
   const rootState: CGeneratorState = {
     ...DEFAULT_STATE,
     sourceMap,
@@ -190,6 +193,7 @@ function generateCProgramInternal(
   ].filter(Boolean).join('\n');
 
   return [
+    verifastOptions,
     runtimePrelude,
     arrayLiteralHelpers,
     arrayFillHelpers,
@@ -200,6 +204,23 @@ function generateCProgramInternal(
     definitions,
     generateMain(mainBody, globalVariables, context, moduleName, rootState.ownedHeapLocals ?? [])
   ].filter(Boolean).join('\n\n');
+}
+
+function hasMutatingStructLoop(program: Program): boolean {
+  for (const node of AstUtils.streamAllContents(program)) {
+    if (!isWhileLoop(node) && !isForLoop(node) && !isDoWhileLoop(node)) {
+      continue;
+    }
+    if ((node.annotations?.length ?? 0) === 0) {
+      continue;
+    }
+    for (const bodyNode of AstUtils.streamAllContents(node.body)) {
+      if (isAssignment(bodyNode) && isAttSelection(bodyNode.sel)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function collectDivisionLiterals(program: Program): number[] {

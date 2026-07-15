@@ -1,3 +1,9 @@
+/**
+ * @file UtilTests.test.ts
+ * @brief Prüft AST-Durchläufe und die Klassifikation von Variablen- und Attribut-Schreibzugriffen.
+ * @author Abdul
+ */
+
 import { describe, test, expect } from 'vitest';
 import { AstUtils, EmptyFileSystem, URI, type AstNode } from 'langium';
 
@@ -11,11 +17,18 @@ import {
 } from '../../src/generated/ast.js';
 import { createPseudo2Services } from '../../src/pseudo2-module.js';
 
+/** Integrationssuite für allgemeine AST-Hilfsoperationen. */
 describe('UtilTests', () => {
+  /** Fortlaufende Nummer für eindeutige In-Memory-Testdokumente. */
   let docCounter = 0;
 
   // Entfernt gemeinsame führende Einrückung aus Template-Strings,
   // damit die Testprogramme sauber geparst werden können.
+  /**
+   * Entfernt Leerzeilen am Rand und gemeinsame führende Einrückung.
+   * @param text Eingerückter Pseudo2-Template-String.
+   * @returns Normalisierter Quelltext.
+   */
   function dedent(text: string): string {
     const lines = text.replace(/\r/g, '').split('\n');
 
@@ -35,6 +48,11 @@ describe('UtilTests', () => {
   }
 
   // Parst ein Pseudo2-Programm mit frischen Services.
+  /**
+   * Parst und validiert ein Pseudo2-Programm in einem eindeutigen Speicherdokument.
+   * @param text Pseudo2-Quelltext.
+   * @returns Geparstes Program-AST.
+   */
   async function parseModel(text: string): Promise<Program> {
     const services = createPseudo2Services(EmptyFileSystem);
     const documentBuilder = services.shared.workspace.DocumentBuilder;
@@ -48,6 +66,12 @@ describe('UtilTests', () => {
   }
 
   // Sammelt alle Knoten eines bestimmten Typs innerhalb eines AST-Knotens.
+  /**
+   * Sammelt Wurzel und Nachfahren, die einen angegebenen Type Guard erfüllen.
+   * @param root Ausgangsknoten.
+   * @param guard Type Guard des gesuchten AST-Typs.
+   * @returns Passende Knoten in Traversierungsreihenfolge.
+   */
   function allNodesOfType<T extends AstNode>(
     root: AstNode,
     guard: (node: AstNode) => node is T
@@ -69,6 +93,7 @@ describe('UtilTests', () => {
 
   // Prüft für eine VarRef, ob sie auf der linken Seite einer Zuweisung steht.
   // Das entspricht dem alten util-Test "isWriteAccess".
+  /** @param node Variablenreferenz. @returns `true`, wenn sie direktes Ziel einer Zuweisung ist. */
   function isWriteAccessVarRef(node: VarRef): boolean {
     const parent = node.$container;
     return isAssignment(parent) && parent.sel === node;
@@ -76,6 +101,7 @@ describe('UtilTests', () => {
 
   // Prüft für eine AttSelection, ob sie auf der linken Seite einer Zuweisung steht.
   // Das entspricht dem alten util-Test "isWriteAccess" für Selektionen.
+  /** @param node Attributselektion. @returns `true`, wenn sie direktes Ziel einer Zuweisung ist. */
   function isWriteAccessAttSelection(node: AttSelection): boolean {
     const parent = node.$container;
     return isAssignment(parent) && parent.sel === node;

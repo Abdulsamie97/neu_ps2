@@ -1,3 +1,14 @@
+/**
+ * @file VeriFastSourceMap.test.ts
+ * @brief Prüft VeriFast-Ausführung, Pseudo2-Source-Map-Diagnosen und die konkreten C-Runtimes.
+ *
+ * Gültige Beispiele müssen beweisbar sein, absichtlich ungültige Beispiele müssen
+ * Pseudo2-Zeilen melden. Zusätzlich werden Heap- und Skalar-Runtime separat und als
+ * gemeinsames Bundle mit einem generierten Programm verifiziert.
+ *
+ * @author Abdul
+ */
+
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -13,12 +24,18 @@ import {
   type VeriFastResult
 } from '../../src/verifast.js';
 
+/** Absoluter Wurzelpfad des Repositories ausgehend vom Testmodul. */
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url));
+/** Verzeichnis der gültigen und ungültigen Pseudo2-VeriFast-Beispiele. */
 const examplesRoot = path.join(repoRoot, 'examples', 'verifast');
+/** Im Repository erwartete VeriFast-Programmdatei. */
 const verifastExe = path.join(repoRoot, 'verifast-26.01', 'bin', 'verifast.exe');
+/** Konkret separat verifizierte Array- und Struct-Heap-Runtime. */
 const concreteHeapRuntime = path.join(repoRoot, 'runtime', 'c', 'pseudo2_heap_runtime.c');
+/** Konkret separat verifizierte Skalar-, String-, I/O- und Disposal-Runtime. */
 const concreteScalarRuntime = path.join(repoRoot, 'runtime', 'c', 'pseudo2_scalar_runtime.c');
 
+/** Beispiele, deren generierter C-Code von VeriFast vollständig akzeptiert werden muss. */
 const validExamples = [
   'valid_array_parameter_length.pseudo2',
   'valid_array_parameter_dynamic_index.pseudo2',
@@ -68,6 +85,7 @@ const validExamples = [
   'valid_top_level_assert.pseudo2'
 ];
 
+/** Beispiele, die gezielt einen Beweisfehler mit rückgemappter Pseudo2-Zeile erzeugen. */
 const invalidExamples = [
   'invalid_assert_false.pseudo2',
   'invalid_assert_expression.pseudo2',
@@ -116,6 +134,7 @@ const invalidExamples = [
   'invalid_top_level_assert_false.pseudo2'
 ];
 
+/** Integrationssuite für Source Maps, Beispiele und konkrete Runtime-Beweise. */
 describe('VeriFast source maps', () => {
   test('maps VeriFast C diagnostics back to Pseudo2 source lines', () => {
     const result: VeriFastResult = {
@@ -146,7 +165,9 @@ describe('VeriFast source maps', () => {
     });
   });
 
+  /** Verwendet echte Tests nur bei vorhandener Repository-VeriFast-Installation. */
   const testWithVeriFast = fs.existsSync(verifastExe) ? test : test.skip;
+  /** Gemeinsames temporäres Zielverzeichnis der datengesteuerten Beispielverifikation. */
   const examplesDestination = fs.existsSync(verifastExe)
     ? fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-verifast-examples-'))
     : '';
@@ -203,6 +224,12 @@ describe('VeriFast source maps', () => {
   });
 });
 
+/**
+ * Generiert C und Source Map eines Beispiels, startet VeriFast und mappt dessen Diagnosen zurück.
+ * @param example Dateiname unterhalb des VeriFast-Beispielordners.
+ * @param destination Temporäres Zielverzeichnis für C und Map.
+ * @returns VeriFast-Ergebnis mit ergänzten Pseudo2-Quellpositionen.
+ */
 async function generateAndVerify(example: string, destination: string): Promise<VeriFastResult> {
   const sourcePath = path.join(examplesRoot, example);
   await generateCAction(sourcePath, { destination });
@@ -218,10 +245,17 @@ async function generateAndVerify(example: string, destination: string): Promise<
   return applyCSourceMapToVeriFastResult(result, sourceMap);
 }
 
+/** @param fileName Pseudo2-Dateiname. @returns Für die CLI-Ausgabe bereinigter Basisname. */
 function generatedBaseName(fileName: string): string {
   return path.basename(fileName, path.extname(fileName)).replace(/[.-]/g, '');
 }
 
+/**
+ * Formatiert alle Prozessausgaben und Diagnosen eines fehlgeschlagenen Beispielbeweises.
+ * @param example Name des geprüften Beispiels.
+ * @param result VeriFast-Ergebnis.
+ * @returns Mehrzeilige Vitest-Fehlermeldung.
+ */
 function formatFailure(example: string, result: VeriFastResult): string {
   return [
     `${example}: exit ${result.exitCode}`,
@@ -231,6 +265,11 @@ function formatFailure(example: string, result: VeriFastResult): string {
   ].filter(Boolean).join('\n');
 }
 
+/**
+ * Formatiert Prozessausgaben und Diagnosen einer fehlgeschlagenen Runtime-Verifikation.
+ * @param result VeriFast-Ergebnis.
+ * @returns Mehrzeilige Vitest-Fehlermeldung.
+ */
 function formatRuntimeFailure(result: VeriFastResult): string {
   return [
     `concrete heap runtime: exit ${result.exitCode}`,

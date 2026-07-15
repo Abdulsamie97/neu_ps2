@@ -1,13 +1,26 @@
+/**
+ * @file Pseudo2Parsing.test.ts
+ * @brief Prüft einen grundlegenden Pseudo2-Parsevorgang einschließlich Validierungsdiagnosen.
+ * @author Abdul
+ */
+
 import { describe, test, expect } from 'vitest';
 import { EmptyFileSystem, URI, type LangiumDocument } from 'langium';
 
 import type { Program } from '../../src/generated/ast.js';
 import { createPseudo2Services } from '../../src/pseudo2-module.js';
 
+/** Grundlegende Parsing-Suite mit eigenem In-Memory-Dokumentaufbau. */
 describe('Pseudo2ParsingTest', () => {
+  /** Fortlaufende Nummer für eindeutige In-Memory-Dokumente. */
   let docCounter = 0;
 
   // Entfernt gemeinsame führende Einrückung aus Template-Strings.
+  /**
+   * Entfernt Randzeilen und gemeinsame Einrückung eines Template-Strings.
+   * @param text Eingerückter Pseudo2-Quelltext.
+   * @returns Normalisierter Quelltext.
+   */
   function dedent(text: string): string {
     const lines = text.replace(/\r/g, '').split('\n');
 
@@ -28,6 +41,11 @@ describe('Pseudo2ParsingTest', () => {
   }
 
   // Parst einen Pseudo2-Text mit frischen Services und liefert Modell + Dokument zurück.
+  /**
+   * Parst und validiert ein Pseudo2-Programm mit frischen Langium-Diensten.
+   * @param text Pseudo2-Quelltext.
+   * @returns Program-AST und Langium-Dokument.
+   */
   async function parseModel(text: string): Promise<{ model: Program; document: LangiumDocument }> {
     const services = createPseudo2Services(EmptyFileSystem);
     const documentBuilder = services.shared.workspace.DocumentBuilder;
@@ -45,6 +63,7 @@ describe('Pseudo2ParsingTest', () => {
   }
 
   // Prüft, dass keine Fehlerdiagnosen im Dokument vorhanden sind.
+  /** @param document Validiertes Dokument, das keine Fehlerdiagnosen enthalten darf. */
   function assertNoErrors(document: LangiumDocument): void {
     const errors = (document.diagnostics ?? []).filter(d => d.severity === 1);
     expect(errors.map(e => e.message).join('\n')).toBe('');

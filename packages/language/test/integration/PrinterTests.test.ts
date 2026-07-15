@@ -1,3 +1,13 @@
+/**
+ * @file PrinterTests.test.ts
+ * @brief Prüft eine kanonische AST-Repräsentation sämtlicher Pseudo2-Ausdrucksklassen.
+ *
+ * Die Suite parst Ausdrücke in einer neutralen Rückgabefunktion und bildet den AST
+ * anschließend deterministisch auf Text ab, um Präzedenz, Ketten und Literale zu prüfen.
+ *
+ * @author Abdul
+ */
+
 import { describe, test, expect } from 'vitest';
 import { EmptyFileSystem, URI, type LangiumDocument } from 'langium';
 
@@ -32,10 +42,17 @@ import {
 
 import { createPseudo2Services } from '../../src/pseudo2-module.js';
 
+/** Integrationssuite für Parser-AST und kanonische Ausdrucksrepräsentation. */
 describe('PrinterTests', () => {
+  /** Fortlaufende Nummer für eindeutige In-Memory-Testdokumente. */
   let docCounter = 0;
 
   // Entfernt gemeinsame führende Einrückung aus Template-Strings.
+  /**
+   * Normalisiert gemeinsame Einrückung eines mehrzeiligen Testprogramms.
+   * @param text Eingerückter Template-String.
+   * @returns Quelltext bei erhaltener relativer Einrückung.
+   */
   function dedent(text: string): string {
     const lines = text.replace(/\r/g, '').split('\n');
 
@@ -56,6 +73,11 @@ describe('PrinterTests', () => {
   }
 
   // Parst ein kleines Pseudo2-Programm mit genau einem print-Ausdruck.
+  /**
+   * Parst und validiert ein Pseudo2-Programm in einem frischen In-Memory-Dokument.
+   * @param text Pseudo2-Quelltext.
+   * @returns AST-Programm und Dokumentdiagnosen.
+   */
   async function parseProgram(text: string): Promise<{ model: Program; document: LangiumDocument }> {
     const services = createPseudo2Services(EmptyFileSystem);
     const documentBuilder = services.shared.workspace.DocumentBuilder;
@@ -73,6 +95,7 @@ describe('PrinterTests', () => {
   }
 
   // Prüft, dass keine Fehlerdiagnosen im Dokument vorhanden sind.
+  /** @param document Validiertes Langium-Dokument, das keine Fehler enthalten darf. */
   function assertNoErrors(document: LangiumDocument): void {
     const errors = (document.diagnostics ?? []).filter(d => d.severity === 1);
     expect(errors.map(e => e.message).join('\n')).toBe('');
@@ -81,6 +104,11 @@ describe('PrinterTests', () => {
   // Parst einen einzelnen Ausdruck in einem neutralen Kontext.
   // Wir packen ihn in eine kleine Testfunktion und lesen dann die return-Expression aus.
   // So testen wir den Ausdruck selbst, ohne dass print Arrays verbietet.
+  /**
+   * Parst einen Ausdruck als Rückgabewert einer synthetischen Funktion.
+   * @param text Pseudo2-Ausdruck.
+   * @returns Aufgebauter Ausdrucks-AST.
+   */
   async function parseExpression(text: string): Promise<Expr> {
     const { model, document } = await parseProgram(`
       func __printer_test__()
@@ -100,6 +128,11 @@ describe('PrinterTests', () => {
   }
 
   // Formatiert einen Ausdruck in die kanonische Repräsentation
+  /**
+   * Formatiert Literale, Gruppierungen, unäre Ausdrücke und Operatorbäume rekursiv.
+   * @param expr Zu formatierender Ausdrucksknoten.
+   * @returns Kanonische Testrepräsentation.
+   */
   function reprExpr(expr: Expr): string {
     if (isIntLiteral(expr)) return String(expr.value);
     if (isBoolLiteral(expr)) return String(expr.value);
@@ -155,6 +188,13 @@ describe('PrinterTests', () => {
   }
 
   // Formatiert logische Operator-Ketten.
+  /**
+   * Formatiert eine Kette mit einem einheitlichen logischen Operator.
+   * @param left Erster Operand.
+   * @param op Operator zwischen allen Operanden.
+   * @param rights Weitere Operanden.
+   * @returns Einzeloperand oder geklammerte Kette.
+   */
   function chainRepr(left: Expr, op: string, rights: Expr[]): string {
     const parts = [reprExpr(left), ...rights.map(r => reprExpr(r))];
     if (parts.length === 1) {
@@ -164,6 +204,13 @@ describe('PrinterTests', () => {
   }
 
   // Formatiert Operator-Ketten mit expliziter Operatorliste.
+  /**
+   * Formatiert eine Kette, deren Verknüpfungen jeweils einen eigenen Operator besitzen.
+   * @param left Erster Operand.
+   * @param ops Operatoren der nachfolgenden Operanden.
+   * @param rights Weitere Operanden.
+   * @returns Einzeloperand oder geklammerte Operatorfolge.
+   */
   function opChainRepr(left: Expr, ops: string[], rights: Expr[]): string {
     if (rights.length === 0) {
       return reprExpr(left);
@@ -178,11 +225,17 @@ describe('PrinterTests', () => {
   }
 
   // Escaped einfache Quotes für die Test-Repräsentation.
+  /** @param value Roher Stringwert. @returns Für eine einfach gequotete Darstellung maskierter Inhalt. */
   function escapeSingleQuoted(value: string): string {
     return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   }
 
     // Hilfsfunktion wie das alte ParseUtil.assertRepr(...).
+    /**
+     * Parst einen Ausdruck und vergleicht seine kanonische AST-Repräsentation.
+     * @param input Pseudo2-Ausdruck.
+     * @param expected Erwartete Repräsentation.
+     */
     async function assertRepr(input: string, expected: string): Promise<void> {
       const expr = await parseExpression(input);
       expect(reprExpr(expr)).toBe(expected);

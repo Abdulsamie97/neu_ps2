@@ -1,16 +1,36 @@
+/**
+ * @file main.ts
+ * @brief Aktiviert die Pseudo2-VS-Code-Erweiterung und verwaltet ihren Language Client.
+ *
+ * Der Einstiegspunkt startet den gebündelten Node-Language-Server über IPC,
+ * registriert ihn für Pseudo2-Dokumente und beendet die Verbindung beim Deaktivieren
+ * der Erweiterung kontrolliert.
+ *
+ * @author Abdul
+ */
+
 import type { LanguageClientOptions, ServerOptions } from 'vscode-languageclient/node.js';
 import type * as vscode from 'vscode';
 import * as path from 'node:path';
 import { LanguageClient, TransportKind } from 'vscode-languageclient/node.js';
 
+/** Aktuell laufender Pseudo2-Language-Client der Erweiterungsinstanz. */
 let client: LanguageClient;
 
 // This function is called when the extension is activated.
+/**
+ * Aktiviert die Erweiterung und startet den Pseudo2-Language-Client.
+ * @param context Von VS Code bereitgestellter Erweiterungskontext zur Pfadauflösung.
+ */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     client = await startLanguageClient(context);
 }
 
 // This function is called when the extension is deactivated.
+/**
+ * Beendet einen laufenden Language Client und damit auch seine Serververbindung.
+ * @returns Stop-Promise des Clients oder `undefined`, wenn kein Client gestartet wurde.
+ */
 export function deactivate(): Thenable<void> | undefined {
     if (client) {
         return client.stop();
@@ -18,6 +38,15 @@ export function deactivate(): Thenable<void> | undefined {
     return undefined;
 }
 
+/**
+ * Konfiguriert und startet den gebündelten Language Server als IPC-Kindprozess.
+ * Im VS-Code-Debugmodus werden Node-Inspector-Optionen verwendet; `DEBUG_BREAK`
+ * aktiviert das Warten auf den Debugger und `DEBUG_SOCKET` überschreibt Port 6009.
+ * Der Client verarbeitet Dokumente mit der Sprachkennung `pseudo2` unabhängig vom URI-Schema.
+ *
+ * @param context Erweiterungskontext zur absoluten Auflösung des Servermoduls.
+ * @returns Vollständig gestarteter Pseudo2-Language-Client.
+ */
 async function startLanguageClient(context: vscode.ExtensionContext): Promise<LanguageClient> {
     const serverModule = context.asAbsolutePath(path.join('out', 'language', 'main.cjs'));
     // The debug options for the server

@@ -1,13 +1,30 @@
+/**
+ * @file ParsingLectADK.test.ts
+ * @brief Prüft die portierten ADK-Lehrbeispiele gegen die aktuelle Pseudo2-Grammatik.
+ *
+ * Die Suite deckt Variablen, Ausdrücke, Arrays, Kontrollfluss, Funktionen und
+ * ausgewählte Struct-Konstrukte anhand kleiner vollständiger Programme ab.
+ *
+ * @author Abdul
+ */
+
 import { describe, test, expect } from 'vitest';
 import { EmptyFileSystem, URI, type LangiumDocument } from 'langium';
 
 import type { Program } from '../../src/generated/ast.js';
 import { createPseudo2Services } from '../../src/pseudo2-module.js';
 
+/** Parsing-Suite der an die aktuelle Syntax angepassten ADK-Beispiele. */
 describe('ParsingTests_LectADK', () => {
+  /** Fortlaufende Nummer für eindeutige ADK-Testdokumente. */
   let docCounter = 0;
 
   // Entfernt gemeinsame führende Einrückung aus Template-Strings.
+  /**
+   * Normalisiert die gemeinsame Einrückung eingebetteter ADK-Programme.
+   * @param text Eingerückter Template-String.
+   * @returns Parsebarer Pseudo2-Quelltext.
+   */
   function dedent(text: string): string {
     const lines = text.replace(/\r/g, '').split('\n');
 
@@ -28,6 +45,11 @@ describe('ParsingTests_LectADK', () => {
   }
 
   // Parst ein Pseudo2-Programm mit frischen Services.
+  /**
+   * Parst und validiert ein ADK-Testprogramm in einem In-Memory-Dokument.
+   * @param text Pseudo2-Quelltext.
+   * @returns Program-AST und Dokument mit Diagnosen.
+   */
   async function parseModel(text: string): Promise<{ model: Program; document: LangiumDocument }> {
     const services = createPseudo2Services(EmptyFileSystem);
     const documentBuilder = services.shared.workspace.DocumentBuilder;
@@ -45,6 +67,7 @@ describe('ParsingTests_LectADK', () => {
   }
 
   // Prüft, dass keine Fehlerdiagnosen im Dokument vorhanden sind.
+  /** @param document Validiertes Dokument, das keine Fehlerdiagnosen enthalten darf. */
   function assertNoErrors(document: LangiumDocument): void {
     const errors = (document.diagnostics ?? []).filter(d => d.severity === 1);
     expect(errors.map(e => e.message).join('\n')).toBe('');

@@ -1,7 +1,14 @@
+/**
+ * @file Summary.test.ts
+ * @brief Prüft die kompakte Programmzusammenfassung aus Pseudo2-Quelltext.
+ * @author Abdul
+ */
+
 import { describe, expect, test } from 'vitest';
 
 import { getSummaryFromCode } from '../../src/index.js';
 
+/** Integrationssuite für Zählung und Meldung der vom Parser erkannten Anweisungen. */
 describe('getSummaryFromCode', () => {
   test('summarizes declarations and diagnostics', async () => {
     const summary = await getSummaryFromCode(`

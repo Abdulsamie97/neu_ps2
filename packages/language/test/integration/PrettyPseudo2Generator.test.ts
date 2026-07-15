@@ -1,9 +1,20 @@
+/**
+ * @file PrettyPseudo2Generator.test.ts
+ * @brief Prüft die geklammerte Pretty-Print-Ausgabe und ihre Einbindung in die Artefaktpipeline.
+ *
+ * Die Tests sichern Blöcke, Structs, Funktionen, Schleifen, Annotationen,
+ * Operatorpräzedenz und erneutes Parsen der formatierten Ausgabe ab.
+ *
+ * @author Abdul
+ */
+
 import { describe, expect, test } from 'vitest';
 
 import { generateAllArtifacts } from '../../src/generator-artifacts.js';
 import { generatePrettyPseudo2 } from '../../src/generator-pretty.js';
 import { parseRuntimeProgram } from '../helpers/runtime-test-utils.js';
 
+/** Integrationssuite für Pretty-Pseudo2-Ausgabe und kombinierten Artefaktgenerator. */
 describe('PrettyPseudo2Generator', () => {
   test('prints an indented Pseudo2 program with explicit braces', async () => {
     const { model, document } = await parseRuntimeProgram(`
@@ -264,6 +275,10 @@ describe('PrettyPseudo2Generator', () => {
   });
 });
 
+/**
+ * Erwartet ein validiertes Dokument ohne Fehlerdiagnosen.
+ * @param document Dokumentähnliches Objekt mit optionalen Diagnosen.
+ */
 function expectErrors(document: { diagnostics?: Array<{ severity?: number; message: string }> }): void {
   const errors = (document.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1);
   expect(errors.map(error => error.message).join('\n')).toBe('');

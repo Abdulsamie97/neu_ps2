@@ -1,9 +1,20 @@
+/**
+ * @file GraphvizArtifacts.test.ts
+ * @brief Prüft Erzeugung und Inhalt der AST-, Dependency- und CFG-Graphviz-Artefakte.
+ *
+ * Abgedeckt sind normale Programme, größere ASTs, Funktionsabhängigkeiten,
+ * Kontrollflusskanten und Fehlersignalisierung bei ungültigem Pseudo2.
+ *
+ * @author Abdul
+ */
+
 import { describe, expect, test } from 'vitest';
 
 import { generateGraphvizArtifacts } from '../../src/generator-artifacts.js';
 import { generateGraphvizDep } from '../../src/graphviz/generator-graphviz-dep.js';
 import { parseRuntimeProgram } from '../helpers/runtime-test-utils.js';
 
+/** Integrationssuite für alle Graphviz-Generatoren und ihre gemeinsame Artefakt-API. */
 describe('GraphvizArtifacts', () => {
   test('generates AST, dependency and CFG artifacts for a function', async () => {
     const { model, document } = await parseRuntimeProgram(`
@@ -117,12 +128,22 @@ describe('GraphvizArtifacts', () => {
   });
 });
 
+/**
+ * Liefert den Inhalt eines benannten Generatorartefakts und schlägt bei fehlendem Eintrag fehl.
+ * @param artifacts Erzeugte Dateiname-Code-Paare.
+ * @param fileName Gesuchter Artefaktname.
+ * @returns Graphviz-Code des Artefakts.
+ */
 function artifactCode(artifacts: Array<{ fileName: string; code: string }>, fileName: string): string {
   const artifact = artifacts.find(candidate => candidate.fileName === fileName);
   expect(artifact).toBeTruthy();
   return artifact!.code;
 }
 
+/**
+ * Erwartet, dass ein geparstes Dokument keine Diagnosen mit Fehlerseverity enthält.
+ * @param document Dokumentähnliches Objekt mit optionalen Diagnosen.
+ */
 function expectErrors(document: { diagnostics?: Array<{ severity?: number; message: string }> }): void {
   const errors = (document.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1);
   expect(errors.map(error => error.message).join('\n')).toBe('');

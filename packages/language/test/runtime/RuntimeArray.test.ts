@@ -1,6 +1,16 @@
+/**
+ * @file RuntimeArray.test.ts
+ * @brief Prüft Erzeugung, 1-basierte Zugriffe, Zuweisungen, Grenzen und Parameterübergabe von Arrays.
+ *
+ * Erfolgs- und Fehlerfälle werden über den gemeinsamen JavaScript-Runtime-Testkontext ausgeführt.
+ *
+ * @author Abdul
+ */
+
 import { describe, test } from 'vitest';
 import { assertExecResult, assertExecThrows } from '../helpers/runtime-test-utils.js';
 
+/** Ausführungsbasierte Regressionstests der Pseudo2-Arraysemantik. */
 describe('RuntimeTestsArray', () => {
   test('array declaration initializes all cells', async () => {
     await assertExecResult(`

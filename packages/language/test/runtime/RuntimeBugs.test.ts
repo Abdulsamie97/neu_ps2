@@ -1,6 +1,17 @@
+/**
+ * @file RuntimeBugs.test.ts
+ * @brief Bewahrt Regressionstests für zuvor aufgetretene Generator- und Runtimefehler.
+ *
+ * Im Mittelpunkt stehen verschachtelte Funktionsrückgaben, Rekursion und komplexe
+ * Kontrollflusskombinationen, die frühere Implementierungen falsch behandelt haben.
+ *
+ * @author Abdul
+ */
+
 import { describe, test } from 'vitest';
 import { assertExecResult } from '../helpers/runtime-test-utils.js';
 
+/** Ausführungsbasierte Regressionstests behobener Runtimefehler. */
 describe('RuntimeTestsBugs', () => {
   test('nested max functions keep return flow', async () => {
     await assertExecResult(`

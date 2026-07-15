@@ -1,5 +1,18 @@
 // packages/language/src/pseudo2-validator.ts
 
+/**
+ * @file pseudo2-validator.ts
+ * @brief Registriert und implementiert die semantischen Validierungsregeln der Pseudo2-Sprache.
+ *
+ * Der Validator ergänzt Parser, Scoping und Typberechnung um kontextabhängige Prüfungen.
+ * Dazu gehören unter anderem Kontrollfluss, Deklarationsorte, Aufrufkontexte,
+ * Typverträglichkeit, Array- und Struct-Zugriffe sowie die Pseudo2-Syntax für
+ * VeriFast-Spezifikationen. Diagnosen werden über Langiums ValidationAcceptor
+ * an CLI, Tests und Webeditor weitergegeben.
+ *
+ * @author Abdul
+ */
+
 import { AstUtils } from 'langium';
 import type { AstNode, ValidationAcceptor, ValidationChecks } from 'langium';
 import type {
@@ -91,52 +104,92 @@ import {
 import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
 import { TYPE_NUM, TYPE_BOOL, TYPE_STRING, TYPE_ARRAY_UNKNOWN, TYPE_UNKNOWN, TYPE_STRUCT } from './typing/pseudo2-type.js';
 
+/** Diagnosecode für eine allgemeine Typinkompatibilität. */
 export const INCOMPATIBLE_TYPES = 'INCOMPATIBLE_TYPES';
+/** Diagnosecode für unzulässige oder inkompatible Gleichheitsvergleiche. */
 export const INCOMPATIBLE_TYPES_EQ = 'INCOMPATIBLE_TYPES_EQ';
+/** Diagnosecode für unzulässige Operanden einer Addition oder Verkettung. */
 export const INCOMPATIBLE_TYPES_PLUS = 'INCOMPATIBLE_TYPES_PLUS';
+/** Diagnosecode für einen innerhalb seines Namensraums doppelt deklarierten Eintrag. */
 export const DUPLICATE_ELEMENT = 'DUPLICATE_ELEMENT';
+/** Diagnosecode für unterschiedliche Werttypen in den Rückgaben einer Funktion. */
 export const DIFFERENT_TYPES_OF_RETURNS = 'DIFFERENT_TYPES_OF_RETURNS';
+/** Diagnosecode für einen nicht druckbaren Wert außerhalb der Pseudo2-Basistypen. */
 export const PRINT_EXPECTS_BASE_TYPE = 'PRINT_EXPECTS_BASE_TYPE';
+/** Diagnosecode für eine mit `func` markierte, nicht globale Funktion. */
 export const FUNC_DECL_ONLY_GLOBAL = 'FUNC_DECL_ONLY_GLOBAL';
+/** Diagnosecode für eine außerhalb eines Structs deklarierte Methode. */
 export const METH_DECL_ONLY_IN_STRUCT = 'METH_DECL_ONLY_IN_STRUCT';
+/** Diagnosecode für den Aufruf einer globalen Funktion über eine Selection. */
 export const SELECTION_REQUIRES_METHODCALLS = 'SELECTION_REQUIRES_METHODCALLS';
+/** Diagnosecode für eine wertlose Funktion, die unzulässig als Ausdruck verwendet wird. */
 export const FUNCTIONCALLS_WO_RETURN_ONLY_AS_INSTRUCTION = 'FUNCTIONCALLS_WO_RETURN_ONLY_AS_INSTRUCTION';
+/** Diagnosecode für eine wertlose Methode, die unzulässig als Ausdruck verwendet wird. */
 export const METHODCALLS_WO_RETURN_ONLY_AS_INSTRUCTION = 'METHODCALLS_WO_RETURN_ONLY_AS_INSTRUCTION';
+/** Diagnosecode für eine Variablendeklaration mit einem leeren Arrayliteral. */
 export const VAR_DECL_NO_INIT_WITH_EMPTY_ARRAY = 'VAR_DECL_NO_INIT_WITH_EMPTY_ARRAY';
+/** Diagnosecode für eine Variablendeklaration mit `null` als Initialwert. */
 export const VAR_DECL_NO_INIT_WITH_NULL = 'VAR_DECL_NO_INIT_WITH_NULL';
+/** Diagnosecode für eine Zuweisung an den unveränderlichen Iterator einer for-Schleife. */
 export const ASSIGNED_TO_LOOPVAR = 'ASSIGNED_TO_LOOPVAR';
+/** Diagnosecode für eine Zuweisung an den speziellen Ausdruck `this`. */
 export const ASSIGNED_TO_THIS = 'ASSIGNED_TO_THIS';
+/** Diagnosecode für einen Methodenaufruf auf der linken Seite einer Zuweisung. */
 export const ASSIGNED_TO_METHOD_CALL = 'ASSIGNED_TO_METHOD_CALL';
+/** Diagnosecode für das Mischen von `return` mit und ohne Rückgabewert. */
 export const DIFFERENT_KINDS_OF_RETURNS = 'DIFFERENT_KINDS_OF_RETURNS';
+/** Diagnosecode für einen nicht auf allen abschließenden Pfaden garantierten Rückgabewert. */
 export const MISSING_RETURN_AS_LAST_STATEMENT = 'MISSING_RETURN_AS_LAST_STATEMENT';
 // Eigener Code für falsche Anzahl an Funktions-/Methodenparametern
+/** Diagnosecode für eine falsche Anzahl tatsächlicher Aufrufargumente. */
 export const FUNC_CALL_RIGHT_PARANUM = 'FUNC_CALL_RIGHT_PARANUM';
 
 // Eigener Code für Typfehler bei tatsächlichen Parametern
+/** Diagnosecode für ein Argument, dessen Typ nicht zum formalen Parameter passt. */
 export const FUNC_CALL_ACTUALPARA_CONFORMSTO_FORMALPARA = 'FUNC_CALL_ACTUALPARA_CONFORMSTO_FORMALPARA';
 
 // Eigener Code für Arrayzugriff auf Nicht-Array
+/** Diagnosecode für einen Indexzugriff auf einen skalaren oder Struct-Wert. */
 export const ARRAY_ACCESS_ON_PLAIN_TYPE = 'ARRAY_ACCESS_ON_PLAIN_TYPE';
 
 // Eigener Code für unterschiedliche Typen in Array-Literalen
+/** Diagnosecode für ein Arrayliteral mit uneinheitlichen Elementtypen. */
 export const DIFFERENT_TYPES_OF_ARRAYLIT_ELEMS = 'DIFFERENT_TYPES_OF_ARRAYLIT_ELEMS';
 
 // Eigener Code: return nur innerhalb von Funktionen
+/** Diagnosecode für `return` beziehungsweise funktionsgebundene Elemente außerhalb einer Funktion. */
 export const ELEMENT_ONLY_WITHIN_FUNCDECL = 'ELEMENT_ONLY_WITHIN_FUNCDECL';
 
 // Eigener Code: this nur innerhalb von Methoden
+/** Diagnosecode für `this` außerhalb einer Struct-Methode. */
 export const ELEMENT_ONLY_WITHIN_METHDECL = 'ELEMENT_ONLY_WITHIN_METHDECL';
 
 // Eigener Code: formaler und tatsächlicher Parameter müssen bzgl. Array konsistent sein
+/** Diagnosecode für eine abweichende Array-Eigenschaft von formalem und tatsächlichem Parameter. */
 export const CONSISTENT_ARRAY_TYPE_OF_PARA = 'CONSISTENT_ARRAY_TYPE_OF_PARA';
+/** Diagnosecode für `result` außerhalb einer VeriFast-Annotation. */
 export const RESULT_ONLY_IN_VERIFAST_ANNOTATION = 'RESULT_ONLY_IN_VERIFAST_ANNOTATION';
+/** Diagnosecode für ein `vf_*`-Prädikat außerhalb einer VeriFast-Annotation. */
 export const SPEC_PREDICATE_ONLY_IN_VERIFAST_ANNOTATION = 'SPEC_PREDICATE_ONLY_IN_VERIFAST_ANNOTATION';
+/** Diagnosecode für eine falsche Argumentanzahl eines `vf_*`-Prädikats. */
 export const SPEC_PREDICATE_ARITY = 'SPEC_PREDICATE_ARITY';
+/** Diagnosecode für einen nicht als Stringliteral angegebenen Struct-Feldnamen. */
 export const SPEC_PREDICATE_FIELD_NAME = 'SPEC_PREDICATE_FIELD_NAME';
+/** Diagnosecode für einen nicht als Stringliteral angegebenen erwarteten Stringwert. */
 export const SPEC_PREDICATE_STRING_VALUE = 'SPEC_PREDICATE_STRING_VALUE';
+/** Diagnosecode für einen ungültigen oder nullwertigen Nenner von `vf_ratio`. */
 export const SPEC_PREDICATE_RATIO_DENOMINATOR = 'SPEC_PREDICATE_RATIO_DENOMINATOR';
 
 
+/**
+ * Verknüpft jeden relevanten AST-Knotentyp mit seiner Validierungsmethode.
+ *
+ * Langium ruft die registrierten Methoden nach dem Parsen und Verlinken eines
+ * Dokuments auf. Eine gemeinsame Validatorinstanz stellt dabei Typberechnung und
+ * Hilfsanalysen für alle Knoten bereit.
+ *
+ * @param services Vollständig erzeugte Pseudo2-Dienste mit Registry und Validator.
+ */
 export function registerValidationChecks(services: Pseudo2Services) {
   const registry = services.validation.ValidationRegistry;
   const validator = services.validation.Pseudo2Validator;
@@ -193,17 +246,41 @@ export function registerValidationChecks(services: Pseudo2Services) {
   registry.register(checks, validator);
 }
 
+/**
+ * Implementiert die statischen, nicht rein syntaktischen Regeln von Pseudo2.
+ *
+ * Öffentliche `check*`-Methoden sind Langium-Validierungschecks. Private Methoden
+ * analysieren Kontrollfluss, Typkontexte, Sichtbarkeit und AST-Hüllen gemeinsam,
+ * damit die einzelnen Regeln dieselben Sprachannahmen verwenden.
+ */
 export class Pseudo2Validator {
+  /** Berechnet Pseudo2-Typen für Ausdrücke, Referenzen und Typangaben. */
   private readonly types = new Pseudo2TypeComputer();
 
+  /**
+   * Meldet Anweisungen, die in einem Block nach einem direkten `return` stehen.
+   * @param node Zu prüfender Block mit geschweiften Klammern.
+   * @param accept Empfänger für erzeugte Warnungen.
+   */
   checkBracedBlock(node: BracedBlock, accept: ValidationAcceptor): void {
     this.checkNoInstructionsAfterReturn(node.instructions ?? [], accept);
   }
 
+  /**
+   * Meldet Anweisungen, die in einem eingerückten Block nach einem direkten `return` stehen.
+   * @param node Zu prüfender eingerückter Block.
+   * @param accept Empfänger für erzeugte Warnungen.
+   */
   checkIndentedBlock(node: IndentedBlock, accept: ValidationAcceptor): void {
     this.checkNoInstructionsAfterReturn(node.instructions ?? [], accept);
   }
 
+  /**
+   * Stellt sicher, dass die Bedingung einer if-Anweisung den Typ `bool` besitzt.
+   * Unbekannte Typen werden nicht erneut beanstandet, da sie meist eine Folgediagnose wären.
+   * @param node Zu prüfende if-Anweisung.
+   * @param accept Empfänger für Typfehler.
+   */
   checkIfStatement(node: IfStatement, accept: ValidationAcceptor): void {
     const conditionType = this.types.typeFor(node.condition);
     if (!conditionType.isSameAs(TYPE_BOOL) && !conditionType.isUnknown()) {
@@ -215,6 +292,11 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Stellt sicher, dass die Bedingung einer while-Schleife den Typ `bool` besitzt.
+   * @param node Zu prüfende while-Schleife.
+   * @param accept Empfänger für Typfehler.
+   */
   checkWhileLoop(node: WhileLoop, accept: ValidationAcceptor): void {
     const conditionType = this.types.typeFor(node.condition);
     if (!conditionType.isSameAs(TYPE_BOOL) && !conditionType.isUnknown()) {
@@ -226,6 +308,13 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Prüft Startwert, Endwert und optionale Schrittweite einer for-Schleife auf `num`.
+   * Zusätzlich werden der Iterator und alle im Schleifenrumpf enthaltenen lokalen
+   * Variablen als gemeinsamer Schleifen-Namensraum auf doppelte Namen geprüft.
+   * @param node Zu prüfende for-Schleife.
+   * @param accept Empfänger für Typ- und Duplikatfehler.
+   */
   checkForLoop(node: ForLoop, accept: ValidationAcceptor): void {
 
     const fromType = this.types.typeFor(node.from);
@@ -275,6 +364,11 @@ export class Pseudo2Validator {
 
   }
 
+  /**
+   * Stellt sicher, dass die Abschlussbedingung einer do-while-Schleife `bool` ist.
+   * @param node Zu prüfende do-while-Schleife.
+   * @param accept Empfänger für Typfehler.
+   */
   checkDoWhileLoop(node: DoWhileLoop, accept: ValidationAcceptor): void {
     const conditionType = this.types.typeFor(node.condition);
     if (!conditionType.isSameAs(TYPE_BOOL) && !conditionType.isUnknown()) {
@@ -286,6 +380,17 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Validiert Deklarationsort, Parameter, Rückgaben und Abschluss einer Funktion oder Methode.
+   *
+   * Globale Funktionen müssen `func` tragen, methodenartige Deklarationen müssen in
+   * einem Struct liegen. Parameter einschließlich impliziter Array-Längenparameter
+   * müssen eindeutig sein. Außerdem werden globale Funktionsduplikate, gemischte
+   * Rückgabearten, inkonsistente Rückgabetypen und fehlende sichere Rückgabepfade gemeldet.
+   *
+   * @param node Zu prüfende Funktions- oder Methodendeklaration.
+   * @param accept Empfänger für Fehler und Kontrollflusswarnungen.
+   */
   checkFunctionDeclaration(node: FunctionDeclaration, accept: ValidationAcceptor): void {
     const container = node.$container;
 
@@ -416,6 +521,14 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Ermittelt konservativ, ob die übergebene Anweisungsfolge sicher durch `return`
+   * oder `throw` endet. Bei einer abschließenden if-Anweisung müssen beide Zweige enden.
+   * Schleifen werden nicht als garantierter Abschluss betrachtet.
+   *
+   * @param instructions Anweisungsfolge eines Funktions- oder Verzweigungsblocks.
+   * @returns `true`, wenn jeder hier modellierte Abschlussweg einen Wert zurückgibt oder wirft.
+   */
   private finishesByReturn(instructions: Instruction[]): boolean {
     if (instructions.length === 0) {
       return false;
@@ -443,6 +556,11 @@ export class Pseudo2Validator {
     return false;
   }
 
+  /**
+   * Sammelt sämtliche, auch in verschachtelten Blöcken liegenden return-Anweisungen einer Funktion.
+   * @param fn Funktion oder Methode, deren Rückgaben gesucht werden.
+   * @returns Return-Knoten in AST-Durchlaufreihenfolge.
+   */
   private allReturns(fn: FunctionDeclaration): ReturnStmt[] {
     const out: ReturnStmt[] = [];
     for (const n of AstUtils.streamAllContents(fn)) {
@@ -453,6 +571,12 @@ export class Pseudo2Validator {
     return out;
   }
   
+  /**
+   * Prüft eine globale Funktionsreferenz, ihren Verwendungskontext, die Argumentanzahl
+   * und die mit den formalen Parametern ableitbaren Argumenttypen.
+   * @param node Zu prüfender Funktionsaufruf.
+   * @param accept Empfänger für Verlinkungs-, Kontext- und Argumentfehler.
+   */
   checkFunctionCall(node: FunctionCall, accept: ValidationAcceptor): void {
     if (node.f && !node.f.ref) {
       accept('error', 'Unbekannte Funktion.', { node, property: 'f' });
@@ -493,10 +617,21 @@ export class Pseudo2Validator {
     this.checkArgumentTypes(node, target, node.params ?? [], accept);
   }
 
+  /**
+   * Prüft, ob eine Funktion mindestens eine return-Anweisung mit Ausdruck enthält.
+   * @param fn Zu untersuchende Funktion oder Methode.
+   * @returns `true`, wenn mindestens ein Rückgabewert vorhanden ist.
+   */
   private hasReturnValue(fn: FunctionDeclaration): boolean {
     return this.allReturns(fn).some(r => r.retExpr);
   }
 
+  /**
+   * Bestimmt anhand der umgebenden AST-Knoten, ob ein Funktionsaufruf als eigenständige
+   * Anweisung und nicht als benötigter Wert verwendet wird.
+   * @param node Einzuordnender Funktionsaufruf.
+   * @returns `true` für Anweisungs- beziehungsweise `call`-Kontext, sonst `false`.
+   */
   private isStatementFunctionCall(node: FunctionCall): boolean {
     let current: any = node.$container;
 
@@ -527,6 +662,11 @@ export class Pseudo2Validator {
     return false;
   }
 
+  /**
+   * Beschränkt return-Anweisungen auf den lexikalischen Inhalt einer Funktion oder Methode.
+   * @param node Zu prüfende return-Anweisung.
+   * @param accept Empfänger für einen ungültigen Deklarationskontext.
+   */
   checkReturnStmt(node: ReturnStmt, accept: ValidationAcceptor): void {
     const fn = AstUtils.getContainerOfType(node, isFunctionDeclaration);
 
@@ -539,6 +679,17 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Prüft eine Variablendeklaration auf Namenskonflikte, Verschattung und gültige Initialisierung.
+   *
+   * Implizite Längenvariablen von Array-Parametern werden übersprungen. Normale
+   * Deklarationen werden gegen Geschwister, Funktionsparameter und äußere sichtbare
+   * Namen geprüft. Leere Arrayliterale und `null` sind als Initialwert verboten;
+   * bei expliziten Arrayvariablen muss außerdem die Größe numerisch sein.
+   *
+   * @param node Zu prüfende Variablendeklaration.
+   * @param accept Empfänger für Fehler und Verschattungswarnungen.
+   */
   checkVarDecl(node: VarDecl, accept: ValidationAcceptor): void {
     if (this.isLengthParameterDecl(node)) {
       return;
@@ -624,6 +775,11 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Erkennt die intern als VarDecl modellierte Längenvariable eines Array-Parameters.
+   * @param v Zu klassifizierende Variablendeklaration.
+   * @returns `true`, wenn eine Parameterdeklaration der umgebenden Funktion `v` als Länge verwendet.
+   */
   private isLengthParameterDecl(v: VarDecl): boolean {
     const parent: any = v.$container;
     if (!parent || !isFunctionDeclaration(parent)) {
@@ -633,6 +789,16 @@ export class Pseudo2Validator {
     return (parent.params ?? []).some((p: ParameterDecl) => p.len === v);
   }
 
+  /**
+   * Validiert die linke und rechte Seite einer Zuweisung.
+   *
+   * Zuweisbar sind Variablen, Struct-Attribute und Arrayelemente. `this`,
+   * Methodenaufrufe und for-Iteratoren sind schreibgeschützt beziehungsweise keine
+   * L-Werte. Nach dieser Strukturprüfung muss der rechte Typ zum linken Typ konform sein.
+   *
+   * @param node Zu prüfende Zuweisung.
+   * @param accept Empfänger für L-Wert- und Typfehler.
+   */
   checkAssignment(node: Assignment, accept: ValidationAcceptor): void {
     const leftExpr = node.sel as Expr;
     const validLValue = isVarRef(leftExpr) || isAttSelection(leftExpr) || isIndexSelection(leftExpr);
@@ -698,6 +864,12 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Prüft einen Struct auf einen eindeutigen globalen Namen und eindeutige Kindnamen.
+   * Attribute und Methoden teilen sich dabei denselben Namensraum innerhalb des Structs.
+   * @param node Zu prüfende Struct-Deklaration.
+   * @param accept Empfänger für Duplikatfehler.
+   */
   checkStructDeclaration(node: StructDeclaration, accept: ValidationAcceptor): void {
     const program = this.getProgram(node);
     if (program) {
@@ -732,22 +904,53 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Erweiterungspunkt für eigenständige Regeln an Struct-Attributdeklarationen.
+   * Die aktuell erforderlichen Prüfungen erfolgen über Struct-Duplikatprüfung,
+   * Typverlinkung und Zugriffsvalidierung; deshalb erzeugt dieser Hook keine Diagnose.
+   * @param node Registrierte Struct-Attributdeklaration.
+   * @param accept Empfänger für zukünftig ergänzte Diagnosen.
+   */
   checkStructAttDeclaration(node: StructAttDeclaration, accept: ValidationAcceptor): void {}
 
+  /**
+   * Meldet eine Typangabe, deren referenzierter Struct nicht aufgelöst werden konnte.
+   * @param node Zu prüfende Struct-Typreferenz.
+   * @param accept Empfänger für Verlinkungsfehler.
+   */
   checkStructType(node: StructType, accept: ValidationAcceptor): void {
     if (node.struct && !node.struct.ref) {
       accept('error', 'Unbekannter Struct-Typ.', { node, property: 'struct' });
     }
   }
 
+  /**
+   * Meldet einen new-Ausdruck, dessen Ziel-Struct nicht aufgelöst werden konnte.
+   * @param node Zu prüfender new-Ausdruck.
+   * @param accept Empfänger für Verlinkungsfehler.
+   */
   checkNewExpr(node: NewExpr, accept: ValidationAcceptor): void {
     if (node.type && !node.type.ref) {
       accept('error', 'Unbekannter Struct-Typ in new.', { node, property: 'type' });
     }
   }
 
+  /**
+   * Erweiterungspunkt für Regeln, die für alle Variablenarten gelten sollen.
+   * Konkrete Parameter-, lokale Variablen- und Attributregeln werden derzeit von
+   * den jeweils spezifischeren AST-Checks abgedeckt.
+   * @param node Registrierter Variablenknoten.
+   * @param accept Empfänger für zukünftig ergänzte Diagnosen.
+   */
   checkVariable(node: Variable, accept: ValidationAcceptor): void {}
 
+  /**
+   * Prüft die Auflösung einer Variablenreferenz und einen optional direkt angehängten Index.
+   * Das referenzierte Ziel muss als Array deklariert oder als Arraytyp inferiert sein;
+   * der Indexausdruck muss den Typ `num` besitzen.
+   * @param node Zu prüfende Variablenreferenz.
+   * @param accept Empfänger für Verlinkungs-, Array- und Indexfehler.
+   */
   checkVarRef(node: VarRef, accept: ValidationAcceptor): void {
     if (node.ref && !node.ref.ref) {
       accept('error', 'Unbekannte Variable.', { node, property: 'ref' });
@@ -793,6 +996,12 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Prüft die Auflösung einer Attributreferenz und einen optionalen Arrayindex.
+   * Bei indexiertem Zugriff muss der Attributtyp ein Array und der Index numerisch sein.
+   * @param node Zu prüfende Attributreferenz.
+   * @param accept Empfänger für Verlinkungs-, Array- und Indexfehler.
+   */
   checkAttRef(node: AttRef, accept: ValidationAcceptor): void {
     if (node.ref && !node.ref.ref) {
       accept('error', 'Unbekanntes Attribut.', { node, property: 'ref' });
@@ -823,6 +1032,16 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Validiert die innerhalb einer Methoden-Selection gespeicherte Methodenreferenz.
+   *
+   * Das Ziel muss aufgelöst und eine echte Struct-Methode ohne `func` sein.
+   * Wertlose Methoden sind nur im `call`-Kontext erlaubt. Abschließend werden
+   * Argumentanzahl und Argumenttypen gegen die Methodendeklaration geprüft.
+   *
+   * @param node Zu prüfende Methodenreferenz mit Argumenten.
+   * @param accept Empfänger für Auflösungs-, Kontext- und Argumentfehler.
+   */
   checkMethRef(node: MethRef, accept: ValidationAcceptor): void {
     if (node.f && !node.f.ref) {
       accept('error', 'Unbekannte Methode/Funktion.', { node, property: 'f' });
@@ -875,6 +1094,11 @@ export class Pseudo2Validator {
     this.checkArgumentTypes(node, target, node.params ?? [], accept);
   }
 
+  /**
+   * Sucht in der Containerkette nach einem expliziten `call`-Kommando.
+   * @param node Ausgangsknoten der Suche.
+   * @returns `true`, wenn der Knoten innerhalb eines CallCommand liegt.
+   */
   private isInsideCallCommand(node: AstNode): boolean {
     let current: AstNode | undefined = node;
     while (current) {
@@ -886,6 +1110,12 @@ export class Pseudo2Validator {
     return false;
   }
 
+  /**
+   * Prüft, ob der Empfänger eines Attributzugriffs ein Struct ist und das gewählte
+   * Attribut im anhand des Empfängertyps bestimmten Struct tatsächlich existiert.
+   * @param node Zu prüfende Attribut-Selection.
+   * @param accept Empfänger für Typ- und Existenzfehler.
+   */
   checkAttSelection(node: AttSelection, accept: ValidationAcceptor): void {
     const receiverType = this.types.typeFor(node.receiver);
 
@@ -919,6 +1149,13 @@ export class Pseudo2Validator {
     }
   }
 ////////////////////////
+  /**
+   * Prüft Empfängertyp, Rückgabekontext und Existenz einer ausgewählten Struct-Methode.
+   * Die Detailprüfung der Methodenreferenz und ihrer Argumente erfolgt zusätzlich in
+   * `checkMethRef`.
+   * @param node Zu prüfende Methoden-Selection.
+   * @param accept Empfänger für Typ-, Kontext- und Existenzfehler.
+   */
   checkMethSelection(node: MethSelection, accept: ValidationAcceptor): void {
     const receiverType = this.types.typeFor(node.receiver);
 
@@ -964,6 +1201,12 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Unterscheidet eine als eigenständige Anweisung verwendete Methodenselektion von
+   * einer Selektion, deren Ergebnis in einem Ausdruck benötigt wird.
+   * @param node Einzuordnende Methodenselektion.
+   * @returns `true` im ExprStatement- oder CallCommand-Kontext, sonst `false`.
+   */
   private isStatementMethodCall(node: MethSelection): boolean {
     let current: any = node.$container;
 
@@ -988,6 +1231,12 @@ export class Pseudo2Validator {
     return false;
   }
 
+  /**
+   * Sucht eine globale Struct-Deklaration anhand ihres Quellnamens.
+   * @param node Beliebiger Knoten desselben Pseudo2-Dokuments.
+   * @param name Gesuchter Struct-Name.
+   * @returns Passende Deklaration oder `undefined`, wenn sie nicht existiert.
+   */
   private findStructByName(node: { $container?: unknown }, name: string): StructDeclaration | undefined {
     const program = this.getProgram(node);
     return program?.instructions
@@ -995,6 +1244,12 @@ export class Pseudo2Validator {
       .find(s => s.name === name);
   }
 
+  /**
+   * Beschränkt `this` auf methodenartige FunctionDeclarations innerhalb eines Structs.
+   * Globale Funktionen und freie Quellbereiche dürfen den Ausdruck nicht verwenden.
+   * @param node Zu prüfender this-Ausdruck.
+   * @param accept Empfänger für ungültige Verwendungskontexte.
+   */
   checkThisExpr(node: ThisExpr, accept: ValidationAcceptor): void {
     const fn = AstUtils.getContainerOfType(node, isFunctionDeclaration);
 
@@ -1022,6 +1277,12 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Stellt für nichtleere Arrayliterale einen einheitlichen Elementtyp sicher.
+   * Unbekannte Teiltypen werden über die tolerante Typgleichheit der Typkomponente behandelt.
+   * @param node Zu prüfendes Arrayliteral.
+   * @param accept Empfänger für abweichende Elementtypen.
+   */
   checkArrayLiteral(node: ArrayLiteral, accept: ValidationAcceptor): void {
     const elems = node.elems ?? [];
     if (elems.length === 0) {
@@ -1048,6 +1309,11 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Beschränkt die Ausgabe von `print` auf skalare Pseudo2-Basistypen.
+   * @param node Zu prüfendes print-Kommando.
+   * @param accept Empfänger für nicht druckbare Typen.
+   */
   checkPrintCommand(node: PrintCommand, accept: ValidationAcceptor): void {
     const t = this.types.typeFor(node.param);
     if (!t.isUnknown() && !t.isBaseType()) {
@@ -1059,6 +1325,11 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Stellt sicher, dass `throw` einen String als Fehlermeldung erhält.
+   * @param node Zu prüfendes throw-Kommando.
+   * @param accept Empfänger für Typfehler.
+   */
   checkThrowCommand(node: ThrowCommand, accept: ValidationAcceptor): void {
     const t = this.types.typeFor(node.param);
     if (!t.isUnknown() && !t.isSameAs(TYPE_STRING)) {
@@ -1070,6 +1341,12 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Verlangt als Operand von `call` einen globalen Funktions- oder Methodenaufruf.
+   * Ausdruckshüllen werden vor der Klassifikation entfernt.
+   * @param node Zu prüfendes call-Kommando.
+   * @param accept Empfänger für nicht aufrufbare Ausdrücke.
+   */
   checkCallCommand(node: CallCommand, accept: ValidationAcceptor): void {
     if (!this.isCallableExpr(node.param)) {
       accept('error', 'call erwartet einen aufrufbaren Ausdruck, z. B. f() oder obj.m().', {
@@ -1079,6 +1356,19 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Vergleicht tatsächliche Aufrufargumente mit den formalen Parametern einer Funktion.
+   *
+   * Zuerst muss die Array-Eigenschaft übereinstimmen. Für skalare Parameter wird der
+   * erwartete Typ aus ihrer Verwendung im Funktionsrumpf abgeleitet und anschließend
+   * mit der allgemeinen Zuweisungskonformität geprüft. Array-Elementtypen bleiben an
+   * dieser Stelle bewusst offen, da Pseudo2 sie nicht am Parameter deklariert.
+   *
+   * @param callNode Aufrufknoten, an dem eine Diagnose markiert wird.
+   * @param target Aufgelöste Funktions- oder Methodendeklaration.
+   * @param args Tatsächliche Argumentausdrücke in Aufrufreihenfolge.
+   * @param accept Empfänger für Array- und Typfehler.
+   */
   private checkArgumentTypes(
     callNode: FunctionCall | MethRef,
     target: FunctionDeclaration,
@@ -1150,6 +1440,15 @@ export class Pseudo2Validator {
     }
   }
 ///
+  /**
+   * Vereinigt zwei aus verschiedenen Verwendungen abgeleitete Erwartungstypen.
+   * Unbekannte beziehungsweise teilweise unbekannte Typen werden durch die jeweils
+   * präzisere kompatible Information ersetzt; widersprüchliche Typen ergeben `unknown`.
+   *
+   * @param a Erste Typannahme.
+   * @param b Zweite Typannahme.
+   * @returns Gemeinsamer möglichst präziser Typ oder `TYPE_UNKNOWN` bei einem Konflikt.
+   */
   private mergeExpectedTypes(
   a: ReturnType<Pseudo2TypeComputer['typeFor']>,
   b: ReturnType<Pseudo2TypeComputer['typeFor']>
@@ -1177,6 +1476,13 @@ export class Pseudo2Validator {
   return TYPE_UNKNOWN;
 }
 
+  /**
+   * Bestimmt den erwarteten Typ eines formalen Parameters.
+   * Array-Parameter erhalten einen abstrakten Arraytyp, skalare Parameter werden aus
+   * ihren Verwendungen im Funktionsrumpf inferiert.
+   * @param param Zu untersuchender formaler Parameter.
+   * @returns Erwarteter Parameter- beziehungsweise Arraytyp.
+   */
   private expectedParameterType(param: ParameterDecl): ReturnType<Pseudo2TypeComputer['typeFor']> {
     if (param.isArray) {
       return TYPE_ARRAY_UNKNOWN;
@@ -1185,6 +1491,12 @@ export class Pseudo2Validator {
     return this.inferParameterTypeFromFunctionBody(param);
   }
 
+  /**
+   * Leitet den Typ eines untypisierten skalaren Parameters aus sämtlichen Referenzen
+   * innerhalb seiner Funktion ab und vereinigt die gefundenen Nutzungskontexte.
+   * @param param Parameter, dessen erwarteter Typ gesucht wird.
+   * @returns Inferierter Typ oder `TYPE_UNKNOWN`, wenn keine eindeutige Aussage möglich ist.
+   */
   private inferParameterTypeFromFunctionBody(param: ParameterDecl): ReturnType<Pseudo2TypeComputer['typeFor']> {
     const fn = AstUtils.getContainerOfType(param, isFunctionDeclaration);
     if (!fn) {
@@ -1204,6 +1516,17 @@ export class Pseudo2Validator {
   }
 
 
+  /**
+   * Untersucht die Containerkette einer Parameterreferenz auf einen typbestimmenden Kontext.
+   *
+   * Boolesche Bedingungen, numerische Operatoren, Indexierung und Struct-Selektionen
+   * liefern konkrete Erwartungen. Gleichheit übernimmt nach Möglichkeit den Typ des
+   * anderen Operanden. Verschachtelte Aufrufe und reine `+`-Verkettungen bleiben
+   * absichtlich unbekannt, um keine zu strenge Annahme zu erzeugen.
+   *
+   * @param ref Referenz auf den zu inferierenden Parameter.
+   * @returns Aus der nächsten aussagekräftigen Verwendung abgeleiteter Typ.
+   */
   private inferTypeFromUsage(ref: VarRef): ReturnType<Pseudo2TypeComputer['typeFor']> {
     let current: any = ref.$container;
 
@@ -1340,6 +1663,13 @@ export class Pseudo2Validator {
     return TYPE_UNKNOWN;
   }
 
+  /**
+   * Prüft per Identität, ob ein AST-Knoten ein Ausdruck selbst oder einer seiner
+   * transitiven Inhalte ist.
+   * @param expr Zu durchsuchender Ausdruck.
+   * @param node Gesuchter AST-Knoten.
+   * @returns `true`, wenn `node` im Ausdruck enthalten ist.
+   */
   private exprContainsNode(expr: Expr | undefined, node: AstNode): boolean {
     if (!expr) {
       return false;
@@ -1358,6 +1688,16 @@ export class Pseudo2Validator {
     return false;
   }
 
+  /**
+   * Validiert die Pseudo2-Überladung von `+` und die numerische Subtraktion.
+   *
+   * Strings dürfen mit skalaren Zahlen, booleschen Werten und Strings verkettet werden.
+   * Ohne String sind nur numerische Operanden zulässig; Arrays und Structs sind immer
+   * verboten. Unbekannte Typen lösen keine zusätzliche Folgediagnose aus.
+   *
+   * @param node Zu prüfende Additionskette.
+   * @param accept Empfänger für unzulässige Operanden.
+   */
   checkAddition(node: Addition, accept: ValidationAcceptor): void {
     if ((node.right?.length ?? 0) === 0) {
       return;
@@ -1419,6 +1759,11 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Verlangt für Multiplikation, Division, Rest und `mod` ausschließlich `num`-Operanden.
+   * @param node Zu prüfende Multiplikationskette.
+   * @param accept Empfänger für Typfehler.
+   */
   checkMultiplication(node: Multiplication, accept: ValidationAcceptor): void {
     if ((node.right?.length ?? 0) === 0) return;
 
@@ -1426,6 +1771,11 @@ export class Pseudo2Validator {
     this.requireAllTypes(node, operands, TYPE_NUM, accept, `Operatoren '*', '/', '%' und 'mod' erwarten num.`, INCOMPATIBLE_TYPES);
   }
 
+  /**
+   * Verlangt für Basis und Exponent des Potenzoperators ausschließlich `num`.
+   * @param node Zu prüfende Potenzkette.
+   * @param accept Empfänger für Typfehler.
+   */
   checkExponentiation(node: Exponentiation, accept: ValidationAcceptor): void {
     if ((node.right?.length ?? 0) === 0) return;
 
@@ -1433,6 +1783,11 @@ export class Pseudo2Validator {
     this.requireAllTypes(node, operands, TYPE_NUM, accept, `Potenzoperator '^' erwartet num.`, INCOMPATIBLE_TYPES);
   }
 
+  /**
+   * Verlangt für alle Operanden einer logischen UND-Verknüpfung den Typ `bool`.
+   * @param node Zu prüfende UND-Kette.
+   * @param accept Empfänger für Typfehler.
+   */
   checkAnd(node: And, accept: ValidationAcceptor): void {
     if ((node.right?.length ?? 0) === 0) return;
 
@@ -1440,6 +1795,11 @@ export class Pseudo2Validator {
     this.requireAllTypes(node, operands, TYPE_BOOL, accept, `Operator '&&' erwartet bool.`, INCOMPATIBLE_TYPES);
   }
 
+  /**
+   * Verlangt für alle Operanden einer logischen ODER-Verknüpfung den Typ `bool`.
+   * @param node Zu prüfende ODER-Kette.
+   * @param accept Empfänger für Typfehler.
+   */
   checkOr(node: Or, accept: ValidationAcceptor): void {
     if ((node.right?.length ?? 0) === 0) return;
 
@@ -1447,6 +1807,11 @@ export class Pseudo2Validator {
     this.requireAllTypes(node, operands, TYPE_BOOL, accept, `Operator '||' erwartet bool.`, INCOMPATIBLE_TYPES);
   }
 
+  /**
+   * Verlangt für den Operanden der logischen Negation den Typ `bool`.
+   * @param node Zu prüfender Negationsausdruck.
+   * @param accept Empfänger für Typfehler.
+   */
   checkNot(node: Not, accept: ValidationAcceptor): void {
     const t = this.types.typeFor(node.value);
     if (!t.isSameAs(TYPE_BOOL) && !t.isUnknown()) {
@@ -1458,6 +1823,11 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Verlangt für das unäre Minus einen numerischen Operanden.
+   * @param node Zu prüfender Vorzeichenausdruck.
+   * @param accept Empfänger für Typfehler.
+   */
   checkNeg(node: Neg, accept: ValidationAcceptor): void {
     const t = this.types.typeFor(node.value);
 
@@ -1470,6 +1840,12 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Prüft einen allgemeinen IndexSelection-Knoten auf Arrayempfänger und numerischen Index.
+   * Diese Regel deckt insbesondere verschachtelte und aus Selektionen entstandene Zugriffe ab.
+   * @param node Zu prüfende Index-Selection.
+   * @param accept Empfänger für Empfänger- und Indextypfehler.
+   */
   checkIndexSelection(node: IndexSelection, accept: ValidationAcceptor): void {
     const receiverType = this.types.typeFor(node.receiver);
     if (!receiverType.isArrayType() && !receiverType.isUnknown()) {
@@ -1490,6 +1866,11 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Beschränkt den VeriFast-Platzhalter `result` auf Spezifikationen und Annotationen.
+   * @param node Zu prüfender result-Ausdruck.
+   * @param accept Empfänger für einen ungültigen Verwendungskontext.
+   */
   checkResultExpr(node: ResultExpr, accept: ValidationAcceptor): void {
     if (!this.isInsideVeriFastAnnotation(node)) {
       accept('error', "'result' darf nur in VeriFast-Annotationen verwendet werden.", {
@@ -1499,6 +1880,16 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Validiert Kontext und argumentspezifische Syntax eines eingebauten `vf_*`-Prädikats.
+   *
+   * Je nach Prädikat sind ein oder zwei Argumente erforderlich. `vf_field` benötigt
+   * einen literalen Feldnamen, die optionale Inhaltsprüfung von `vf_string` ein
+   * Stringliteral und `vf_ratio` einen von null verschiedenen ganzzahligen Nenner.
+   *
+   * @param node Zu prüfender Spezifikationsprädikatausdruck.
+   * @param accept Empfänger für Kontext-, Stelligkeits- und Literalfehler.
+   */
   checkSpecPredicateExpr(node: SpecPredicateExpr, accept: ValidationAcceptor): void {
     if (!this.isInsideVeriFastAnnotation(node)) {
       accept('error', `'${node.kind}' darf nur in VeriFast-Annotationen verwendet werden.`, {
@@ -1551,6 +1942,13 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Entfernt rekursiv Klammern und operatorische Einzeloperand-Hüllen von einem Ausdruck.
+   * Diese kompakte Variante wird für Prüfungen verwendet, die den konkreten Literaltyp
+   * hinter der durch die Grammatik erzeugten Präzedenzstruktur benötigen.
+   * @param expr Zu reduzierender Ausdruck.
+   * @returns Innerster Ausdruck, sobald keine reine Einzeloperand-Hülle mehr vorliegt.
+   */
   private unwrapSingletonExpr(expr: Expr): Expr {
     if ((isOr(expr) || isAnd(expr) || isEquality(expr) || isComparison(expr) || isAddition(expr) || isMultiplication(expr) || isExponentiation(expr)) && (expr.right?.length ?? 0) === 0) {
       return this.unwrapSingletonExpr(expr.left);
@@ -1561,6 +1959,12 @@ export class Pseudo2Validator {
     return expr;
   }
 
+  /**
+   * Prüft, ob ein Ausdruck in einer Funktionsspezifikation, einer Verifikationsanweisung
+   * oder einer Schleifenannotation liegt.
+   * @param node Ausgangsknoten für die Containersuche.
+   * @returns `true` innerhalb eines von Pseudo2 unterstützten VeriFast-Kontexts.
+   */
   private isInsideVeriFastAnnotation(node: AstNode): boolean {
     return Boolean(
       AstUtils.getContainerOfType(node, isVerificationAnnotation) ||
@@ -1569,6 +1973,16 @@ export class Pseudo2Validator {
     );
   }
 
+  /**
+   * Prüft die Operanden von `==` und `!=` auf zulässige Vergleichbarkeit.
+   *
+   * Arrays sind nicht direkt vergleichbar. Struct-Werte dürfen miteinander verglichen
+   * werden, wodurch insbesondere Nullvergleiche nach der Typmodellierung möglich sind.
+   * Skalare Operanden müssen denselben bekannten Typ besitzen.
+   *
+   * @param node Zu prüfende Gleichheitskette.
+   * @param accept Empfänger für unzulässige Vergleiche.
+   */
   checkEquality(node: Equality, accept: ValidationAcceptor): void {
     if ((node.right?.length ?? 0) === 0) {
       return;
@@ -1627,6 +2041,11 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Verlangt für ordnende Vergleiche ausschließlich numerische Operanden.
+   * @param node Zu prüfende Vergleichskette.
+   * @param accept Empfänger für Typfehler.
+   */
   checkComparison(node: Comparison, accept: ValidationAcceptor): void {
     if ((node.right?.length ?? 0) === 0) return;
 
@@ -1635,11 +2054,22 @@ export class Pseudo2Validator {
   }
 
 
+  /**
+   * Klassifiziert den Kern eines Ausdrucks als globalen Funktions- oder Methodenaufruf.
+   * @param expr Zu klassifizierender Ausdruck einschließlich möglicher AST-Hüllen.
+   * @returns `true`, wenn der entpackte Ausdruck aufrufbar ist.
+   */
   private isCallableExpr(expr: Expr): boolean {
     const core = this.unwrapExpr(expr);
     return isFunctionCall(core) || isMethSelection(core);
   }
  
+  /**
+   * Meldet alle nach einem direkten return im selben Block folgenden Anweisungen als unerreichbar.
+   * Die tiefergehende Pfadanalyse von Verzweigungen erfolgt separat über `finishesByReturn`.
+   * @param instructions Anweisungen eines einzelnen Blocks in Quellreihenfolge.
+   * @param accept Empfänger für Unerreichbarkeitswarnungen.
+   */
   private checkNoInstructionsAfterReturn(instructions: Instruction[], accept: ValidationAcceptor): void {
     let foundReturn = false;
 
@@ -1656,6 +2086,12 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Entfernt iterativ alle durch die Ausdrucksgrammatik erzeugten Hüllen ohne rechten Operanden.
+   * Neben Gruppierungen werden die Präzedenzstufen von ODER bis Potenz berücksichtigt.
+   * @param expr Zu entpackender Ausdruck.
+   * @returns Semantischer Kernausdruck.
+   */
   private unwrapExpr(expr: Expr): Expr {
     let current: Expr = expr;
 
@@ -1728,6 +2164,11 @@ export class Pseudo2Validator {
   }*/
 
   // Prüft doppelte Namen in einer Liste von Variablendeklarationen
+  /**
+   * Meldet ab dem jeweils zweiten Auftreten jeden doppelten Variablennamen in einer Liste.
+   * @param vars Gemeinsam zu betrachtende Variablendeklarationen.
+   * @param accept Empfänger für Duplikatfehler.
+   */
   private reportDuplicateVarDecls(
     vars: VarDecl[],
     accept: ValidationAcceptor
@@ -1748,6 +2189,18 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Prüft eine Operandenliste gegen einen einheitlich erwarteten Typ und beendet sich
+   * nach dem ersten bekannten abweichenden Typ. Unbekannte Typen werden übersprungen,
+   * damit die Primärdiagnose an ihrer Entstehungsstelle bleibt.
+   *
+   * @param node AST-Knoten, an dem ein Fehler markiert wird.
+   * @param operands Zu prüfende Ausdrücke.
+   * @param expected Erforderlicher Pseudo2-Typ.
+   * @param accept Empfänger für Typfehler.
+   * @param message Operatorspezifischer Anfang der Diagnosemeldung.
+   * @param code Optionaler stabiler Diagnosecode.
+   */
   private requireAllTypes(
     node: unknown,
     operands: Expr[],
@@ -1773,6 +2226,14 @@ export class Pseudo2Validator {
     }
   }
 
+  /**
+   * Ermittelt die Variablendeklarationen, die mit `node` denselben unmittelbaren
+   * Block-Namensraum teilen. Verzweigungszweige werden getrennt behandelt; für
+   * unbekannte Container wird auf den globalen Programmbereich zurückgefallen.
+   *
+   * @param node Deklaration, deren Geschwister gesucht werden.
+   * @returns Variablendeklarationen desselben direkten Gültigkeitsbereichs.
+   */
   private getSiblingVarDecls(node: VarDecl): VarDecl[] {
     const container: any = node.$container;
 
@@ -1823,6 +2284,15 @@ export class Pseudo2Validator {
     return program ? program.instructions.filter(isVarDecl) : [];
   }
 
+  /**
+   * Sucht nach einer gleichnamigen Deklaration, die am Ort einer neuen Variablen bereits
+   * aus einem äußeren Bereich sichtbar ist. Berücksichtigt werden Parameter,
+   * Struct-Attribute, vorherige Blockvariablen und globale Variablen.
+   *
+   * @param node Neue Variablendeklaration, deren Verschattung geprüft wird.
+   * @param name Zu suchender Quellname.
+   * @returns Die überschattete Variable oder `undefined`, falls keine sichtbar ist.
+   */
   private findOuterVisibleName(node: VarDecl, name: string): Variable | undefined {
     let current: AstNodeLike | undefined = node.$container;
 
@@ -1857,6 +2327,13 @@ export class Pseudo2Validator {
       .find(v => v !== node && v.name === name);
   }
 
+  /**
+   * Steigt von einer Variablendeklaration bis zum nächsten als Instruction behandelten
+   * Container auf. Das Ergebnis dient dazu, nur vorherige Anweisungen desselben Blocks
+   * in die Sichtbarkeitssuche einzubeziehen.
+   * @param node Ausgangsdeklaration.
+   * @returns Nächste umgebende Instruction oder `undefined` außerhalb des ASTs.
+   */
   private getEnclosingInstruction(node: VarDecl): Instruction | undefined {
     let n: AstNodeLike | undefined = node;
     while (n) {
@@ -1868,6 +2345,12 @@ export class Pseudo2Validator {
     return undefined;
   }
 
+  /**
+   * Prüft, ob ein strukturell typisierter AST-Knoten zu den hier für die
+   * Sichtbarkeitsanalyse relevanten Instruction-Arten gehört.
+   * @param n Zu klassifizierender AST-Knoten.
+   * @returns `true` für Blöcke, Kontrollstrukturen, Deklarationen und Variablen.
+   */
   private isInstructionNode(n: AstNodeLike): boolean {
     return (
       isBracedBlock(n as any) ||
@@ -1882,6 +2365,12 @@ export class Pseudo2Validator {
     );
   }
 
+  /**
+   * Delegiert die Zuweisungskompatibilität an das zentrale Pseudo2-Typmodell.
+   * @param source Typ des zugewiesenen Ausdrucks.
+   * @param target Typ des Zuweisungsziels.
+   * @returns `true`, wenn `source` gemäß Sprachregeln nach `target` konform ist.
+   */
   private isAssignable(
     source: ReturnType<Pseudo2TypeComputer['typeFor']>,
     target: ReturnType<Pseudo2TypeComputer['typeFor']>
@@ -1889,12 +2378,19 @@ export class Pseudo2Validator {
     return source.isConformingTo(target);
   }
 
+  /**
+   * Liefert das Wurzelprogramm des Langium-Dokuments, das den übergebenen Knoten enthält.
+   * @param node Knoten mit Langium-Container- und Dokumentzuordnung.
+   * @returns Als Pseudo2-Programm typisiertes Parse-Ergebnis.
+   */
   private getProgram(node: { $container?: unknown }): Program | undefined {
     const doc = AstUtils.getDocument(node as any);
     return doc.parseResult.value as Program;
   }
 }
 
+/** Minimale strukturelle AST-Sicht für Hilfen, die ausschließlich die Containerkette benötigen. */
 type AstNodeLike = {
+  /** Optionaler übergeordneter AST-Knoten. */
   $container?: unknown;
 };

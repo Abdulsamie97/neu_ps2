@@ -1,8 +1,19 @@
+/**
+ * @file CGenerator.test.ts
+ * @brief Prüft C-Erzeugung, Runtime-Modi, Source Maps und strukturierte VeriFast-Verträge.
+ *
+ * Die Suite deckt Funktionen, Structs, Arrays, Schleifen, Ownership, natürliche
+ * Annotationszugriffe und die Zuordnung generierter C-Zeilen zu Pseudo2 ab.
+ *
+ * @author Abdul
+ */
+
 import { describe, expect, test } from 'vitest';
 
 import { generateCProgram, generateCProgramWithSourceMap } from '../../src/c-generator-core.js';
 import { parseRuntimeProgram } from '../helpers/runtime-test-utils.js';
 
+/** Integrationssuite für den gemeinsamen C-Generator-Core. */
 describe('CGenerator', () => {
   test('generates chained array reads and writes for nested arrays', async () => {
     const c = await generateC(`
@@ -521,6 +532,11 @@ describe('CGenerator', () => {
   });
 });
 
+/**
+ * Parst und validiert ein Pseudo2-Programm und erzeugt dessen C-Code im Vertragsmodus.
+ * @param text Pseudo2-Quelltext.
+ * @returns Generierter C-Quelltext.
+ */
 async function generateC(text: string): Promise<string> {
   const { model, document } = await parseRuntimeProgram(text);
   const errors = (document.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1);

@@ -1,3 +1,13 @@
+/**
+ * @file ParsingTyping.test.ts
+ * @brief Prüft Typberechnung, Rückgabetypen und typbezogene Validierungsdiagnosen von Pseudo2.
+ *
+ * Abgedeckt sind Literale, Operatoren, Arrays, Structs, Funktionen, Methoden,
+ * Zuweisungen, Parameterinferenz und die genaue Zuordnung von Fehlercodes zu AST-Knoten.
+ *
+ * @author Abdul
+ */
+
 import { describe, test, expect } from 'vitest';
 import { AstUtils, EmptyFileSystem, URI, type AstNode, type LangiumDocument } from 'langium';
 
@@ -42,11 +52,19 @@ import {
   PRINT_EXPECTS_BASE_TYPE
 } from '../../src/pseudo2-validator.js';
 
+/** Umfassende Parsing- und Typing-Regressionssuite. */
 describe('ParsingTests_Typing', () => {
+  /** Fortlaufende Nummer für eindeutige Typing-Testdokumente. */
   let docCounter = 0;
+  /** Gemeinsamer Typcomputer für alle Ausdrucks- und Rückgabetypprüfungen. */
   const types = new Pseudo2TypeComputer();
 
   // Entfernt gemeinsame führende Einrückung aus Template-Strings.
+  /**
+   * Entfernt Randzeilen und gemeinsame Einrückung eines Typing-Testprogramms.
+   * @param text Eingerückter Pseudo2-Template-String.
+   * @returns Normalisierter Quelltext.
+   */
   function dedent(text: string): string {
     const lines = text.replace(/\r/g, '').split('\n');
 
@@ -62,6 +80,11 @@ describe('ParsingTests_Typing', () => {
   }
 
   // Parst ein Pseudo2-Programm mit frischen Services.
+  /**
+   * Parst und validiert ein Typing-Testprogramm in einem eindeutigen Speicherdokument.
+   * @param text Pseudo2-Quelltext.
+   * @returns Program-AST und Dokumentdiagnosen.
+   */
   async function parseModel(text: string): Promise<{ model: Program; document: LangiumDocument }> {
     const services = createPseudo2Services(EmptyFileSystem);
     const documentBuilder = services.shared.workspace.DocumentBuilder;
@@ -79,17 +102,25 @@ describe('ParsingTests_Typing', () => {
   }
 
   // Liefert alle Fehlerdiagnosen eines Dokuments.
+  /** @param document Validiertes Dokument. @returns Diagnosen mit Fehlerseverity. */
   function errorDiagnostics(document: LangiumDocument) {
     return (document.diagnostics ?? []).filter(d => d.severity === 1);
   }
 
   // Prüft, dass keine Fehlerdiagnosen vorhanden sind.
+  /** @param document Dokument, dessen Fehlermenge leer sein muss. */
   function assertNoErrors(document: LangiumDocument): void {
     const errors = errorDiagnostics(document);
     expect(errors.map(e => e.message).join('\n')).toBe('');
   }
 
   // Sucht den ersten Knoten eines bestimmten Typs.
+  /**
+   * Sucht Wurzel und Nachfahren nach dem ersten Knoten eines bestimmten AST-Typs.
+   * @param root Ausgangsknoten.
+   * @param guard Type Guard des Zieltyps.
+   * @returns Erster passender Knoten oder `undefined`.
+   */
   function firstNodeOfType<T extends AstNode>(root: AstNode, guard: (node: AstNode) => node is T): T | undefined {
     if (guard(root)) return root;
     for (const n of AstUtils.streamAllContents(root)) {
@@ -99,6 +130,12 @@ describe('ParsingTests_Typing', () => {
   }
 
   // Sucht den letzten Return-Ausdruck in einer Funktion.
+  /**
+   * Ermittelt den Ausdruck der letzten return-Anweisung einer Funktion.
+   * Der Test schlägt fehl, wenn kein wertlieferndes return vorhanden ist.
+   * @param fn Zu untersuchende Funktion.
+   * @returns Ausdruck des letzten returns.
+   */
   function lastReturnExpr(fn: FunctionDeclaration): Expr {
     let last: ReturnStmt | undefined;
 
@@ -131,6 +168,11 @@ describe('ParsingTests_Typing', () => {
   }*/
 
   // Vergleicht zwei Pseudo2-Typen.
+  /**
+   * Erwartet semantische Gleichheit zweier Pseudo2-Typobjekte.
+   * @param actual Berechneter Typ.
+   * @param expected Erwarteter Typ.
+   */
   function expectSameType(
     actual: ReturnType<Pseudo2TypeComputer['typeFor']>,
     expected: ReturnType<Pseudo2TypeComputer['typeFor']>
@@ -139,6 +181,11 @@ describe('ParsingTests_Typing', () => {
   }
 
   // input muss hier nur ein Ausdruck sein.
+  /**
+   * Bettet einen Ausdruck in eine Testfunktion ein und vergleicht seinen berechneten Typ.
+   * @param input Pseudo2-Ausdruck.
+   * @param expectedType Erwarteter Pseudo2-Typ.
+   */
   async function assertTypeExp(
     input: string,
     expectedType: ReturnType<Pseudo2TypeComputer['typeFor']>
@@ -171,6 +218,12 @@ describe('ParsingTests_Typing', () => {
   //   var x = new S
   //   func __test__()
   //       return x.a
+  /**
+   * Verschiebt ein abschließendes Top-Level-return in eine synthetische Funktion, ohne
+   * die davorstehenden globalen Struct- und Variablendeklarationen zu verändern.
+   * @param input Testprogramm mit abschließendem return.
+   * @returns Grammatisch gültiges Pseudo2-Programm mit Funktion `__test__`.
+   */
   function rewriteTopLevelReturnIntoTestFunction(input: string): string {
     const rawLines = input
       .replace(/\r/g, '')
@@ -207,6 +260,11 @@ describe('ParsingTests_Typing', () => {
   // Das ursprüngliche Testprogramm darf mit einem Top-Level-"return ..." enden.
   // Dieser letzte Return wird in eine Testfunktion verschoben, damit das
   // Programm in Langium gültig bleibt.
+  /**
+   * Berechnet den Typ eines ursprünglich global notierten Rückgabeausdrucks.
+   * @param input Testprogramm mit abschließendem Top-Level-return.
+   * @param expectedType Erwarteter Rückgabetyp.
+   */
   async function assertTypeReturnStmt(
     input: string,
     expectedType: ReturnType<Pseudo2TypeComputer['typeFor']>
@@ -229,6 +287,10 @@ describe('ParsingTests_Typing', () => {
 
   // Prüft, dass der letzte Return-Ausdruck einen Struct-Typ hat.
   // Auch hier wird nur der letzte Top-Level-Return in eine Testfunktion verschoben.
+  /**
+   * Erwartet für den abschließenden Rückgabeausdruck eines umgeschriebenen Programms einen Struct-Typ.
+   * @param input Testprogramm mit abschließendem Top-Level-return.
+   */
   async function assertReturnExprIsStruct(input: string) {
     const rewritten = rewriteTopLevelReturnIntoTestFunction(input);
     const { model, document } = await parseModel(rewritten);
@@ -250,6 +312,13 @@ describe('ParsingTests_Typing', () => {
   // Optional wird zusätzlich geprüft, ob der Fehlerbereich mit dem Zielknoten überlappt.
   // Falls Langium die Diagnostic an einen übergeordneten Knoten hängt,
   // reicht auch derselbe Fehlercode im Dokument.
+  /**
+   * Erwartet einen Validatorcode im Dokument und prüft nach Möglichkeit zusätzlich
+   * die Bereichsüberlappung mit dem ersten Knoten des angegebenen Typs.
+   * @param input Zu validierendes Pseudo2-Programm.
+   * @param guard Type Guard des Zielknotens.
+   * @param expectedCode Erwarteter stabiler Diagnosecode.
+   */
   async function assertErrorOnNode<T extends AstNode>(
     input: string,
     guard: (node: AstNode) => node is T,
@@ -288,6 +357,12 @@ describe('ParsingTests_Typing', () => {
   }
 
   // Prüft, ob sich zwei Ranges überlappen.
+  /**
+   * Prüft die Überschneidung zweier LSP-Bereiche über linearisierte Positionen.
+   * @param a Erster Bereich.
+   * @param b Zweiter Bereich.
+   * @returns `true` bei Überlappung.
+   */
   function rangesOverlap(
     a: { start: { line: number; character: number }; end: { line: number; character: number } },
     b: { start: { line: number; character: number }; end: { line: number; character: number } }

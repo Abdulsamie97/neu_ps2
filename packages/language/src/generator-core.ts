@@ -1,3 +1,9 @@
+/**
+ * @file generator-core.ts
+ * @brief Gemeinsamer JavaScript-Generator für CLI, Weboberfläche und Sprachpaket.
+ * @author Abdul
+ */
+
 import { AstUtils } from 'langium';
 import type { AstNode } from 'langium';
 import type {
@@ -76,15 +82,35 @@ import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
 import type { Pseudo2Type } from './typing/pseudo2-type.js';
 import { PSEUDO2_RUNTIME_PRELUDE } from './runtime/runtime-prelude.js';
 
+/**
+ * Kontextabhängiger Zustand während der rekursiven JavaScript-Erzeugung.
+ */
 type GeneratorState = {
+  /** JavaScript-Ausdruck für den aktuellen Pseudo2-`this`-Empfänger. */
   thisName: string;
 };
 
+/** Runtime-Wrapperkategorie eines Pseudo2-Werts. */
 type RuntimeKind = 'array' | 'scalar' | 'struct';
 
+/** Standardzustand außerhalb ausgelagerter Struct-Methoden. */
 const DEFAULT_STATE: GeneratorState = { thisName: 'this' };
+/** Expliziter Empfängerparameter generierter freier Methodenfunktionen. */
 const METHOD_THIS_NAME = 'mythis';
+/** Gemeinsamer Typrechner für Runtime-Klassifikation und Gleichheit. */
 const TYPES = new Pseudo2TypeComputer();
+
+/**
+ * Erzeugt das vollständige JavaScript eines Pseudo2-Programms.
+ *
+ * Structs und Funktionen werden vor ausführbare Top-Level-Anweisungen gezogen,
+ * damit ihre Deklarationen vor der ersten Verwendung verfügbar sind. Das
+ * Ergebnis enthält stets die gemeinsame Observable-Runtime.
+ *
+ * @param program Zu übersetzender Pseudo2-AST.
+ * @param context Vorregistrierter Namenskontext; wird standardmäßig aus dem Programm erzeugt.
+ * @returns JavaScript-Runtime und generierter Programmkörper.
+ */
 export function generateProgram(program: Program, context = Pseudo2GeneratorContext.fromProgram(program)): string {
   const declarations = program.instructions.filter(isTopLevelDeclaration);
   const statements = program.instructions.filter(instruction => !isTopLevelDeclaration(instruction));
@@ -96,10 +122,32 @@ export function generateProgram(program: Program, context = Pseudo2GeneratorCont
   return [PSEUDO2_RUNTIME_PRELUDE, body].filter(Boolean).join('\n\n');
 }
 
+/**
+ * Erkennt Deklarationen, die vor Top-Level-Ausführung ausgegeben werden müssen.
+ *
+ * @param instruction Zu prüfende Programmanweisung.
+ * @returns `true` für Struct- und Funktionsdeklarationen.
+ */
 function isTopLevelDeclaration(instruction: Instruction): boolean {
   return isStructDeclaration(instruction) || isFunctionDeclaration(instruction);
 }
 
+/**
+ * Erzeugt einen Aufruf und ergänzt für Array-Parameter ihre logische Länge.
+ *
+ * Sobald ein formaler Array-Parameter einen Längenparameter besitzt, werden
+ * sämtliche tatsächlichen Argumente einmalig in den Parametern einer sofort
+ * aufgerufenen Arrow-Funktion gebunden. Dadurch bleiben Seiteneffekte erhalten
+ * und ein Arrayausdruck wird nicht doppelt für Wert und Länge ausgewertet.
+ *
+ * @param callee Generierter Zielname der Funktion oder Methode.
+ * @param formals Formale Pseudo2-Parameter.
+ * @param actuals Tatsächliche Aufrufargumente.
+ * @param context Namenskontext für temporäre Variablen.
+ * @param state Aktueller Generatorzustand.
+ * @param leadingArgs Bereits voranzustellende Argumente, insbesondere der Methodenempfänger.
+ * @returns JavaScript-Aufrufausdruck.
+ */
 function buildExpandedCall(
   callee: string,
   formals: ParameterDecl[] | undefined,
@@ -134,6 +182,19 @@ function buildExpandedCall(
   return `((${tempNames.join(', ')}) => ${callee}(${expandedArgs.join(', ')}))(${tempValues.join(', ')})`;
 }
 
+/**
+ * Verteilt eine Pseudo2-Anweisung an ihren spezialisierten Generator.
+ *
+ * Verifikationsanweisungen besitzen im JavaScript-Ziel keine Laufzeitwirkung
+ * und erzeugen daher bewusst keinen Code.
+ *
+ * @param instruction Zu generierende Anweisung.
+ * @param context Deklarationsbasierter Namenskontext.
+ * @param indent Aktuelle JavaScript-Einrückung.
+ * @param state Aktueller `this`- und Methodenstatus.
+ * @returns JavaScript-Anweisung oder Leerstring für reine Verifikation.
+ * @throws Error Bei nicht unterstützten AST-Anweisungstypen.
+ */
 function generateInstruction(
   instruction: Instruction,
   context: Pseudo2GeneratorContext,
@@ -163,6 +224,15 @@ function generateInstruction(
   throw new Error(`Unsupported instruction type: ${(instruction as AstNode).$type}`);
 }
 
+/**
+ * Erzeugt einen JavaScript-Block mit rekursiv generierten Anweisungen.
+ *
+ * @param block Pseudo2-Block.
+ * @param context Namenskontext.
+ * @param indent Einrückung der Blockklammern.
+ * @param state Aktueller Generatorzustand.
+ * @returns Leerer oder mehrzeiliger JavaScript-Block.
+ */
 function generateBlock(block: Block, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   const body = block.instructions ?? [];
 
@@ -179,6 +249,15 @@ function generateBlock(block: Block, context: Pseudo2GeneratorContext, indent = 
   return `${indent}{\n${nested}\n${indent}}`;
 }
 
+/**
+ * Erzeugt eine JavaScript-If-Anweisung mit optionalem Else-Block.
+ *
+ * @param ifStatement Pseudo2-Verzweigung.
+ * @param context Namenskontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Aktueller Generatorzustand.
+ * @returns JavaScript-Verzweigung.
+ */
 function generateIfStatement(
   ifStatement: IfStatement,
   context: Pseudo2GeneratorContext,
@@ -194,6 +273,15 @@ function generateIfStatement(
   return `${indent}if (${condition}) ${thenBlock}${elsePart}`;
 }
 
+/**
+ * Erzeugt eine JavaScript-While-Schleife.
+ *
+ * @param loop Pseudo2-While-Schleife.
+ * @param context Namenskontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Aktueller Generatorzustand.
+ * @returns JavaScript-While-Anweisung.
+ */
 function generateWhileLoop(
   loop: WhileLoop,
   context: Pseudo2GeneratorContext,
@@ -205,6 +293,19 @@ function generateWhileLoop(
   return `${indent}while (${condition}) ${body}`;
 }
 
+/**
+ * Erzeugt eine auf- oder absteigende JavaScript-For-Schleife.
+ *
+ * Start, Ende und Schrittweite werden jeweils in ObservableScalars gebunden.
+ * Vor dem Schleifenstart wird eine nichtpositive Schrittweite als Laufzeitfehler
+ * abgewiesen. Die Quellrichtung bestimmt Vergleich und Additionsrichtung.
+ *
+ * @param loop Pseudo2-For-Schleife.
+ * @param context Namenskontext für Iterator und Hilfsvariablen.
+ * @param indent Aktuelle Einrückung.
+ * @param state Aktueller Generatorzustand.
+ * @returns Initialisierung, Schrittprüfung und JavaScript-For-Schleife.
+ */
 function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   const from = genExpr(loop.from, context, state);
   const to = genExpr(loop.to, context, state);
@@ -227,6 +328,15 @@ function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent
   ].join('\n');
 }
 
+/**
+ * Erzeugt eine JavaScript-Do-While-Schleife.
+ *
+ * @param loop Pseudo2-Do-While-Schleife.
+ * @param context Namenskontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Aktueller Generatorzustand.
+ * @returns JavaScript-Do-While-Anweisung.
+ */
 function generateDoWhileLoop(
   loop: DoWhileLoop,
   context: Pseudo2GeneratorContext,
@@ -238,6 +348,18 @@ function generateDoWhileLoop(
   return `${indent}do ${body} while (${condition});`;
 }
 
+/**
+ * Erzeugt eine Struct-Factory und freie JavaScript-Funktionen für alle Methoden.
+ *
+ * Neue Struct-Instanzen werden über `__ps2_struct` mit allen deklarierten
+ * Feldern als `undefined` angelegt. Methoden erhalten einen expliziten
+ * `mythis`-Parameter und werden nicht als JavaScript-Klassenmethoden ausgegeben.
+ *
+ * @param structDecl Zu übersetzende Struct-Deklaration.
+ * @param context Namenskontext für Factory, Felder und Methoden.
+ * @param indent Aktuelle Einrückung.
+ * @returns Factory-Funktion und nachfolgende Methodenfunktionen.
+ */
 function generateStructDeclaration(
   structDecl: StructDeclaration,
   context: Pseudo2GeneratorContext,
@@ -265,10 +387,24 @@ function generateStructDeclaration(
   return methodText ? `${factory}\n\n${methodText}` : factory;
 }
 
+/**
+ * Unterscheidet eine schlüsselwortlose Struct-Methode von einer globalen Funktion.
+ *
+ * @param fn Zu prüfende Funktionsdeklaration.
+ * @returns `true`, wenn das `func`-Schlüsselwort nicht gesetzt ist.
+ */
 function isMethodDecl(fn: FunctionDeclaration): boolean {
   return fn.keyword !== true;
 }
 
+/**
+ * Erzeugt eine freie JavaScript-Funktion für eine Struct-Methode.
+ *
+ * @param fn Methodendeklaration.
+ * @param context Namenskontext.
+ * @param indent Aktuelle Einrückung.
+ * @returns Funktion mit explizitem `mythis` als erstem Parameter.
+ */
 function generateMethodDeclaration(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext,
@@ -279,6 +415,14 @@ function generateMethodDeclaration(
   return `${indent}function ${context.getFunctionName(fn)}(${params}) ${body}`;
 }
 
+/**
+ * Erzeugt eine globale JavaScript-Funktion.
+ *
+ * @param fn Globale Pseudo2-Funktionsdeklaration.
+ * @param context Namenskontext.
+ * @param indent Aktuelle Einrückung.
+ * @returns JavaScript-Funktionsdeklaration.
+ */
 function generateFunctionDeclaration(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext,
@@ -289,6 +433,15 @@ function generateFunctionDeclaration(
   return `${indent}function ${context.getFunctionName(fn)}(${params}) ${body}`;
 }
 
+/**
+ * Erzeugt Parametervorbereitung und Anweisungen eines Funktionskörpers.
+ *
+ * @param fn Funktion oder Methode.
+ * @param context Namenskontext.
+ * @param indent Einrückung der Funktionsklammern.
+ * @param state Zustand mit dem korrekten `this`-Empfänger.
+ * @returns Leerer oder mehrzeiliger JavaScript-Funktionsblock.
+ */
 function generateFunctionBody(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext,
@@ -310,6 +463,18 @@ function generateFunctionBody(
   return `${indent}{\n${nested.join('\n')}\n${indent}}`;
 }
 
+/**
+ * Erzeugt Runtime-Wrapper für eingehende Funktionsparameter.
+ *
+ * Arrays werden als ObservableArray übernommen und ihre synthetischen
+ * Längenparameter aus der tatsächlichen Arraylänge erzeugt. Andere Parameter
+ * werden anhand ihrer abgeleiteten Runtime-Kategorie eingepackt.
+ *
+ * @param fn Funktion, deren Parameter vorbereitet werden.
+ * @param context Namenskontext.
+ * @param indent Einrückung innerhalb des Funktionskörpers.
+ * @returns JavaScript-Zeilen zur Parameterinitialisierung.
+ */
 function generateParameterPrelude(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext,
@@ -334,6 +499,15 @@ function generateParameterPrelude(
   return out;
 }
 
+/**
+ * Sammelt die tatsächlichen JavaScript-Parameter einer Pseudo2-Funktion.
+ *
+ * Auf einen Array-Parameter folgt sein synthetischer Längenparameter.
+ *
+ * @param fn Funktion oder Methode.
+ * @param context Namenskontext.
+ * @returns Generierte Parameternamen in Signaturreihenfolge.
+ */
 function collectJsParams(fn: FunctionDeclaration, context: Pseudo2GeneratorContext): string[] {
   const out: string[] = [];
 
@@ -347,6 +521,15 @@ function collectJsParams(fn: FunctionDeclaration, context: Pseudo2GeneratorConte
   return out;
 }
 
+/**
+ * Erzeugt einen freien Funktionsaufruf als JavaScript-Anweisung.
+ *
+ * @param call Pseudo2-Funktionsaufruf.
+ * @param context Namenskontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Aktueller Generatorzustand.
+ * @returns JavaScript-Aufruf mit Semikolon.
+ */
 function generateFunctionCall(
   call: FunctionCall,
   context: Pseudo2GeneratorContext,
@@ -358,6 +541,15 @@ function generateFunctionCall(
   return `${indent}${buildExpandedCall(fnName, target?.params, call.params ?? [], context, state)};`;
 }
 
+/**
+ * Erzeugt eine Return-Anweisung mit optionalem Rückgabewert.
+ *
+ * @param ret Pseudo2-Return-Knoten.
+ * @param context Namenskontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Aktueller Generatorzustand.
+ * @returns JavaScript-Return-Anweisung.
+ */
 function generateReturnStatement(
   ret: ReturnStmt,
   context: Pseudo2GeneratorContext,
@@ -370,6 +562,15 @@ function generateReturnStatement(
   return `${indent}return;`;
 }
 
+/**
+ * Erzeugt eine JavaScript-Ausdrucksanweisung.
+ *
+ * @param stmt Pseudo2-Ausdrucksanweisung.
+ * @param context Namenskontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Aktueller Generatorzustand.
+ * @returns Ausdruck mit Semikolon.
+ */
 function generateExprStatement(
   stmt: ExprStatement,
   context: Pseudo2GeneratorContext,
@@ -379,6 +580,15 @@ function generateExprStatement(
   return `${indent}${genExpr(stmt.expr, context, state)};`;
 }
 
+/**
+ * Übersetzt `print` in einen Aufruf von `console.log`.
+ *
+ * @param cmd Pseudo2-Print-Anweisung.
+ * @param context Namenskontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Aktueller Generatorzustand.
+ * @returns JavaScript-Ausgabeanweisung.
+ */
 function generatePrintCommand(
   cmd: PrintCommand,
   context: Pseudo2GeneratorContext,
@@ -388,6 +598,15 @@ function generatePrintCommand(
   return `${indent}console.log(${genExpr(cmd.param, context, state)});`;
 }
 
+/**
+ * Übersetzt einen Pseudo2-Fehlerwurf in JavaScript-`throw`.
+ *
+ * @param cmd Pseudo2-Throw-Anweisung.
+ * @param context Namenskontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Aktueller Generatorzustand.
+ * @returns JavaScript-Throw-Anweisung.
+ */
 function generateThrowCommand(
   cmd: ThrowCommand,
   context: Pseudo2GeneratorContext,
@@ -397,6 +616,15 @@ function generateThrowCommand(
   return `${indent}throw ${genExpr(cmd.param, context, state)};`;
 }
 
+/**
+ * Erzeugt einen expliziten Call-Befehl als Ausdrucksanweisung.
+ *
+ * @param cmd Pseudo2-Call-Anweisung.
+ * @param context Namenskontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Aktueller Generatorzustand.
+ * @returns JavaScript-Ausdruck mit Semikolon.
+ */
 function generateCallCommand(
   cmd: CallCommand,
   context: Pseudo2GeneratorContext,
@@ -406,6 +634,19 @@ function generateCallCommand(
   return `${indent}${genExpr(cmd.param, context, state)};`;
 }
 
+/**
+ * Erzeugt eine skalare, Array- oder Struct-Variablendeklaration.
+ *
+ * Arraygrößen verwenden die 1-basige Runtime-Erzeugung. Initialisierte skalare
+ * und Struct-Werte werden typabhängig gewrappt; fehlende Initialisierungen
+ * beginnen als skalarer Nullwert.
+ *
+ * @param decl Pseudo2-Variablendeklaration.
+ * @param context Namenskontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Aktueller Generatorzustand.
+ * @returns JavaScript-`let`-Deklaration.
+ */
 function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   const name = context.getVarName(decl);
 
@@ -422,6 +663,15 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
   return `${indent}let ${name} = __ps2_wrapValue(null, "scalar");`;
 }
 
+/**
+ * Erzeugt eine Zuweisung über den für das Ziel passenden Runtime-Helfer.
+ *
+ * @param assign Pseudo2-Zuweisung.
+ * @param context Namenskontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Aktueller Generatorzustand.
+ * @returns JavaScript-Zuweisungsanweisung.
+ */
 function generateAssignment(
   assign: Assignment,
   context: Pseudo2GeneratorContext,
@@ -431,6 +681,19 @@ function generateAssignment(
   return `${indent}${genAssignmentTarget(assign.sel as Expr, genExpr(assign.value, context, state), context, state)};`;
 }
 
+/**
+ * Übersetzt einen beliebigen Pseudo2-Ausdruck rekursiv nach JavaScript.
+ *
+ * Literale werden direkt ausgegeben, Variablen und Heapwerte über die
+ * Observable-Runtime gelesen und Operatorfolgen mit expliziter Klammerung
+ * erhalten. Reine VeriFast-Ausdrücke sind im JavaScript-Ziel unzulässig.
+ *
+ * @param expr Zu übersetzender Ausdruck.
+ * @param context Namenskontext.
+ * @param state Aktueller Methoden- und `this`-Zustand.
+ * @returns JavaScript-Ausdruck oder sichtbarer Fallback für unbekannte AST-Typen.
+ * @throws Error Für `result` und `vf_*` außerhalb von VeriFast-Annotationen.
+ */
 function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_STATE): string {
   if (isIntLiteral(expr)) return String(expr.value);
   if (isBoolLiteral(expr)) return String(expr.value);
@@ -487,6 +750,17 @@ function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_S
   return '/*expr*/';
 }
 
+/**
+ * Erzeugt einen Methodenaufruf auf die freie Methodenfunktion.
+ *
+ * Der ausgewertete Empfänger wird als erstes Argument vor die Quellargumente
+ * gesetzt; Array-Längen werden anschließend wie bei freien Funktionen ergänzt.
+ *
+ * @param expr Methodenselektion.
+ * @param context Namenskontext.
+ * @param state Aktueller Generatorzustand.
+ * @returns JavaScript-Aufrufausdruck.
+ */
 function genMethSelectionCall(expr: MethSelection, context: Pseudo2GeneratorContext, state: GeneratorState): string {
   const receiver = genExpr(expr.receiver, context, state);
   const target = expr.methref.f?.ref;
@@ -494,11 +768,30 @@ function genMethSelectionCall(expr: MethSelection, context: Pseudo2GeneratorCont
   return buildExpandedCall(methName, target?.params, expr.methref.params ?? [], context, state, [receiver]);
 }
 
+/**
+ * Erzeugt ein ObservableArray aus einem Pseudo2-Arrayliteral.
+ *
+ * @param expr Arrayliteral.
+ * @param context Namenskontext.
+ * @param state Aktueller Generatorzustand.
+ * @returns Aufruf des Runtime-Helfers `__ps2_arrayLiteral`.
+ */
 function genArrayLiteral(expr: ArrayLiteral, context: Pseudo2GeneratorContext, state: GeneratorState): string {
   const elems = (expr.elems ?? []).map(elem => genExpr(elem, context, state));
   return `__ps2_arrayLiteral([${elems.join(', ')}])`;
 }
 
+/**
+ * Erzeugt den Lesezugriff auf Variable, Methodenattribut oder Arrayelement.
+ *
+ * Normale Werte werden über `.get()` gelesen. Struct-Felder und 1-basierte
+ * Arrayindizes verwenden die dafür vorgesehenen Runtime-Helfer.
+ *
+ * @param expr Variablenreferenz.
+ * @param context Namenskontext.
+ * @param state Zustand mit aktuellem Methodenempfänger.
+ * @returns JavaScript-Leseausdruck.
+ */
 function genVarRef(expr: VarRef, context: Pseudo2GeneratorContext, state: GeneratorState): string {
   const target = expr.ref?.ref;
   const name = target ? context.getVarName(target) : '/*unresolved*/';
@@ -517,6 +810,14 @@ function genVarRef(expr: VarRef, context: Pseudo2GeneratorContext, state: Genera
   return `${name}.get()`;
 }
 
+/**
+ * Erzeugt einen Struct-Attributzugriff mit optionalem Arrayindex.
+ *
+ * @param expr Attributselektion.
+ * @param context Namenskontext.
+ * @param state Aktueller Generatorzustand.
+ * @returns JavaScript-Runtimezugriff.
+ */
 function genAttSelection(expr: AttSelection, context: Pseudo2GeneratorContext, state: GeneratorState): string {
   const receiver = genExpr(expr.receiver, context, state);
   const target = expr.attref.ref?.ref;
@@ -529,6 +830,19 @@ function genAttSelection(expr: AttSelection, context: Pseudo2GeneratorContext, s
   return attribute;
 }
 
+/**
+ * Übersetzt ein zulässiges Zuweisungsziel in den passenden Runtime-Schreibzugriff.
+ *
+ * Unterstützt Variablen, implizite Methodenattribute, explizite
+ * Attributselektionen und verkettete Arrayindizes. Der Runtime-Werttyp steuert,
+ * ob ein Observable gesetzt oder eine Struct-Referenz neu gewrappt wird.
+ *
+ * @param target Linke Seite der Pseudo2-Zuweisung.
+ * @param value Bereits generierter JavaScript-Ausdruck der rechten Seite.
+ * @param context Namenskontext.
+ * @param state Aktueller Methoden- und `this`-Zustand.
+ * @returns JavaScript-Ausdruck ohne abschließendes Semikolon.
+ */
 function genAssignmentTarget(
   target: Expr,
   value: string,
@@ -571,6 +885,15 @@ function genAssignmentTarget(
   return `${genExpr(target, context, state)} = ${value}`;
 }
 
+/**
+ * Erzeugt einen 1-basierten Array-Lesezugriff über die Runtime.
+ *
+ * @param array JavaScript-Ausdruck des Arrayempfängers.
+ * @param index Pseudo2-Indexausdruck.
+ * @param context Namenskontext.
+ * @param state Aktueller Generatorzustand.
+ * @returns Aufruf von `__ps2_arrayGet`.
+ */
 function genArrayGet(
   array: string,
   index: Expr,
@@ -580,6 +903,16 @@ function genArrayGet(
   return `__ps2_arrayGet(${array}, ${genExpr(index, context, state)})`;
 }
 
+/**
+ * Erzeugt einen 1-basierten Array-Schreibzugriff über die Runtime.
+ *
+ * @param array JavaScript-Ausdruck des Arrayempfängers.
+ * @param index Pseudo2-Indexausdruck.
+ * @param value Zu speichernder JavaScript-Ausdruck.
+ * @param context Namenskontext.
+ * @param state Aktueller Generatorzustand.
+ * @returns Aufruf von `__ps2_arraySet`.
+ */
 function genArraySet(
   array: string,
   index: Expr,
@@ -590,14 +923,41 @@ function genArraySet(
   return `__ps2_arraySet(${array}, ${genExpr(index, context, state)}, ${value})`;
 }
 
+/**
+ * Erzeugt den Runtime-Lesezugriff auf ein Struct-Feld.
+ *
+ * @param receiver JavaScript-Ausdruck des Struct-Empfängers.
+ * @param field Eindeutiger generierter Feldname.
+ * @returns Aufruf von `__ps2_structGet`.
+ */
 function genStructGet(receiver: string, field: string): string {
   return `__ps2_structGet(${receiver}, ${JSON.stringify(field)})`;
 }
 
+/**
+ * Erzeugt den typabhängigen Runtime-Schreibzugriff auf ein Struct-Feld.
+ *
+ * @param receiver JavaScript-Ausdruck des Struct-Empfängers.
+ * @param field Eindeutiger generierter Feldname.
+ * @param value Zu speichernder JavaScript-Ausdruck.
+ * @param kind Runtime-Kategorie des Feldes.
+ * @returns Aufruf von `__ps2_structSet`.
+ */
 function genStructSet(receiver: string, field: string, value: string, kind: RuntimeKind): string {
   return `__ps2_structSet(${receiver}, ${JSON.stringify(field)}, ${value}, ${JSON.stringify(kind)})`;
 }
 
+/**
+ * Erzeugt eine Variablenzuweisung passend zur Runtime-Kategorie.
+ *
+ * Structvariablen werden als Referenz neu gewrappt; skalare und Array-Wrapper
+ * werden über ihre `.set()`-Methode aktualisiert.
+ *
+ * @param name Generierter Variablenname.
+ * @param value Zu speichernder JavaScript-Ausdruck.
+ * @param kind Runtime-Kategorie der Variablen.
+ * @returns JavaScript-Zuweisung ohne Semikolon.
+ */
 function genVariableSet(name: string, value: string, kind: RuntimeKind): string {
   if (kind === 'struct') {
     return `${name} = __ps2_wrapValue(${value}, "struct")`;
@@ -606,6 +966,19 @@ function genVariableSet(name: string, value: string, kind: RuntimeKind): string 
   return `${name}.set(${value})`;
 }
 
+/**
+ * Erzeugt eine strikt typisierte JavaScript-Gleichheitskette.
+ *
+ * Pseudo2-`==` und `!=` werden zu `===` und `!==`. Structoperanden werden
+ * zuvor auf ihre Runtime-Referenz reduziert, damit Objektidentität verglichen wird.
+ *
+ * @param left Erster Operand.
+ * @param ops Pseudo2-Gleichheitsoperatoren.
+ * @param rights Weitere Operanden.
+ * @param context Namenskontext.
+ * @param state Aktueller Generatorzustand.
+ * @returns Geklammerte JavaScript-Gleichheitskette.
+ */
 function genEqualityChain(
   left: Expr,
   ops: string[],
@@ -623,6 +996,14 @@ function genEqualityChain(
   return `${out})`;
 }
 
+/**
+ * Bereitet einen Operanden für Pseudo2-Gleichheit vor.
+ *
+ * @param expr Zu vergleichender Ausdruck.
+ * @param context Namenskontext.
+ * @param state Aktueller Generatorzustand.
+ * @returns Struct-Referenz oder unveränderter generierter Wert.
+ */
 function genEqualityArg(expr: Expr, context: Pseudo2GeneratorContext, state: GeneratorState): string {
   const value = genExpr(expr, context, state);
   const type = TYPES.typeFor(expr);
@@ -634,14 +1015,35 @@ function genEqualityArg(expr: Expr, context: Pseudo2GeneratorContext, state: Gen
   return value;
 }
 
+/**
+ * Leitet die Runtime-Kategorie eines Ausdrucks aus seinem statischen Typ ab.
+ *
+ * @param expr Pseudo2-Ausdruck.
+ * @returns `array`, `struct` oder `scalar`.
+ */
 function runtimeKindForExpr(expr: Expr): RuntimeKind {
   return runtimeKindForType(TYPES.typeFor(expr));
 }
 
+/**
+ * Leitet die Runtime-Kategorie eines Struct-Attributs aus seiner Typreferenz ab.
+ *
+ * @param att Struct-Attributdeklaration.
+ * @returns Runtime-Kategorie des Feldes.
+ */
 function runtimeKindForStructAtt(att: StructAttDeclaration): RuntimeKind {
   return runtimeKindForType(TYPES.typeForTypeRef(att.type));
 }
 
+/**
+ * Bestimmt die Runtime-Kategorie einer beliebigen Variablendeklaration.
+ *
+ * Berücksichtigt Attribute, Parameter, synthetische Längenvariablen,
+ * Arraydeklarationen und den Typ vorhandener Initialisierer.
+ *
+ * @param variable Variable oder `undefined` bei ungelöster Referenz.
+ * @returns Erkannte Runtime-Kategorie, standardmäßig `scalar`.
+ */
 function runtimeKindForVariable(variable: Variable | undefined): RuntimeKind {
   if (!variable) {
     return 'scalar';
@@ -672,6 +1074,17 @@ function runtimeKindForVariable(variable: Variable | undefined): RuntimeKind {
   return 'scalar';
 }
 
+/**
+ * Bestimmt die Runtime-Kategorie eines Funktionsparameters.
+ *
+ * Explizite Arrayparameter sind direkt bekannt. Für untypisierte skalare
+ * Parameter werden alle externen Aufrufstellen der Funktion beziehungsweise
+ * Methode untersucht; sobald ein Array- oder Structargument vorkommt, wird
+ * dessen Kategorie übernommen.
+ *
+ * @param param Zu klassifizierender Parameter.
+ * @returns Abgeleitete Runtime-Kategorie.
+ */
 function runtimeKindForParameter(param: ParameterDecl): RuntimeKind {
   if (param.isArray) {
     return 'array';
@@ -708,6 +1121,12 @@ function runtimeKindForParameter(param: ParameterDecl): RuntimeKind {
   return 'scalar';
 }
 
+/**
+ * Reduziert einen statischen Pseudo2-Typ auf eine Runtime-Wrapperkategorie.
+ *
+ * @param type Berechneter Pseudo2-Typ.
+ * @returns `array`, `struct` oder für alle übrigen Typen `scalar`.
+ */
 function runtimeKindForType(type: Pseudo2Type): RuntimeKind {
   if (type.isArrayType()) {
     return 'array';
@@ -720,11 +1139,27 @@ function runtimeKindForType(type: Pseudo2Type): RuntimeKind {
   return 'scalar';
 }
 
+/**
+ * Erkennt eine synthetische Längenvariable eines Arrayparameters.
+ *
+ * @param variable Zu prüfende Variablendeklaration.
+ * @returns `true`, wenn der besitzende Parameter genau diese Länge referenziert.
+ */
 function isLengthParameterDecl(variable: VarDecl): boolean {
   const parent = variable.$container;
   return isParameterDecl(parent) && parent.len === variable;
 }
 
+/**
+ * Prüft über die Containerkette, ob ein AST-Knoten innerhalb einer Funktion liegt.
+ *
+ * Dies verhindert, dass interne rekursive Verwendungen als externe Hinweise für
+ * die Parameterkategorie derselben Funktion ausgewertet werden.
+ *
+ * @param node Ausgangsknoten der Containersuche.
+ * @param fn Gesuchte Funktionsdeklaration.
+ * @returns `true`, wenn `fn` ein AST-Vorfahre von `node` ist.
+ */
 function isInsideFunction(node: AstNode, fn: FunctionDeclaration): boolean {
   let current = node.$container;
 
@@ -738,6 +1173,16 @@ function isInsideFunction(node: AstNode, fn: FunctionDeclaration): boolean {
   return false;
 }
 
+/**
+ * Erzeugt eine Kette mit einem einheitlichen booleschen Operator.
+ *
+ * @param left Bereits generierter linker Operand.
+ * @param op JavaScript-Operator für alle Folgeschritte.
+ * @param rights Rechte Pseudo2-Operanden.
+ * @param context Namenskontext.
+ * @param state Aktueller Generatorzustand.
+ * @returns Geklammerte JavaScript-Operatorfolge.
+ */
 function genChain(
   left: string,
   op: string,
@@ -752,6 +1197,18 @@ function genChain(
   return `${out})`;
 }
 
+/**
+ * Erzeugt eine arithmetische oder vergleichende Operatorfolge.
+ *
+ * Pseudo2-`mod` wird auf JavaScript-`%` und Potenz `^` auf `**` abgebildet.
+ *
+ * @param left Bereits generierter linker Operand.
+ * @param ops Operatoren in Quellreihenfolge.
+ * @param rights Rechte Pseudo2-Operanden.
+ * @param context Namenskontext.
+ * @param state Aktueller Generatorzustand.
+ * @returns Geklammerte JavaScript-Operatorfolge.
+ */
 function genOpChain(
   left: string,
   ops: string[],

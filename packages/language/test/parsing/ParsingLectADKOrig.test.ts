@@ -1,13 +1,26 @@
+/**
+ * @file ParsingLectADKOrig.test.ts
+ * @brief Bewahrt Parser-Regressionstests der ursprünglichen ADK-Pseudo2-Beispiele.
+ * @author Abdul
+ */
+
 import { describe, test, expect } from 'vitest';
 import { EmptyFileSystem, URI, type LangiumDocument } from 'langium';
 
 import type { Program } from '../../src/generated/ast.js';
 import { createPseudo2Services } from '../../src/pseudo2-module.js';
 
+/** Parsing-Suite für möglichst originalgetreu übernommene ADK-Programme. */
 describe('ParsingTests_LectADKOrig', () => {
+  /** Fortlaufende Nummer für eindeutige Original-ADK-Testdokumente. */
   let docCounter = 0;
 
   // Entfernt gemeinsame führende Einrückung aus Template-Strings.
+  /**
+   * Normalisiert die gemeinsame Einrückung eingebetteter Originalprogramme.
+   * @param text Eingerückter Template-String.
+   * @returns Parsebarer Pseudo2-Quelltext.
+   */
   function dedent(text: string): string {
     const lines = text.replace(/\r/g, '').split('\n');
 
@@ -28,6 +41,11 @@ describe('ParsingTests_LectADKOrig', () => {
   }
 
   // Parst ein Pseudo2-Programm mit frischen Services.
+  /**
+   * Parst und validiert ein ursprüngliches ADK-Testprogramm im Speicherdateisystem.
+   * @param text Pseudo2-Quelltext.
+   * @returns Program-AST und Dokument mit Diagnosen.
+   */
   async function parseModel(text: string): Promise<{ model: Program; document: LangiumDocument }> {
     const services = createPseudo2Services(EmptyFileSystem);
     const documentBuilder = services.shared.workspace.DocumentBuilder;
@@ -45,6 +63,7 @@ describe('ParsingTests_LectADKOrig', () => {
   }
 
   // Prüft, dass keine Fehlerdiagnosen im Dokument vorhanden sind.
+  /** @param document Validiertes Dokument, das keine Fehlerdiagnosen enthalten darf. */
   function assertNoErrors(document: LangiumDocument): void {
     const errors = (document.diagnostics ?? []).filter(d => d.severity === 1);
     expect(errors.map(e => e.message).join('\n')).toBe('');

@@ -1,3 +1,9 @@
+/**
+ * @file pseudo2-module.d.ts
+ * @brief Deklariert die öffentliche Service-Oberfläche des Pseudo2-Langium-Moduls.
+ * @author Abdul
+ */
+
 import { type Module } from 'langium';
 import { type DefaultSharedModuleContext, type LangiumServices, type LangiumSharedServices, type PartialLangiumServices } from 'langium/lsp';
 import { Pseudo2Validator } from './pseudo2-validator.js';
@@ -5,7 +11,9 @@ import { Pseudo2Validator } from './pseudo2-validator.js';
  * Declaration of custom services - add your own service classes here.
  */
 export type Pseudo2AddedServices = {
+    /** Sprachspezifische Validierungsdienste. */
     validation: {
+        /** Gemeinsame Instanz des semantischen Pseudo2-Validators. */
         Pseudo2Validator: Pseudo2Validator;
     };
 };
@@ -35,12 +43,18 @@ export type Pseudo2Services = LangiumServices & Pseudo2AddedServices;
  *
  * @param context Optional module context with the LSP connection
  * @returns An object wrapping the shared services and the language-specific services
+ *
+ * Die Funktion kombiniert Langiums Standardmodule, die generierten Pseudo2-Module
+ * und die benutzerdefinierte Validatorbindung zu einem vollständig verwendbaren
+ * Servicegraphen für CLI, Tests, Webeditor und Language Server.
  */
 
 
 
 
 export declare function createPseudo2Services(context: DefaultSharedModuleContext): {
+    /** Dokument- und LSP-übergreifende Langium-Dienste. */
     shared: LangiumSharedServices;
+    /** Sprachspezifische Pseudo2-Dienste. */
     Pseudo2: Pseudo2Services;
 };

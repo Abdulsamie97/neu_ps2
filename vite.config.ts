@@ -3,6 +3,16 @@
  * Licensed under the MIT License. See LICENSE in the package root for license information.
  * ------------------------------------------------------------------------------------------ */
 
+/**
+ * @file vite.config.ts
+ * @brief Konfiguriert Build, Entwicklungsserver und lokale Werkzeug-APIs der Pseudo2 Workbench.
+ *
+ * Neben Monaco-/VS-Code-Bundling stellt die Datei Routen für Workbench, C-Ausführung
+ * und VeriFast bereit. Eingaben werden begrenzt und validiert, lokale Origins geprüft,
+ * konkrete Runtime-Komponenten vor jedem Programmbeweis verifiziert und C-Diagnosen
+ * über die mitgesendete Source Map auf Pseudo2-Zeilen zurückgeführt.
+ */
+
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { defineConfig, type Plugin } from 'vite';
 import fs from 'node:fs';
@@ -15,15 +25,21 @@ import { runVeriFast, type VeriFastResult } from './packages/cli/src/verifast.js
 
 /// <reference lib="rolldown-vite/config" />
 
+/** Repositorylokaler VeriFast-Pfad, der unabhängig von externen Umgebungsvariablen verwendet wird. */
 const DEFAULT_VERIFAST_EXE = path.resolve(__dirname, 'verifast-26.01', 'bin', 'verifast.exe');
+/** Konkrete C-Runtimes, die vor jedem über die Weboberfläche gestarteten Beweis geprüft werden. */
 const VERIFIED_RUNTIME_FILES = [
     path.resolve(__dirname, 'runtime', 'c', 'pseudo2_heap_runtime.c'),
     path.resolve(__dirname, 'runtime', 'c', 'pseudo2_scalar_runtime.c')
 ];
+/** Maximale Größe eines JSON-Anfragekörpers für lokale Werkzeugendpunkte. */
 const MAX_VERIFAST_BODY_BYTES = 5 * 1024 * 1024;
+/** Standardzeitlimit eines aus der Weboberfläche gestarteten VeriFast-Prozesses. */
 const DEFAULT_VERIFAST_TIMEOUT_MS = 60_000;
+/** Verhindert mehrere gleichzeitig kompilierende oder laufende C-Programme. */
 let cRunInProgress = false;
 
+/** Vollständige Vite-Konfiguration für Mehrseiten-Build, Entwicklungsserver und lokale APIs. */
 export const definedViteConfig = defineConfig({
     build: {
         rollupOptions: {
@@ -114,29 +130,49 @@ export const definedViteConfig = defineConfig({
 
 export default definedViteConfig;
 
+/** Ungeprüfte JSON-Struktur des VeriFast-Webendpunkts vor Laufzeitvalidierung. */
 type VeriFastApiRequest = {
+    /** Zu verifizierender generierter C-Code. */
     code?: unknown;
+    /** Gewünschter temporärer C-Dateiname. */
     fileName?: unknown;
+    /** Anzeigename der ursprünglichen Pseudo2-Quelldatei. */
     sourceFile?: unknown;
+    /** Zeilenabbildung vom generierten C-Code auf Pseudo2. */
     sourceMap?: unknown;
+    /** Zusätzliche VeriFast-Kommandozeilenargumente. */
     extraArgs?: unknown;
+    /** Gewünschtes Prozesszeitlimit. */
     timeoutMs?: unknown;
 };
 
+/** Ungeprüfte JSON-Struktur des C-Ausführungsendpunkts vor Laufzeitvalidierung. */
 type CRunApiRequest = {
+    /** Zu kompilierender und auszuführender C-Code. */
     code?: unknown;
+    /** Gewünschter temporärer C-Dateiname. */
     fileName?: unknown;
+    /** Optionale Standardeingabe des Programms. */
     stdin?: unknown;
+    /** Gewünschtes Compiler- und Laufzeitlimit. */
     timeoutMs?: unknown;
 };
 
+/** Lokaler Alias des vom gemeinsamen CLI-Modul gelieferten VeriFast-Ergebnisses. */
 type VeriFastProcessResult = VeriFastResult;
 
+/** Einzelne Zeilenzuordnung des vom Browser gesendeten C-Source-Maps. */
 type CSourceMapEntry = {
+    /** Einsbasierte Zeile im erzeugten C-Code. */
     generatedLine: number;
+    /** Einsbasierte Zeile im ursprünglichen Pseudo2-Code. */
     sourceLine: number;
 };
 
+/**
+ * Registriert die kurze Workbench-Route und meldet ihre URL nach Serverstart im Terminal.
+ * @returns Vite-Plugin für Routing und Startausgabe.
+ */
 function pseudo2WorkbenchRoutePlugin(): Plugin {
     return {
         name: 'pseudo2-workbench-route',
@@ -162,6 +198,10 @@ function pseudo2WorkbenchRoutePlugin(): Plugin {
     };
 }
 
+/**
+ * Registriert `POST /api/verifast` und delegiert Anfragen an den lokalen Beweishandler.
+ * @returns Vite-Plugin des VeriFast-Endpunkts.
+ */
 function pseudo2VeriFastApiPlugin(): Plugin {
     return {
         name: 'pseudo2-verifast-api',
@@ -173,6 +213,10 @@ function pseudo2VeriFastApiPlugin(): Plugin {
     };
 }
 
+/**
+ * Registriert `POST /api/run-c` und delegiert Anfragen an Compiler und Programmlauf.
+ * @returns Vite-Plugin des C-Ausführungsendpunkts.
+ */
 function pseudo2CRunApiPlugin(): Plugin {
     return {
         name: 'pseudo2-c-run-api',
@@ -184,6 +228,12 @@ function pseudo2CRunApiPlugin(): Plugin {
     };
 }
 
+/**
+ * Validiert eine lokale C-Ausführungsanfrage, begrenzt das Zeitlimit und führt den Code
+ * exklusiv über den gemeinsamen C-Runner aus.
+ * @param req Eingehende Node-HTTP-Anfrage.
+ * @param res JSON-Antwort des Vite-Servers.
+ */
 async function handleCRunApi(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method !== 'POST') {
         sendJson(res, 405, { ok: false, error: 'Use POST /api/run-c.' });
@@ -236,6 +286,13 @@ async function handleCRunApi(req: IncomingMessage, res: ServerResponse): Promise
     }
 }
 
+/**
+ * Validiert eine lokale VeriFast-Anfrage, schreibt den C-Code temporär, verifiziert
+ * zuerst beide konkreten Runtime-Komponenten und anschließend das generierte Programm.
+ * Ergebnisdiagnosen werden vor der JSON-Antwort auf Pseudo2-Zeilen abgebildet.
+ * @param req Eingehende Node-HTTP-Anfrage.
+ * @param res JSON-Antwort des Vite-Servers.
+ */
 async function handleVeriFastApi(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method !== 'POST') {
         sendJson(res, 405, { ok: false, error: 'Use POST /api/verifast.' });
@@ -305,6 +362,11 @@ async function handleVeriFastApi(req: IncomingMessage, res: ServerResponse): Pro
     });
 }
 
+/**
+ * Filtert eine unbekannte JSON-Struktur auf numerisch gültige Source-Map-Einträge.
+ * @param value Ungeprüfter Anfragewert.
+ * @returns Gültige C-zu-Pseudo2-Zeilenzuordnungen.
+ */
 function parseSourceMap(value: unknown): CSourceMapEntry[] {
     if (!Array.isArray(value)) {
         return [];
@@ -326,6 +388,14 @@ function parseSourceMap(value: unknown): CSourceMapEntry[] {
     });
 }
 
+/**
+ * Ergänzt alle VeriFast-Diagnosen mit einer passenden Pseudo2-Datei und Quellzeile.
+ * Diagnosen ohne exakte Zuordnung bleiben unverändert erhalten.
+ * @param result Ursprüngliches VeriFast-Prozessergebnis.
+ * @param sourceMap Zeilenabbildung des generierten Programms.
+ * @param sourceFile Anzeigename der Pseudo2-Quelle.
+ * @returns Ergebnis mit rückgemappten Diagnosen.
+ */
 function mapVeriFastResultToSource(
     result: VeriFastProcessResult,
     sourceMap: CSourceMapEntry[],
@@ -352,6 +422,12 @@ function mapVeriFastResultToSource(
     };
 }
 
+/**
+ * Liest und parst einen größenbegrenzten JSON-Anfragekörper.
+ * Bei Überschreitung wird der lesbare Stream beendet, um weitere Daten zu verwerfen.
+ * @param req Eingehender HTTP-Stream.
+ * @returns Geparstes JSON-Objekt des angeforderten Typs.
+ */
 function readJsonBody<T = VeriFastApiRequest>(req: IncomingMessage): Promise<T> {
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
@@ -378,10 +454,19 @@ function readJsonBody<T = VeriFastApiRequest>(req: IncomingMessage): Promise<T> 
     });
 }
 
+/** @param stream Zu beendender HTTP-Eingabestream nach einer ungültigen Anfrage. */
 function destroyReadable(stream: IncomingMessage): void {
     stream.destroy();
 }
 
+/**
+ * Startet VeriFast im Compile-only-Modus über die gemeinsame CLI-Implementierung.
+ * @param verifastExe Absoluter Pfad zur ausführbaren Datei.
+ * @param file Zu verifizierende C-Datei.
+ * @param extraArgs Zusätzliche VeriFast-Argumente.
+ * @param timeoutMs Prozesszeitlimit.
+ * @returns Strukturiertes VeriFast-Ergebnis.
+ */
 function runVeriFastProcess(
     verifastExe: string,
     file: string,
@@ -397,17 +482,32 @@ function runVeriFastProcess(
     });
 }
 
+/**
+ * Begrenzt ein angefordertes VeriFast-Zeitlimit auf maximal fünf Minuten.
+ * @param value Ungeprüfter Anfragewert.
+ * @returns Gültiges positives Zeitlimit oder der Standardwert.
+ */
 function normalizeVeriFastTimeout(value: unknown): number {
     return typeof value === 'number' && Number.isFinite(value) && value > 0
         ? Math.min(Math.floor(value), 5 * 60_000)
         : DEFAULT_VERIFAST_TIMEOUT_MS;
 }
 
+/**
+ * Entfernt Verzeichnisse und ungültige Zeichen aus einem temporären C-Dateinamen.
+ * @param fileName Angeforderter Dateiname.
+ * @returns Sicherer Basisname mit `.c`-Endung.
+ */
 function sanitizeCFileName(fileName: string): string {
     const baseName = path.basename(fileName).replace(/[^a-zA-Z0-9_.-]/g, '_');
     return baseName.endsWith('.c') ? baseName : `${baseName || 'program'}.c`;
 }
 
+/**
+ * Erlaubt Werkzeuganfragen ohne Origin oder von lokalen HTTP-Hosts und blockiert fremde Origins.
+ * @param req Eingehende HTTP-Anfrage.
+ * @returns `true` für vertrauenswürdige lokale Aufrufe.
+ */
 function isTrustedLocalOrigin(req: IncomingMessage): boolean {
     const origin = req.headers.origin;
     if (origin === undefined) return true;
@@ -419,12 +519,19 @@ function isTrustedLocalOrigin(req: IncomingMessage): boolean {
     }
 }
 
+/**
+ * Sendet einen Wert als eingerückte UTF-8-JSON-Antwort.
+ * @param res HTTP-Antwort.
+ * @param status HTTP-Statuscode.
+ * @param value Serialisierbarer Antwortwert.
+ */
 function sendJson(res: ServerResponse, status: number, value: unknown): void {
     res.statusCode = status;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.end(JSON.stringify(value, null, 2));
 }
 
+/** @param error Unbekannter Fehlerwert. @returns Lesbarer Name und Meldung oder Stringdarstellung. */
 function formatServerError(error: unknown): string {
     if (error instanceof Error) {
         return `${error.name}: ${error.message}`;

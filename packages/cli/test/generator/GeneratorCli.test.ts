@@ -1,3 +1,13 @@
+/**
+ * @file GeneratorCli.test.ts
+ * @brief Prüft Dateiausgabe und Optionen der JavaScript-, C-, Pretty- und Graphviz-CLI-Generatoren.
+ *
+ * Temporäre Projekte sichern Standard- und Zielverzeichnisse, selektierte Artefakte,
+ * Source-Map-Dateien, ausführbare C-Runtime-Ausgabe und optionale Compiler-Ausführung ab.
+ *
+ * @author Abdul
+ */
+
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -7,6 +17,7 @@ import { describe, expect, test } from 'vitest';
 import { generateAction, generateCAction, generatePrettyAction } from '../../src/main.js';
 import { resolveCCompiler, runCSource } from '../../src/c-runner.js';
 
+/** Integrationssuite der programmatisch aufgerufenen CLI-Generatoraktionen. */
 describe('CLI generator', () => {
   test('generateAction writes JavaScript and Graphviz artifacts to explicit destination', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-cli-'));
@@ -154,6 +165,7 @@ describe('CLI generator', () => {
   }, 30_000);
 });
 
+/** @returns Kleines gültiges Pseudo2-Programm für alle Generatoraktionen der Suite. */
 function sampleProgram(): string {
   return `
 func add(a, b)
@@ -163,6 +175,11 @@ print add(2, 3)
 `;
 }
 
+/**
+ * Führt generierten JavaScript-Code isoliert aus und zeichnet console.log-Ausgaben auf.
+ * @param code Zu prüfender JavaScript-Quelltext.
+ * @returns Normalisierte Programmausgabe.
+ */
 function executeGeneratedJs(code: string): string {
   const output: string[] = [];
   vm.runInNewContext(code, {

@@ -1,3 +1,17 @@
+/**
+ * @file c-generator-core.ts
+ * @brief Übersetzt ein validiertes Pseudo2-Programm in ausführbaren oder mit VeriFast prüfbaren C-Code.
+ *
+ * Der Generator bildet dynamische Pseudo2-Werte auf die gemeinsame C-Runtime ab,
+ * erzeugt Funktionen, Methoden, Struct-Fabriken, Kontrollfluss und Ausdrücke und
+ * ergänzt die dafür erforderlichen VeriFast-Verträge. Eine generatorinterne
+ * Heap-Zustandsanalyse verfolgt Besitz, Aliase, enthaltene Kindobjekte und ersetzte
+ * Heapwerte. Optional werden Marker in eine Quellabbildung von C-Zeilen zurück auf
+ * Pseudo2-Zeilen überführt.
+ *
+ * @author Abdul
+ */
+
 import { AstUtils, type AstNode } from 'langium';
 import type {
   ArrayLiteral,
@@ -75,58 +89,103 @@ import { C_RUNTIME_IMPLEMENTATION } from './c-runtime-implementation.js';
 import { Pseudo2GeneratorContext } from './generator-context.js';
 import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
 
+/** Kontextzustand, der während der rekursiven C-Erzeugung weitergereicht wird. */
 type CGeneratorState = {
+  /** C-Name des aktuellen Methodenempfängers. */
   thisName: string;
+  /** Kennzeichnet Anweisungen, die in der generierten main-Funktion liegen. */
   topLevel: boolean;
+  /** Aktiviert temporäre Marker für die Pseudo2-zu-C-Quellabbildung. */
   sourceMap: boolean;
+  /** Generierte Namen aller globalen Pseudo2-Variablen. */
   globalNames: string[];
+  /** Arraydeklarationen, für die ein statischer Füllhelfer erzeugt wurde. */
   arrayFillDecls?: ReadonlySet<VarDecl>;
+  /** Ordnet Stringinhalte ihren deduplizierten C-Helferfunktionen zu. */
   stringLiteralNames?: ReadonlyMap<string, string>;
+  /** Ordnet konstanten Divisoren ihren präzise spezifizierten C-Helfern zu. */
   divisionLiteralNames?: ReadonlyMap<number, string>;
+  /** In einer Spezifikation gebundene abstrakte Array- und Struct-Zustände. */
   specHeapStates?: ReadonlyMap<string, SpecHeapState>;
+  /** Lokale Heapobjekte, deren Ownership am Block- oder Funktionsende behandelt werden muss. */
   ownedHeapLocals?: Array<Omit<SpecHeapState, 'stateName'>>;
+  /** Aliasbeziehungen zwischen Namen, die dasselbe Heapobjekt bezeichnen. */
   heapAliases?: ReadonlyMap<string, string>;
+  /** Abbildung eines enthaltenen Heapobjekts auf sein besitzendes Elternobjekt. */
   heapContainments?: ReadonlyMap<string, string>;
+  /** Zuweisungen, bei denen ein bisher besessenes Kindobjekt ersetzt wird. */
   heapReplacements?: ReadonlyMap<Assignment, HeapReplacement>;
+  /** Bereits materialisierte Teilausdrücke und ihre temporären C-Namen. */
   expressionTemps?: ReadonlyMap<AstNode, string>;
 };
 
+/** Vom Ownership-Modell unterschiedene Heapobjektarten. */
 type HeapKind = 'array' | 'struct';
 
+/** Gebundener VeriFast-Zustand eines konkreten Array- oder Struct-Empfängers. */
 type SpecHeapState = {
+  /** Art des modellierten Heapobjekts. */
   kind: HeapKind;
+  /** C-Ausdruck, der das Heapobjekt bezeichnet. */
   receiver: string;
+  /** Logischer Name der in VeriFast gebundenen Zustandsliste. */
   stateName: string;
+  /** Optionaler AST-Ausdruck zur abhängigen Auflösung verschachtelter Empfänger. */
   expression?: Expr;
 };
 
+/** Ownership-Information für eine Zuweisung, die einen belegten Heap-Slot überschreibt. */
 type HeapReplacement = {
+  /** Art des zuvor im Slot besessenen Kindobjekts. */
   kind: HeapKind;
+  /** Neuer Empfänger, dessen Zustandswissen nach der Zuweisung wiederhergestellt wird. */
   replacementReceiver?: string;
+  /** Empfänger, gegen den bei einem nur bedingt ausgeführten Ersatz verglichen wird. */
   conditionalReceiver?: string;
 };
 
+/** Unveränderter Ausgangszustand für Generatoraufrufe ohne speziellen Kontext. */
 const DEFAULT_STATE: CGeneratorState = { thisName: 'this', topLevel: false, sourceMap: false, globalNames: [] };
+/** Expliziter erster Parameter jeder aus einer Struct-Methode erzeugten C-Funktion. */
 const METHOD_THIS_NAME = 'mythis';
+/** Erkennt den Beginn eines temporären Pseudo2-Quellzeilenbereichs. */
 const SOURCE_MAP_MARKER_RE = /^\/\*@@pseudo2-source-line:(\d+)\*\/$/;
+/** Beendet den zuletzt begonnenen temporären Pseudo2-Quellzeilenbereich. */
 const SOURCE_MAP_END_MARKER = '/*@@pseudo2-source-line:end*/';
+/** Gemeinsame Typberechnung für Heap- und Ausdrucksklassifikationen. */
 const TYPES = new Pseudo2TypeComputer();
 
+/** Optionen für die Erzeugung eines vollständigen C-Übersetzungsmoduls. */
 export type GenerateCProgramOptions = {
+  /** Wählt abstrakte VeriFast-Verträge oder konkrete ausführbare Runtime-Implementierungen. */
   runtime?: 'contracts' | 'implementation';
+  /** Quell- oder Modulname für den VeriFast-main-Vertrag. */
   moduleName?: string;
 };
 
+/** Ordnet eine Zeile des bereinigten C-Codes ihrer Pseudo2-Ausgangszeile zu. */
 export type CSourceMapEntry = {
+  /** Einsbasierte Zeilennummer im erzeugten C-Code. */
   generatedLine: number;
+  /** Einsbasierte Zeilennummer im Pseudo2-Dokument. */
   sourceLine: number;
 };
 
+/** Ergebnis der C-Erzeugung einschließlich Quellabbildung. */
 export type GeneratedCProgram = {
+  /** Vollständiger C-Code ohne interne Source-Map-Marker. */
   code: string;
+  /** Zuordnungen aller markierten C-Zeilen zu Pseudo2-Zeilen. */
   sourceMap: CSourceMapEntry[];
 };
 
+/**
+ * Erzeugt vollständigen C-Code ohne separate Quellabbildung.
+ * @param program Validiertes Pseudo2-Wurzelprogramm.
+ * @param context Deklarationsbasiertes Namens- und Struct-Feldmapping.
+ * @param options Runtime- und Moduloptionen.
+ * @returns Kompilierbarer beziehungsweise durch VeriFast prüfbarer C-Quelltext.
+ */
 export function generateCProgram(
   program: Program,
   context = Pseudo2GeneratorContext.fromProgram(program),
@@ -135,6 +194,13 @@ export function generateCProgram(
   return generateCProgramInternal(program, context, options, false);
 }
 
+/**
+ * Erzeugt C-Code und eine zeilenweise Rückabbildung für VeriFast-Diagnosen im Pseudo2-Editor.
+ * @param program Validiertes Pseudo2-Wurzelprogramm.
+ * @param context Deklarationsbasiertes Namens- und Struct-Feldmapping.
+ * @param options Runtime- und Moduloptionen.
+ * @returns Bereinigter C-Code zusammen mit seiner Source Map.
+ */
 export function generateCProgramWithSourceMap(
   program: Program,
   context = Pseudo2GeneratorContext.fromProgram(program),
@@ -143,6 +209,16 @@ export function generateCProgramWithSourceMap(
   return stripSourceMapMarkers(generateCProgramInternal(program, context, options, true));
 }
 
+/**
+ * Assemblierte Runtime, Hilfsfunktionen, Prototypen, globale Variablen, Definitionen
+ * und main-Funktion zu einer C-Übersetzungseinheit. Bei aktivierter Quellabbildung
+ * verbleiben zunächst interne Marker im Ergebnis.
+ * @param program Zu übersetzendes Pseudo2-Programm.
+ * @param context Gemeinsamer Generator-Kontext.
+ * @param options Konfiguration der Runtime und des Moduls.
+ * @param sourceMap Ob Quellzeilenmarker erzeugt werden sollen.
+ * @returns Vollständige gegebenenfalls markierte C-Übersetzungseinheit.
+ */
 function generateCProgramInternal(
   program: Program,
   context: Pseudo2GeneratorContext,
@@ -208,6 +284,11 @@ function generateCProgramInternal(
   ].filter(Boolean).join('\n\n');
 }
 
+/**
+ * Erkennt annotierte Schleifen, die Struct-Felder verändern und deshalb den Z3-Prover benötigen.
+ * @param program Zu untersuchendes Programm.
+ * @returns `true`, sobald eine passende Schleife mit Attributzuweisung gefunden wurde.
+ */
 function hasMutatingStructLoop(program: Program): boolean {
   for (const node of AstUtils.streamAllContents(program)) {
     if (!isWhileLoop(node) && !isForLoop(node) && !isDoWhileLoop(node)) {
@@ -225,6 +306,11 @@ function hasMutatingStructLoop(program: Program): boolean {
   return false;
 }
 
+/**
+ * Sammelt alle von null verschiedenen ganzzahligen Divisoren, für die präzise Verträge erzeugt werden.
+ * @param program Zu untersuchendes Programm.
+ * @returns Eindeutige Divisoren in aufsteigender Reihenfolge.
+ */
 function collectDivisionLiterals(program: Program): number[] {
   const values = new Set<number>();
   for (const node of AstUtils.streamAllContents(program)) {
@@ -241,10 +327,17 @@ function collectDivisionLiterals(program: Program): number[] {
   return [...values].sort((a, b) => a - b);
 }
 
+/** @param divisor Konstanter Divisor. @returns Kollisionsfreier C-Helfername für diesen Divisor. */
 function divisionLiteralHelperName(divisor: number): string {
   return `ps2_divide_by_${divisor < 0 ? `neg_${Math.abs(divisor)}` : divisor}`;
 }
 
+/**
+ * Erzeugt je konstantem Divisor entweder eine konkrete Funktion oder einen abstrakten VeriFast-Vertrag.
+ * @param divisors Im Programm verwendete konstante Divisoren.
+ * @param runtime Gewählter Runtime-Modus.
+ * @returns Aneinandergereihte C-Helferdefinitionen beziehungsweise Deklarationen.
+ */
 function generateDivisionLiteralHelpers(divisors: number[], runtime: 'contracts' | 'implementation'): string {
   return divisors.map(divisor => runtime === 'implementation'
     ? [
@@ -261,6 +354,7 @@ function generateDivisionLiteralHelpers(divisors: number[], runtime: 'contracts'
   ).join('\n\n');
 }
 
+/** @param program Zu untersuchendes Programm. @returns Deduplizierte Stringliteralinhalte in stabiler Sortierung. */
 function collectStringLiterals(program: Program): string[] {
   const values = new Set<string>();
   for (const node of AstUtils.streamAllContents(program)) {
@@ -271,6 +365,12 @@ function collectStringLiterals(program: Program): string[] {
   return [...values].sort();
 }
 
+/**
+ * Erzeugt für jeden Stringinhalt eine Runtime-Implementierung oder einen inhaltlich präzisen Vertrag.
+ * @param values Deduplizierte Literalinhalte.
+ * @param runtime Gewählter Runtime-Modus.
+ * @returns C-Helfer für alle Stringliterale.
+ */
 function generateStringLiteralHelpers(values: string[], runtime: 'contracts' | 'implementation'): string {
   return values
     .map((value, index) => runtime === 'implementation'
@@ -280,10 +380,17 @@ function generateStringLiteralHelpers(values: string[], runtime: 'contracts' | '
     .join('\n\n');
 }
 
+/** @param index Stabiler Literalindex. @returns C-Name des Stringliteralhelfers. */
 function stringLiteralHelperName(index: number): string {
   return `ps2_string_literal_${index}`;
 }
 
+/**
+ * Erzeugt den abstrakten VeriFast-Vertrag eines Stringliteralhelfers.
+ * @param value Erwarteter Stringinhalt.
+ * @param index Stabiler Literalindex.
+ * @returns C-Deklaration mit vollständigen Modellzusicherungen.
+ */
 function generateStringLiteralContract(value: string, index: number): string {
   return [
     `Ps2Value* ${stringLiteralHelperName(index)}(void);`,
@@ -293,6 +400,12 @@ function generateStringLiteralContract(value: string, index: number): string {
   ].join('\n');
 }
 
+/**
+ * Erzeugt die konkrete C-Implementierung eines Stringliteralhelfers.
+ * @param value Zu konstruierender Stringinhalt.
+ * @param index Stabiler Literalindex.
+ * @returns Statische C-Funktion.
+ */
 function generateStringLiteralImplementation(value: string, index: number): string {
   return [
     `static Ps2Value* ${stringLiteralHelperName(index)}(void) {`,
@@ -301,12 +414,18 @@ function generateStringLiteralImplementation(value: string, index: number): stri
   ].join('\n');
 }
 
+/**
+ * Kodiert einen JavaScript-String als VeriFast-Liste seiner Unicode-Codepoints.
+ * @param value Zu kodierender String.
+ * @returns Verschachtelter `cons`-Ausdruck mit `nil` als Listenende.
+ */
 function genVeriFastStringContent(value: string): string {
   return [...value]
     .map(character => character.codePointAt(0) ?? 0)
     .reduceRight((tail, codePoint) => `cons(${codePoint}, ${tail})`, 'nil');
 }
 
+/** @param program Zu untersuchendes Programm. @returns Eindeutige Arrayliteral-Längen in aufsteigender Reihenfolge. */
 function collectArrayLiteralArities(program: Program): number[] {
   const arities = new Set<number>();
   for (const node of AstUtils.streamAllContents(program)) {
@@ -317,6 +436,12 @@ function collectArrayLiteralArities(program: Program): number[] {
   return [...arities].sort((a, b) => a - b);
 }
 
+/**
+ * Erzeugt aritätsspezifische Konstruktorhelfer für alle vorkommenden Arrayliterale.
+ * @param arities Benötigte Elementanzahlen.
+ * @param runtime Gewählter Runtime-Modus.
+ * @returns C-Helferdeklarationen oder -implementierungen.
+ */
 function generateArrayLiteralHelpers(arities: number[], runtime: 'contracts' | 'implementation'): string {
   if (arities.length === 0) {
     return '';
@@ -330,6 +455,11 @@ function generateArrayLiteralHelpers(arities: number[], runtime: 'contracts' | '
     .join('\n\n');
 }
 
+/**
+ * Sammelt Arraydeklarationen mit statischer Größe und literalem Füllwert.
+ * @param program Zu untersuchendes Programm.
+ * @returns Deklarationen, die einen statischen Füllhelfer verwenden können.
+ */
 function collectArrayFillDeclarations(program: Program): Set<VarDecl> {
   const candidates = new Set<VarDecl>();
   for (const node of AstUtils.streamAllContents(program)) {
@@ -341,6 +471,7 @@ function collectArrayFillDeclarations(program: Program): Set<VarDecl> {
   return candidates;
 }
 
+/** @param decls Geeignete Arraydeklarationen. @returns Benötigte statische Fülllängen in Sortierung. */
 function collectArrayFillArities(decls: ReadonlySet<VarDecl>): number[] {
   const arities = new Set<number>();
   for (const decl of decls) {
@@ -352,6 +483,11 @@ function collectArrayFillArities(decls: ReadonlySet<VarDecl>): number[] {
   return [...arities].sort((a, b) => a - b);
 }
 
+/**
+ * Bestimmt die statische Füllarität einer Arraydeklaration.
+ * @param decl Zu untersuchende Deklaration.
+ * @returns Nichtnegative konstante Größe oder `undefined`, wenn kein Spezialhelfer möglich ist.
+ */
 function arrayFillArityFor(decl: VarDecl): number | undefined {
   if (!decl.isArrayVariable || !isArrayFillInitializerEligible(decl.initializer)) {
     return undefined;
@@ -361,6 +497,7 @@ function arrayFillArityFor(decl: VarDecl): number | undefined {
   return size !== undefined && size >= 0 ? size : undefined;
 }
 
+/** @param expr Initialisiererausdruck. @returns `true` für direkt wiederholbare skalare Literale. */
 function isArrayFillInitializerEligible(expr: Expr | undefined): boolean {
   if (!expr) {
     return false;
@@ -370,6 +507,7 @@ function isArrayFillInitializerEligible(expr: Expr | undefined): boolean {
   return isIntLiteral(unwrapped) || isBoolLiteral(unwrapped) || isStringLiteral(unwrapped) || isNullLiteral(unwrapped);
 }
 
+/** @param expr Zu untersuchender Ausdruck. @returns Ganzzahlliteralwert hinter Einzelhüllen oder `undefined`. */
 function constantIntValue(expr: Expr | undefined): number | undefined {
   if (!expr) {
     return undefined;
@@ -379,14 +517,17 @@ function constantIntValue(expr: Expr | undefined): number | undefined {
   return isIntLiteral(unwrapped) ? unwrapped.value : undefined;
 }
 
+/** @param arity Anzahl der Arrayelemente. @returns C-Name des Arrayliteralhelfers. */
 function arrayLiteralHelperName(arity: number): string {
   return `ps2_array_literal_${arity}`;
 }
 
+/** @param index Nullbasierter Parameterindex. @returns Stabiler C-Parametername. */
 function arrayLiteralParamName(index: number): string {
   return `item_${index}`;
 }
 
+/** @param arity Anzahl der Elemente. @returns C-Parameterdeklarationen oder `void` für ein leeres Literal. */
 function arrayLiteralParamDecls(arity: number): string[] {
   if (arity === 0) {
     return ['void'];
@@ -395,10 +536,16 @@ function arrayLiteralParamDecls(arity: number): string[] {
   return Array.from({ length: arity }, (_, index) => `Ps2Value* ${arrayLiteralParamName(index)}`);
 }
 
+/** @param values C-Ausdrücke der Listenelemente. @returns VeriFast-Liste in `cons`-Notation. */
 function veriFastPointerList(values: string[]): string {
   return values.reduceRight((tail, value) => `cons(${value}, ${tail})`, 'nil');
 }
 
+/**
+ * Erzeugt den VeriFast-Vertrag eines Arrayliteralhelfers einschließlich exakter Zustandsliste.
+ * @param arity Anzahl der Arrayelemente.
+ * @returns C-Deklaration mit Arraymodellvertrag.
+ */
 function generateArrayLiteralContract(arity: number): string {
   const items = veriFastPointerList(Array.from({ length: arity }, (_, index) => arrayLiteralParamName(index)));
   const ensures = [
@@ -418,6 +565,11 @@ function generateArrayLiteralContract(arity: number): string {
   ].join('\n');
 }
 
+/**
+ * Erzeugt einen konkreten Arrayliteralhelfer, der ein Array anlegt und nullbasiert befüllt.
+ * @param arity Anzahl der Arrayelemente.
+ * @returns Statische C-Implementierung.
+ */
 function generateArrayLiteralImplementation(arity: number): string {
   const params = arrayLiteralParamDecls(arity).join(', ');
   const setLines = Array.from(
@@ -434,6 +586,12 @@ function generateArrayLiteralImplementation(arity: number): string {
   ].join('\n');
 }
 
+/**
+ * Erzeugt aritätsspezifische Helfer für mit einem skalaren Wert gefüllte Arrays.
+ * @param arities Benötigte statische Arraylängen.
+ * @param runtime Gewählter Runtime-Modus.
+ * @returns C-Helferverträge oder -implementierungen.
+ */
 function generateArrayFillHelpers(arities: number[], runtime: 'contracts' | 'implementation'): string {
   if (arities.length === 0) {
     return '';
@@ -447,10 +605,12 @@ function generateArrayFillHelpers(arities: number[], runtime: 'contracts' | 'imp
     .join('\n\n');
 }
 
+/** @param arity Statische Arraylänge. @returns C-Name des Füllhelfers. */
 function arrayFillHelperName(arity: number): string {
   return `ps2_array_filled_${arity}`;
 }
 
+/** @param arity Statische Arraylänge. @returns VeriFast-Vertrag mit einer aus dem Füllwert wiederholten Zustandsliste. */
 function generateArrayFillContract(arity: number): string {
   const items = veriFastPointerList(Array.from({ length: arity }, () => 'item'));
   const ensures = [
@@ -470,6 +630,7 @@ function generateArrayFillContract(arity: number): string {
   ].join('\n');
 }
 
+/** @param arity Statische Arraylänge. @returns Konkrete C-Funktion zum Erzeugen und Befüllen des Arrays. */
 function generateArrayFillImplementation(arity: number): string {
   const setLines = Array.from(
     { length: arity },
@@ -485,6 +646,13 @@ function generateArrayFillImplementation(arity: number): string {
   ].join('\n');
 }
 
+/**
+ * Entfernt interne Bereichsmarker und baut daraus eine Zeilenabbildung auf.
+ * Verschachtelte Marker werden über einen Stack behandelt, sodass auch generierter
+ * Code innerhalb bereits markierter Anweisungen korrekt der innersten Quelle folgt.
+ * @param markedCode C-Code mit temporären Quellzeilenmarkern.
+ * @returns Markerfreier Code und Zuordnung seiner markierten Zeilen.
+ */
 function stripSourceMapMarkers(markedCode: string): GeneratedCProgram {
   const codeLines: string[] = [];
   const sourceMap: CSourceMapEntry[] = [];
@@ -518,6 +686,13 @@ function stripSourceMapMarkers(markedCode: string): GeneratedCProgram {
   };
 }
 
+/**
+ * Umschließt erzeugten Code bei aktivierter Source Map mit Markern des AST-Knotens.
+ * @param node Pseudo2-Knoten, dem der C-Abschnitt zugeordnet wird.
+ * @param code Erzeugter C-Abschnitt.
+ * @param state Aktueller Generatorzustand.
+ * @returns Unveränderter oder markierter Code.
+ */
 function sourceMapped(node: AstNode, code: string, state: CGeneratorState): string {
   const sourceLine = sourceLineFor(node);
   if (!state.sourceMap || sourceLine === undefined || code.length === 0) {
@@ -527,15 +702,23 @@ function sourceMapped(node: AstNode, code: string, state: CGeneratorState): stri
   return `/*@@pseudo2-source-line:${sourceLine}*/\n${code}\n${SOURCE_MAP_END_MARKER}`;
 }
 
+/** @param node AST-Knoten mit optionalem CST-Bereich. @returns Einsbasierte Quellzeile oder `undefined`. */
 function sourceLineFor(node: AstNode): number | undefined {
   const line = node.$cstNode?.range.start.line;
   return line === undefined ? undefined : line + 1;
 }
 
+/** @param instruction Pseudo2-Anweisung. @returns `true` für globale Struct- und Funktionsdeklarationen. */
 function isTopLevelDeclaration(instruction: Instruction): boolean {
   return isStructDeclaration(instruction) || isFunctionDeclaration(instruction);
 }
 
+/**
+ * Erzeugt die vorgezogenen C-Prototypen einer Funktion oder eines Structs einschließlich Methoden.
+ * @param instruction Globale Deklaration.
+ * @param context Namens- und Feldkontext.
+ * @returns Null, eine oder mehrere C-Prototypzeilen.
+ */
 function generatePrototype(instruction: Instruction, context: Pseudo2GeneratorContext): string[] {
   if (isFunctionDeclaration(instruction)) {
     return [`Ps2Value* ${context.getFunctionName(instruction)}(${collectCParams(instruction, context).join(', ')});`];
@@ -555,6 +738,16 @@ function generatePrototype(instruction: Instruction, context: Pseudo2GeneratorCo
   return [];
 }
 
+/**
+ * Erzeugt die C-main-Funktion, initialisiert den VeriFast-Modulkontext und behandelt
+ * am Programmende die abstrakte Ownership globaler und temporär erzeugter Heapwerte.
+ * @param body Bereits erzeugter Hauptprogrammcode.
+ * @param globalVariables Globale Pseudo2-Variablen.
+ * @param context Namenskontext.
+ * @param moduleName Gültiger VeriFast-Modulname.
+ * @param generatedHeaps Im Hauptprogramm erzeugte lokale Heapwerte.
+ * @returns Vollständige C-main-Funktion.
+ */
 function generateMain(
   body: string,
   globalVariables: VarDecl[],
@@ -604,6 +797,11 @@ function generateMain(
   ].filter(line => line.length > 0).join('\n');
 }
 
+/**
+ * Klassifiziert eine globale Variable anhand Deklaration und Initialisierertyp als Heapwert.
+ * @param variable Zu untersuchende Variable.
+ * @returns `array`, `struct` oder `undefined` für skalare Werte.
+ */
 function heapKindForVariable(variable: VarDecl): HeapKind | undefined {
   if (variable.isArrayVariable || (variable.initializer && TYPES.typeFor(variable.initializer).isArray)) {
     return 'array';
@@ -614,6 +812,11 @@ function heapKindForVariable(variable: VarDecl): HeapKind | undefined {
   return undefined;
 }
 
+/**
+ * Wandelt Dateiname oder Modulpfad in einen gültigen C-/VeriFast-Bezeichner um.
+ * @param name Ursprünglicher Modul- oder Dateiname.
+ * @returns Bereinigter Bezeichner mit stabilem Fallback.
+ */
 function toCModuleName(name: string): string {
   const baseName = name
     .split(/[\\/]/)
@@ -626,6 +829,16 @@ function toCModuleName(name: string): string {
   return /^[a-zA-Z_]/.test(sanitized) ? sanitized : `_${sanitized}`;
 }
 
+/**
+ * Dispatcht einen Pseudo2-Instruction-Knoten an den passenden C-Generator und versieht
+ * das Ergebnis optional mit Quellabbildungsmarkern.
+ * @param instruction Zu übersetzende Anweisung.
+ * @param context Gemeinsamer Generator-Kontext.
+ * @param indent Aktuelle C-Einrückung.
+ * @param state Aktueller Generatorzustand.
+ * @returns C-Code der Anweisung.
+ * @throws Error bei einem nicht unterstützten Instruction-Typ.
+ */
 function generateInstruction(
   instruction: Instruction,
   context: Pseudo2GeneratorContext,
@@ -673,6 +886,15 @@ function generateInstruction(
   return sourceMapped(instruction, generated, state);
 }
 
+/**
+ * Erzeugt einen C-Block, erweitert dessen Ownership-Zustand um direkt deklarierte
+ * Heaplokale und gibt deren abstrakte Prädikate bei normalem Blockabschluss frei.
+ * @param block Pseudo2-Block.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung der öffnenden Klammer.
+ * @param state Geerbter Generatorzustand.
+ * @returns C-Block einschließlich notwendiger leak-Annotationen.
+ */
 function generateBlock(block: Block, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   const body = block.instructions ?? [];
 
@@ -698,6 +920,14 @@ function generateBlock(block: Block, context: Pseudo2GeneratorContext, indent = 
   return `${indent}{\n${[...nested, ...cleanup].join('\n')}\n${indent}}`;
 }
 
+/**
+ * Übersetzt eine Pseudo2-Verzweigung und wertet ihre Bedingung über die Runtime-Truthiness aus.
+ * @param ifStatement Zu übersetzende if-Anweisung.
+ * @param context Generator-Kontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Generatorzustand.
+ * @returns C-if mit optionalem else-Block.
+ */
 function generateIfStatement(
   ifStatement: IfStatement,
   context: Pseudo2GeneratorContext,
@@ -713,6 +943,14 @@ function generateIfStatement(
   return `${indent}if (ps2_truthy(${condition})) ${thenBlock}${elsePart}`;
 }
 
+/**
+ * Übersetzt eine while-Schleife und bindet die in ihren Annotationen benötigten Heapzustände.
+ * @param loop Zu übersetzende while-Schleife.
+ * @param context Generator-Kontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Generatorzustand.
+ * @returns C-while-Schleife mit VeriFast-Invarianten.
+ */
 function generateWhileLoop(
   loop: Extract<Instruction, { $type: 'WhileLoop' }>,
   context: Pseudo2GeneratorContext,
@@ -729,6 +967,19 @@ function generateWhileLoop(
   ].join('\n');
 }
 
+/**
+ * Senkt eine Pseudo2-for-Schleife auf eine C-while-Schleife ab.
+ *
+ * Start, Ende und Schritt werden einmalig kopiert. Für dynamische Grenzen werden
+ * VeriFast-Modellsnapshots erzeugt, eine nichtpositive Schrittweite wird zur Laufzeit
+ * abgefangen und die Schleifenrichtung bestimmt Vergleichs- und Updatefunktion.
+ *
+ * @param loop Zu übersetzende for-Schleife.
+ * @param context Generator-Kontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Generatorzustand.
+ * @returns C-Deklarationen, Schutzprüfung und abgesenkte while-Schleife.
+ */
 function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   const iterName = loop.iterator ? context.getVarName(loop.iterator) : context.getAnonymousVarName('__for');
   const endName = context.getAnonymousVarName('__forEnd');
@@ -815,6 +1066,18 @@ function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent
   ].join('\n');
 }
 
+/**
+ * Erzeugt den Rumpf einer abgesenkten for-Schleife einschließlich Iteratorupdate und
+ * Ownership-Abschluss der im Rumpf erzeugten Heaplokalen.
+ * @param loop Ursprüngliche for-Schleife.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung der Schleife.
+ * @param state Schleifenspezifischer Generatorzustand.
+ * @param iterName C-Name des Iterators.
+ * @param stepName C-Name der gespeicherten Schrittweite.
+ * @param stepFunction Runtime-Funktion für auf- oder absteigende Iteration.
+ * @returns Geklammerter C-Schleifenrumpf.
+ */
 function generateForLoopBody(
   loop: ForLoop,
   context: Pseudo2GeneratorContext,
@@ -844,6 +1107,14 @@ function generateForLoopBody(
   return `${indent}{\n${[...nested, update, ...cleanup].join('\n')}\n${indent}}`;
 }
 
+/**
+ * Übersetzt eine do-while-Schleife mit annotierten Heapzuständen und VeriFast-Invarianten.
+ * @param loop Zu übersetzende do-while-Schleife.
+ * @param context Generator-Kontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Generatorzustand.
+ * @returns C-do-while-Schleife.
+ */
 function generateDoWhileLoop(
   loop: DoWhileLoop,
   context: Pseudo2GeneratorContext,
@@ -860,6 +1131,15 @@ function generateDoWhileLoop(
   ].join('\n');
 }
 
+/**
+ * Erzeugt für einen Struct eine Factory mit initial `undefined` gesetzten Feldern sowie
+ * die freien C-Funktionen aller darin deklarierten Methoden.
+ * @param structDecl Zu übersetzender Struct.
+ * @param context Namens- und Feld-ID-Kontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Generatorzustand.
+ * @returns Struct-Factory und Methodendefinitionen.
+ */
 function generateStructDeclaration(
   structDecl: StructDeclaration,
   context: Pseudo2GeneratorContext,
@@ -903,10 +1183,19 @@ function generateStructDeclaration(
   return methodText ? `${factory}\n\n${methodText}` : factory;
 }
 
+/** @param fn Funktionsdeklaration. @returns `true`, wenn sie ohne `func` als Struct-Methode deklariert ist. */
 function isMethodDecl(fn: FunctionDeclaration): boolean {
   return fn.keyword !== true;
 }
 
+/**
+ * Erzeugt eine Methode als freie C-Funktion mit explizitem `mythis`-Parameter.
+ * @param fn Methodendeklaration.
+ * @param context Generator-Kontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Generatorzustand.
+ * @returns C-Funktionsdefinition der Methode.
+ */
 function generateMethodDeclaration(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext,
@@ -918,6 +1207,14 @@ function generateMethodDeclaration(
   return `${indent}Ps2Value* ${context.getFunctionName(fn)}(${params})\n${body}`;
 }
 
+/**
+ * Erzeugt die C-Definition einer globalen Pseudo2-Funktion.
+ * @param fn Funktionsdeklaration.
+ * @param context Generator-Kontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Generatorzustand.
+ * @returns Vollständige C-Funktionsdefinition.
+ */
 function generateFunctionDeclaration(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext,
@@ -929,6 +1226,19 @@ function generateFunctionDeclaration(
   return `${indent}Ps2Value* ${context.getFunctionName(fn)}(${params})\n${body}`;
 }
 
+/**
+ * Erzeugt Verträge und Rumpf einer Funktion oder Methode.
+ *
+ * Vor der Ausgabe werden lokale Ownership, Aliase, Heap-Containment und mögliche
+ * Kindersetzungen analysiert. Parameter werden kopiert, Anweisungen rekursiv erzeugt
+ * und Funktionen ohne explizites return erhalten einen abschließenden Nullwert.
+ *
+ * @param fn Zu übersetzende Funktion oder Methode.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung der Funktionssignatur.
+ * @param state Geerbter Generatorzustand.
+ * @returns Verträge und geklammerter C-Funktionsrumpf.
+ */
 function generateFunctionBody(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext,
@@ -960,6 +1270,12 @@ function generateFunctionBody(
   ].join('\n');
 }
 
+/**
+ * Sammelt direkt im übergebenen Block deklarierte, neu besessene Array- und Struct-Werte.
+ * @param body Anweisungen des betrachteten Blocks.
+ * @param context Generator-Kontext für die C-Namen.
+ * @returns Heapempfänger ohne noch gebundenen VeriFast-Zustandsnamen.
+ */
 function collectOwnedHeapLocals(
   body: Instruction[],
   context: Pseudo2GeneratorContext
@@ -973,6 +1289,12 @@ function collectOwnedHeapLocals(
     .filter((receiver): receiver is Omit<SpecHeapState, 'stateName'> => receiver !== undefined);
 }
 
+/**
+ * Bestimmt, ob eine lokale Deklaration selbst Ownership an einem neu erzeugten Heapwert erhält.
+ * Reine Aliase auf Variablen, `this` oder Attribute werden nicht als neue Besitzer behandelt.
+ * @param variable Zu untersuchende Deklaration.
+ * @returns Heapart oder `undefined` für Skalare und Aliase.
+ */
 function heapKindForOwnedVariable(variable: VarDecl): HeapKind | undefined {
   if (variable.isArrayVariable) {
     return 'array';
@@ -991,6 +1313,13 @@ function heapKindForOwnedVariable(variable: VarDecl): HeapKind | undefined {
   return type.isStructType() ? 'struct' : undefined;
 }
 
+/**
+ * Ermittelt direkte lokale Array-/Struct-Aliasdeklarationen einer Funktion und führt
+ * transitive Aliasziele auf einen kanonischen Empfänger zurück.
+ * @param fn Zu analysierende Funktion.
+ * @param context Generator-Kontext.
+ * @returns Abbildung generierter Aliasnamen auf ihre kanonischen Ziele.
+ */
 function collectHeapAliases(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext
@@ -1018,6 +1347,13 @@ function collectHeapAliases(
   return aliases;
 }
 
+/**
+ * Analysiert, welche Heapobjekte in Arrays oder Struct-Feldern anderer Heapobjekte abgelegt werden.
+ * @param fn Zu analysierende Funktion.
+ * @param context Generator-Kontext.
+ * @param state Zustand mit bereits ermittelten Aliasbeziehungen.
+ * @returns Abbildung jedes direkten Kindes auf seinen besitzenden Empfänger.
+ */
 function collectHeapContainments(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext,
@@ -1044,6 +1380,19 @@ function collectHeapContainments(
   return containments;
 }
 
+/**
+ * Führt eine vorwärtsgerichtete Slotanalyse für besessene Kind-Heapobjekte aus.
+ *
+ * Die Analyse verfolgt Struct-Felder und statisch beziehungsweise dynamisch adressierte
+ * Arrayelemente. Beim Überschreiben des letzten bekannten Verweises wird die Zuweisung
+ * als Ownership-Ersatz markiert. Verzweigungen werden durch Schnitt ihrer Ausgangszustände
+ * vereinigt; Schleifen werden konservativ als bedingte Ausführung analysiert.
+ *
+ * @param fn Zu analysierende Funktion.
+ * @param context Generator-Kontext.
+ * @param state Zustand mit Alias- und Ausdrucksinformationen.
+ * @returns Ersetzungsinformationen, indiziert durch die verursachende Zuweisung.
+ */
 function collectHeapReplacements(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext,
@@ -1053,9 +1402,14 @@ function collectHeapReplacements(
   type Child = { receiver: string; kind: HeapKind };
   type Environment = Map<string, Child>;
 
+  /** Vergleicht zwei optionale Kindbindungen anhand kanonischem Empfänger und Heapart. */
   const sameChild = (left: Child | undefined, right: Child | undefined) =>
     left?.receiver === right?.receiver && left?.kind === right?.kind;
 
+  /**
+   * Aktualisiert einen abstrakten Heap-Slot und registriert bei Verlust des letzten
+   * Verweises die zugehörige unbedingte oder bedingte Ownership-Ersetzung.
+   */
   const bindSlot = (
     environment: Environment,
     slot: string,
@@ -1083,6 +1437,7 @@ function collectHeapReplacements(
     }
   };
 
+  /** Behält nach einer Verzweigung nur in beiden Pfaden identische Slotbindungen. */
   const intersectEnvironments = (left: Environment, right: Environment): Environment => {
     const intersection = new Map<string, Child>();
     for (const [slot, child] of left) {
@@ -1093,6 +1448,7 @@ function collectHeapReplacements(
     return intersection;
   };
 
+  /** Ersetzt den Inhalt einer veränderlichen Analyseumgebung durch einen neuen Zustand. */
   const replaceEnvironment = (target: Environment, source: Environment) => {
     target.clear();
     for (const [slot, child] of source) {
@@ -1100,6 +1456,10 @@ function collectHeapReplacements(
     }
   };
 
+  /**
+   * Simuliert Slotbindungen rekursiv über Deklarationen, Zuweisungen, Blöcke,
+   * Verzweigungen und Schleifen und trägt erkannte Ersetzungen in die Ergebnismenge ein.
+   */
   const analyzeInstructions = (
     instructions: Instruction[],
     environment: Environment,
@@ -1163,6 +1523,13 @@ function collectHeapReplacements(
   return replacements;
 }
 
+/**
+ * Extrahiert einen direkt benannten Heapwert und seine Art aus einem Ausdruck.
+ * @param expr Zu untersuchender Wertausdruck.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand mit Aliasinformationen.
+ * @returns Kindbeschreibung oder `undefined` für nicht direkt verfolgbare Werte.
+ */
 function directHeapChild(
   expr: Expr,
   context: Pseudo2GeneratorContext,
@@ -1179,6 +1546,13 @@ function directHeapChild(
   return type.isStructType() ? { receiver, kind: 'struct' } : undefined;
 }
 
+/**
+ * Kodiert ein beschreibbares Struct-Feld oder Arrayelement als stabilen abstrakten Slot.
+ * @param expr Linke Seite einer Zuweisung.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns Slot-Schlüssel oder `undefined` für nicht verfolgte Ziele.
+ */
 function heapSlotForAssignment(
   expr: Expr,
   context: Pseudo2GeneratorContext,
@@ -1220,6 +1594,14 @@ function heapSlotForAssignment(
   return undefined;
 }
 
+/**
+ * Ergänzt einen Heap-Slot-Schlüssel um den konstanten oder generierten Indexausdruck.
+ * @param receiver Bereits kodierter Arrayempfänger.
+ * @param index Pseudo2-Indexausdruck.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns Eindeutiger Slot-Schlüssel.
+ */
 function arrayElementSlot(
   receiver: string,
   index: Expr,
@@ -1230,6 +1612,15 @@ function arrayElementSlot(
   return `${receiver}:${constant ?? genExpr(index, context, state)}`;
 }
 
+/**
+ * Liefert den direkten C-Empfänger eines als Array oder Struct typisierten Ausdrucks.
+ * Unterstützt Variablen, `this`, Attribute und indexierte Zugriffe; Aliasnamen werden
+ * auf ihr kanonisches Ziel reduziert.
+ * @param expr Zu untersuchender Heapausdruck.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns Direkter Empfängerausdruck oder `undefined`.
+ */
 function directHeapValueReceiver(
   expr: Expr,
   context: Pseudo2GeneratorContext,
@@ -1255,6 +1646,13 @@ function directHeapValueReceiver(
   return undefined;
 }
 
+/**
+ * Bestimmt das besitzende Elternobjekt, in dessen Slot ein Wert geschrieben wird.
+ * @param expr Zuweisungsziel.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns Elternempfänger eines Feld- oder Arrayelementziels.
+ */
 function containmentTargetReceiver(
   expr: Expr,
   context: Pseudo2GeneratorContext,
@@ -1279,6 +1677,12 @@ function containmentTargetReceiver(
   return undefined;
 }
 
+/**
+ * Folgt einer Aliasabbildung bis zum kanonischen Ziel und bricht mögliche Zyklen sicher ab.
+ * @param receiver Ausgangsempfänger.
+ * @param aliases Bekannte Aliasbeziehungen.
+ * @returns Letzter erreichbarer kanonischer Empfänger.
+ */
 function resolveHeapAlias(receiver: string, aliases: ReadonlyMap<string, string>): string {
   let current = receiver;
   const visited = new Set<string>();
@@ -1289,6 +1693,13 @@ function resolveHeapAlias(receiver: string, aliases: ReadonlyMap<string, string>
   return current;
 }
 
+/**
+ * Erzeugt für eine Funktion ohne explizites return die Ownership-Abschlüsse und `ps2_null()`.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung des Funktionsrumpfs.
+ * @param state Funktionszustand.
+ * @returns Abschließende C-Zeilen.
+ */
 function generateImplicitReturn(
   context: Pseudo2GeneratorContext,
   indent: string,
@@ -1298,6 +1709,20 @@ function generateImplicitReturn(
   return [...leaks, `${indent}return ps2_null();`].join('\n');
 }
 
+/**
+ * Übersetzt `requires`, `ensures` und `terminates` einer Funktion in VeriFast-Verträge.
+ *
+ * Arrayparameter und Methodenempfänger liefern automatische Heap-Prädikate. Zusätzliche
+ * Empfänger werden aus Annotationen gewonnen, Aliasgleichheiten vereinigt und ein direkt
+ * zurückgegebener Heapwert wird mit `result` verknüpft. Zuweisungsfreie Funktionen dürfen
+ * denselben logischen Zustand in Vor- und Nachbedingung wiederverwenden.
+ *
+ * @param fn Funktion oder Methode mit Annotationen.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung der Vertragszeilen.
+ * @param state Generatorzustand.
+ * @returns VeriFast-Vertragszeilen.
+ */
 function generateFunctionContracts(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext,
@@ -1342,6 +1767,13 @@ function generateFunctionContracts(
   ];
 }
 
+/**
+ * Erkennt, ob alle return-Anweisungen denselben direkt benannten Heapempfänger zurückgeben.
+ * @param fn Zu analysierende Funktion.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns Gemeinsamer Empfänger oder `undefined` bei uneinheitlichen Rückgaben.
+ */
 function collectDirectReturnedHeapReceiver(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext,
@@ -1359,6 +1791,12 @@ function collectDirectReturnedHeapReceiver(
   return first && receivers.every(receiver => receiver === first) ? first : undefined;
 }
 
+/**
+ * Sammelt implizit besessene Heap-Eingaben: `mythis` einer Methode und alle Arrayparameter.
+ * @param fn Zu analysierende Funktion oder Methode.
+ * @param context Generator-Kontext.
+ * @returns Automatische Heapempfänger für Funktionsverträge.
+ */
 function collectAutomaticFunctionHeapReceivers(
   fn: FunctionDeclaration,
   context: Pseudo2GeneratorContext
@@ -1375,6 +1813,22 @@ function collectAutomaticFunctionHeapReceivers(
   return receivers;
 }
 
+/**
+ * Erzeugt eine einzelne zustandsbehaftete requires- oder ensures-Zeile.
+ * Heap-Prädikate werden dedupliziert, gegebenenfalls an logische Zustandsvariablen
+ * gebunden und mit den übersetzten Pseudo2-Bedingungen per separierender Konjunktion verbunden.
+ *
+ * @param kind Art der Vertragszeile.
+ * @param annotations Zugehörige Pseudo2-Annotationen.
+ * @param receivers Benötigte Heapempfänger.
+ * @param fallbackNode Source-Map-Knoten ohne explizite Annotation.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung.
+ * @param state Generatorzustand.
+ * @param aliases Bekannte Vertragsaliase.
+ * @param preservedStates Optional wiederverwendbare Zustände aus der Vorbedingung.
+ * @returns Vollständige VeriFast-Vertragszeile.
+ */
 function generateStatefulContractLine(
   kind: 'requires' | 'ensures',
   annotations: VerificationAnnotation[],
@@ -1404,6 +1858,15 @@ function generateStatefulContractLine(
   return sourceMapped(sourceNode, `${indent}//@ ${kind} ${contract};`, state);
 }
 
+/**
+ * Extrahiert Heap-Aliasbeziehungen aus `==` und `vf_same` in Vorbedingungen.
+ * Nur Empfänger derselben Heapart werden vereinigt.
+ * @param annotations Requires-Annotationen.
+ * @param receivers Bekannte Heapempfänger und ihre Arten.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns Kanonische Aliasabbildung für den Vertrag.
+ */
 function collectContractHeapAliases(
   annotations: VerificationAnnotation[],
   receivers: Array<Omit<SpecHeapState, 'stateName'>>,
@@ -1443,6 +1906,13 @@ function collectContractHeapAliases(
   return aliases;
 }
 
+/**
+ * Erkennt in Verträgen direkt benennbare Variablen- und this-Empfänger.
+ * @param expr Zu untersuchender Spezifikationsausdruck.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns C-Empfänger oder `undefined`.
+ */
 function directContractReceiver(
   expr: Expr,
   context: Pseudo2GeneratorContext,
@@ -1458,6 +1928,13 @@ function directContractReceiver(
   return undefined;
 }
 
+/**
+ * Sammelt und vereinigt sämtliche Heapempfänger aus einer Liste von Verifikationsannotationen.
+ * @param annotations Zu untersuchende Annotationen.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns Eindeutige Array- und Struct-Empfänger.
+ */
 function collectAnnotationHeapReceivers(
   annotations: VerificationAnnotation[],
   context: Pseudo2GeneratorContext,
@@ -1468,6 +1945,15 @@ function collectAnnotationHeapReceivers(
   ));
 }
 
+/**
+ * Durchläuft einen Spezifikationsausdruck und erkennt indexierte Arrays sowie Empfänger
+ * der heapbezogenen Prädikate `vf_array`, `vf_struct`, `vf_len`, `vf_elem`,
+ * `vf_in_bounds` und `vf_field`.
+ * @param expr Zu untersuchender Ausdruck.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns Deduplizierte Heapempfänger mit optionalem AST-Ausdruck.
+ */
 function collectExprHeapReceivers(
   expr: Expr,
   context: Pseudo2GeneratorContext,
@@ -1508,6 +1994,7 @@ function collectExprHeapReceivers(
   return mergeHeapReceivers(receivers);
 }
 
+/** @param kind Name eines `vf_*`-Prädikats. @returns Zugehörige Heapart oder `undefined`. */
 function heapKindForSpecPredicate(kind: string): HeapKind | undefined {
   if (kind === 'vf_array' || kind === 'vf_len' || kind === 'vf_elem' || kind === 'vf_in_bounds') {
     return 'array';
@@ -1518,6 +2005,11 @@ function heapKindForSpecPredicate(kind: string): HeapKind | undefined {
   return undefined;
 }
 
+/**
+ * Vereinigt Empfängergruppen anhand Heapart und generiertem Empfängerausdruck.
+ * @param groups Beliebig viele Empfängerlisten.
+ * @returns Deduplizierte Empfänger in Einfügereihenfolge.
+ */
 function mergeHeapReceivers(
   ...groups: Array<Array<Omit<SpecHeapState, 'stateName'>>>
 ): Array<Omit<SpecHeapState, 'stateName'>> {
@@ -1528,6 +2020,21 @@ function mergeHeapReceivers(
   return [...merged.values()];
 }
 
+/**
+ * Bindet Heapempfänger an eindeutige logische VeriFast-Zustandsnamen.
+ *
+ * Aliase werden zuerst kanonisiert. Abhängige Empfängerausdrücke werden von einfachen
+ * zu komplexen Ausdrücken aufgelöst, damit verschachtelte Zugriffe bereits gebundene
+ * Elternzustände nutzen können. Erhaltene Zustände werden bei Bedarf wiederverwendet.
+ *
+ * @param receivers Zu bindende Heapempfänger.
+ * @param phase Namensbestandteil für die Vertrags- oder Schleifenphase.
+ * @param aliases Bekannte Aliasbeziehungen.
+ * @param context Optionaler Generator-Kontext zur Ausdrucksauflösung.
+ * @param generatorState Aktueller Generatorzustand.
+ * @param preservedStates Optional zu übernehmende Zustandsbindungen.
+ * @returns Schlüsselabbildung auf gebundene Heapzustände.
+ */
 function createSpecHeapStates(
   receivers: Array<Omit<SpecHeapState, 'stateName'>>,
   phase: string,
@@ -1572,10 +2079,12 @@ function createSpecHeapStates(
   return states;
 }
 
+/** @param expr Optionaler AST-Ausdruck. @returns Anzahl des Ausdrucksknotens und seiner Nachfahren. */
 function expressionComplexity(expr: Expr | undefined): number {
   return expr ? 1 + [...AstUtils.streamAllContents(expr)].length : 0;
 }
 
+/** @param states Möglicherweise mehrfach indizierte Zustandsabbildung. @returns Nach Art und Empfänger eindeutige Zustände. */
 function uniqueHeapStates(states: ReadonlyMap<string, SpecHeapState>): SpecHeapState[] {
   return [...new Map([...states.values()].map(state => [
     heapStateKey(state.kind, state.receiver),
@@ -1583,15 +2092,27 @@ function uniqueHeapStates(states: ReadonlyMap<string, SpecHeapState>): SpecHeapS
   ])).values()];
 }
 
+/** @param kind Heapart. @param receiver Empfängerausdruck. @returns Gemeinsamer Map-Schlüssel. */
 function heapStateKey(kind: HeapKind, receiver: string): string {
   return `${kind}:${receiver}`;
 }
 
+/**
+ * Formatiert das abstrakte Array- oder Struct-Prädikat eines gebundenen Zustands.
+ * @param state Zu formatierender Zustand.
+ * @param bindState Ob der Zustandsname mit `?` neu gebunden werden soll.
+ * @returns VeriFast-Prädikatsausdruck.
+ */
 function heapStatePredicate(state: SpecHeapState, bindState = true): string {
   const predicate = state.kind === 'array' ? 'ps2_array_state' : 'ps2_struct_state';
   return `${predicate}(${state.receiver}, ${bindState ? '?' : ''}${state.stateName})`;
 }
 
+/**
+ * Sucht rekursiv in Blöcken, Verzweigungen und Schleifen nach mindestens einer return-Anweisung.
+ * @param instructions Zu untersuchende Anweisungen.
+ * @returns `true`, sobald ein return vorkommt.
+ */
 function containsReturn(instructions: Instruction[]): boolean {
   for (const instruction of instructions) {
     if (isReturnStmt(instruction)) {
@@ -1621,10 +2142,20 @@ function containsReturn(instructions: Instruction[]): boolean {
   return false;
 }
 
+/**
+ * Prüft konservativ, ob eine Anweisungsfolge ihren nachfolgenden Code erreichen kann.
+ * @param instructions Zu untersuchende Anweisungen.
+ * @returns `false`, sobald eine enthaltene Anweisung auf allen modellierten Pfaden zurückkehrt.
+ */
 function canCompleteNormally(instructions: Instruction[]): boolean {
   return !instructions.some(instruction => definitelyReturns(instruction));
 }
 
+/**
+ * Erkennt direkte returns, vollständig zurückkehrende Blöcke und if-else-Anweisungen.
+ * @param instruction Zu klassifizierende Anweisung.
+ * @returns `true`, wenn die Anweisung garantiert zurückkehrt.
+ */
 function definitelyReturns(instruction: Instruction): boolean {
   if (isReturnStmt(instruction)) {
     return true;
@@ -1639,6 +2170,13 @@ function definitelyReturns(instruction: Instruction): boolean {
   return false;
 }
 
+/**
+ * Kopiert alle Funktionsparameter und impliziten Arraylängen in lokale Runtime-Werte.
+ * @param fn Funktion oder Methode.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung der erzeugten Zeilen.
+ * @returns C-Zuweisungen für den Funktionsanfang.
+ */
 function generateParameterPrelude(fn: FunctionDeclaration, context: Pseudo2GeneratorContext, indent = ''): string[] {
   const out: string[] = [];
 
@@ -1654,10 +2192,23 @@ function generateParameterPrelude(fn: FunctionDeclaration, context: Pseudo2Gener
   return out;
 }
 
+/**
+ * Ergänzt die normalen C-Parameter einer Methode um den expliziten Empfänger.
+ * @param fn Methodendeklaration.
+ * @param context Generator-Kontext.
+ * @returns Vollständige C-Parameterdeklarationen.
+ */
 function collectMethodCParams(fn: FunctionDeclaration, context: Pseudo2GeneratorContext): string[] {
   return [`Ps2Value* ${METHOD_THIS_NAME}`, ...collectCParams(fn, context)];
 }
 
+/**
+ * Erzeugt C-Parameter für alle Pseudo2-Parameter und fügt nach jedem Array dessen
+ * impliziten Längenparameter ein.
+ * @param fn Funktion oder Methode.
+ * @param context Generator-Kontext.
+ * @returns Parameterdeklarationen oder `void` bei leerer Liste.
+ */
 function collectCParams(fn: FunctionDeclaration, context: Pseudo2GeneratorContext): string[] {
   const out: string[] = [];
 
@@ -1671,6 +2222,17 @@ function collectCParams(fn: FunctionDeclaration, context: Pseudo2GeneratorContex
   return out.length > 0 ? out : ['void'];
 }
 
+/**
+ * Baut einen Funktions- oder Methodenaufruf auf und erweitert Arrayargumente automatisch
+ * um ihre aktuelle Runtime-Länge. Fehlende tatsächliche Argumente werden defensiv zu null.
+ * @param callee Generierter C-Name des Ziels.
+ * @param formals Formale Pseudo2-Parameter.
+ * @param actuals Tatsächliche Argumentausdrücke.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @param leadingArgs Voranzustellende Argumente, insbesondere der Methodenempfänger.
+ * @returns Vollständiger C-Aufrufausdruck.
+ */
 function buildExpandedCall(
   callee: string,
   formals: ParameterDecl[] | undefined,
@@ -1696,6 +2258,14 @@ function buildExpandedCall(
   return `${callee}(${expandedArgs.join(', ')})`;
 }
 
+/**
+ * Erzeugt die Initialisierung einer bereits statisch deklarierten globalen C-Variable.
+ * @param decl Globale Pseudo2-Variablendeklaration.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung in main.
+ * @param state Generatorzustand.
+ * @returns Quellkartierter C-Initialisierungscode.
+ */
 function generateGlobalVarInit(
   decl: VarDecl,
   context: Pseudo2GeneratorContext,
@@ -1705,6 +2275,18 @@ function generateGlobalVarInit(
   return sourceMapped(decl, generateVarDecl(decl, context, indent, { ...state, topLevel: true }), state);
 }
 
+/**
+ * Hebt verschachtelte Arrayliterale und new-Ausdrücke in temporäre C-Variablen.
+ * Dadurch erhalten ihre Heap-Prädikate stabile Empfänger, und neu erzeugte Werte
+ * werden in die Ownership-Liste des aktuellen Blocks aufgenommen.
+ *
+ * @param expr Zu materialisierender Gesamtausdruck.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung der temporären Deklarationen.
+ * @param state Generatorzustand.
+ * @param includeRoot Ob auch der äußerste Heapausdruck materialisiert werden soll.
+ * @returns Voranzustellende C-Zeilen und der danach verwendbare Wertausdruck.
+ */
 function materializeNestedHeapCreations(
   expr: Expr,
   context: Pseudo2GeneratorContext,
@@ -1737,6 +2319,20 @@ function materializeNestedHeapCreations(
   };
 }
 
+/**
+ * Übersetzt eine lokale oder globale Variablendeklaration.
+ *
+ * Normale Werte werden über `ps2_copy_value` übernommen. Arrayvariablen verwenden bei
+ * statischer Länge einen spezialisierten Füllhelfer oder andernfalls eine verifizierbare
+ * Initialisierungsschleife mit Präfixinvariante. Verschachtelte Heapkonstruktionen werden
+ * vor der eigentlichen Deklaration materialisiert.
+ *
+ * @param decl Zu übersetzende Variablendeklaration.
+ * @param context Generator-Kontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Generatorzustand.
+ * @returns C-Deklarations- und Initialisierungscode.
+ */
 function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   const name = context.getVarName(decl);
   const prefix = state.topLevel ? '' : 'Ps2Value* ';
@@ -1786,6 +2382,16 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
   ].join('\n');
 }
 
+/**
+ * Übersetzt eine Zuweisung in geordnete Schritte: Heap-Lesezugriffe materialisieren,
+ * eine erkannte Ownership-Ersetzung vorbereiten, das Ziel stabilisieren, schreiben und
+ * anschließend erforderliche logische Zustandsfakten wiederherstellen.
+ * @param assign Zu übersetzende Zuweisung.
+ * @param context Generator-Kontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Generatorzustand.
+ * @returns Mehrzeiliger C-Code der Zuweisung.
+ */
 function generateAssignment(assign: Assignment, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   const materialized = materializeHeapReads(assign.value, context, indent, state);
   const replacement = materializeHeapReplacement(assign, context, indent, state);
@@ -1799,6 +2405,16 @@ function generateAssignment(assign: Assignment, context: Pseudo2GeneratorContext
   ].join('\n');
 }
 
+/**
+ * Erzeugt die Ownership-Behandlung für das Überschreiben eines bereits belegten Heap-Slots.
+ * Das alte Prädikat wird geleakt; bei bedingten Schleifenersetzungen bleibt Ownership
+ * des neuen Empfängers über einen Runtime-Vertrag erhalten.
+ * @param assignment Analysierte Zuweisung.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung.
+ * @param state Zustand mit Ersetzungsanalyse.
+ * @returns Vor- und Nachspann um die eigentliche Schreiboperation.
+ */
 function materializeHeapReplacement(
   assignment: Assignment,
   context: Pseudo2GeneratorContext,
@@ -1838,6 +2454,16 @@ function materializeHeapReplacement(
   };
 }
 
+/**
+ * Erzeugt nach einer Struct-Feldersetzung VeriFast-Lemmas, die den aktualisierten
+ * Feldwert im bereits gebundenen Struct-Zustand festhalten.
+ * @param assignment Ausgeführte Zuweisung.
+ * @param replacementReceiver Neuer direkter Heapempfänger.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung.
+ * @param state Generatorzustand mit gebundenen Spezifikationszuständen.
+ * @returns Null oder mehrere Lemma-Aufrufe.
+ */
 function generateReplacementStateFacts(
   assignment: Assignment,
   replacementReceiver: string,
@@ -1867,6 +2493,16 @@ function generateReplacementStateFacts(
   return [];
 }
 
+/**
+ * Stabilisiert komplexe Zuweisungsziele und erzeugt die passende Array- oder Struct-Schreiboperation.
+ * Verschachtelte Attributarrays und Arrayempfänger werden zuerst in temporäre Werte gelesen.
+ * @param target Linker Pseudo2-Ausdruck.
+ * @param value Bereits erzeugter rechter C-Ausdruck.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung temporärer Werte.
+ * @param state Generatorzustand.
+ * @returns Vorbereitungszeilen und C-Anweisung ohne Semikolon.
+ */
 function materializeAssignmentTarget(
   target: Expr,
   value: string,
@@ -1908,6 +2544,15 @@ function materializeAssignmentTarget(
   return { prelude: [], statement: genAssignmentTarget(target, value, context, state) };
 }
 
+/**
+ * Hebt sämtliche verschachtelten Array- und Struct-Lesezugriffe eines Ausdrucks in
+ * temporäre C-Variablen, damit jeder Runtime-Zugriff nur einmal ausgewertet wird.
+ * @param expr Zu materialisierender Ausdruck.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung.
+ * @param state Generatorzustand.
+ * @returns Vorbereitungszeilen und auf temporäre Werte umgeschriebener Ausdruck.
+ */
 function materializeHeapReads(
   expr: Expr,
   context: Pseudo2GeneratorContext,
@@ -1936,6 +2581,16 @@ function materializeHeapReads(
   };
 }
 
+/**
+ * Erzeugt einen einzelnen materialisierten Heap-Leseausdruck und legt bei einem
+ * indexierten Struct-Attribut den gelesenen Feldwert zusätzlich temporär ab.
+ * @param read Zu lesender AST-Ausdruck.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung.
+ * @param state Zustand mit bereits materialisierten Teilausdrücken.
+ * @param prelude Veränderliche Liste zusätzlicher Vorbereitungszeilen.
+ * @returns C-Ausdruck des Heapzugriffs.
+ */
 function materializeHeapReadExpression(
   read: Expr,
   context: Pseudo2GeneratorContext,
@@ -1969,6 +2624,16 @@ function materializeHeapReadExpression(
   return genExpr(read, context, state);
 }
 
+/**
+ * Übersetzt return, materialisiert Rückgabezugriffe und schließt alle nicht mit dem
+ * Rückgabewert entweichenden lokalen Heap-Prädikate ab. Der Wert wird vor den
+ * leak-Annotationen kopiert, damit seine C-Referenz stabil bleibt.
+ * @param ret Zu übersetzende return-Anweisung.
+ * @param context Generator-Kontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Funktionszustand.
+ * @returns C-Rückgabecode einschließlich Ownership-Abschluss.
+ */
 function generateReturnStatement(ret: ReturnStmt, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   const leaks = generateOwnedHeapLeaks(ret.retExpr, context, indent, state);
   if (!ret.retExpr) {
@@ -1990,6 +2655,14 @@ function generateReturnStatement(ret: ReturnStmt, context: Pseudo2GeneratorConte
   ].join('\n');
 }
 
+/**
+ * Delegiert die Freigabe aller aktuell besessenen lokalen Heap-Prädikate.
+ * @param returnedExpr Optionaler Rückgabeausdruck, dessen Eigentum entweichen darf.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung.
+ * @param state Generatorzustand.
+ * @returns VeriFast-leak-Zeilen.
+ */
 function generateOwnedHeapLeaks(
   returnedExpr: Expr | undefined,
   context: Pseudo2GeneratorContext,
@@ -1999,6 +2672,17 @@ function generateOwnedHeapLeaks(
   return generateHeapLeaks(state.ownedHeapLocals ?? [], returnedExpr, context, indent, state);
 }
 
+/**
+ * Erzeugt leak-Annotationen für besessene Heapwerte, ausgenommen der direkt oder
+ * transitiv im Rückgabewert enthaltenen Objekte. Enthaltene Kinder werden nur zusammen
+ * mit einem ebenfalls behandelten Elternobjekt abgeschlossen.
+ * @param heaps Zu behandelnde Heapempfänger.
+ * @param returnedExpr Optionaler Rückgabeausdruck.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung.
+ * @param state Zustand mit Alias- und Containmentinformationen.
+ * @returns Gefilterte VeriFast-leak-Zeilen.
+ */
 function generateHeapLeaks(
   heaps: Array<Omit<SpecHeapState, 'stateName'>>,
   returnedExpr: Expr | undefined,
@@ -2022,6 +2706,13 @@ function generateHeapLeaks(
     });
 }
 
+/**
+ * Folgt Containment- und Aliasbeziehungen, um transitiven Besitz zu prüfen.
+ * @param receiver Mögliches Kindobjekt.
+ * @param container Erwartetes direktes oder transitives Elternobjekt.
+ * @param state Generatorzustand mit Ownership-Graph.
+ * @returns `true`, wenn der Empfänger im Container enthalten ist.
+ */
 function isHeapContainedBy(receiver: string, container: string, state: CGeneratorState): boolean {
   let current = resolveHeapAlias(receiver, state.heapAliases ?? new Map());
   const target = resolveHeapAlias(container, state.heapAliases ?? new Map());
@@ -2040,6 +2731,13 @@ function isHeapContainedBy(receiver: string, container: string, state: CGenerato
   return false;
 }
 
+/**
+ * Extrahiert einen direkt benennbaren, für Verträge geeigneten Rückgabeempfänger.
+ * @param expr Zu untersuchender Ausdruck.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns Kanonischer Variablen- oder this-Empfänger, sonst `undefined`.
+ */
 function directSpecReceiver(expr: Expr, context: Pseudo2GeneratorContext, state: CGeneratorState): string | undefined {
   const unwrapped = unwrapSingletonSpecExpr(expr);
   if (isVarRef(unwrapped) && !unwrapped.index) {
@@ -2051,22 +2749,37 @@ function directSpecReceiver(expr: Expr, context: Pseudo2GeneratorContext, state:
   return undefined;
 }
 
+/** @returns C-Ausdrucksanweisung für ein Pseudo2-ExprStatement. */
 function generateExprStatement(stmt: ExprStatement, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   return `${indent}${genExpr(stmt.expr, context, state)};`;
 }
 
+/** @returns Runtime-Aufruf von `ps2_print` für das Pseudo2-print-Kommando. */
 function generatePrintCommand(cmd: PrintCommand, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   return `${indent}ps2_print(${genExpr(cmd.param, context, state)});`;
 }
 
+/** @returns Runtime-Aufruf von `ps2_throw` für das Pseudo2-throw-Kommando. */
 function generateThrowCommand(cmd: ThrowCommand, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   return `${indent}ps2_throw(${genExpr(cmd.param, context, state)});`;
 }
 
+/** @returns Als eigenständige C-Anweisung ausgegebener Ausdruck des Pseudo2-call-Kommandos. */
 function generateCallCommand(cmd: CallCommand, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   return `${indent}${genExpr(cmd.param, context, state)};`;
 }
 
+/**
+ * Übersetzt `@assume`, `@assert`, `@open`, `@close` und `@leak` in VeriFast-Syntax.
+ * Für Assertions werden benötigte Heapzustände automatisch gebunden. Heap-Prädikate
+ * in `@assume` bleiben verboten, weil eine Annahme keine Ownership erzeugen darf.
+ * @param statement Zu übersetzende Verifikationsanweisung.
+ * @param context Generator-Kontext.
+ * @param indent Aktuelle Einrückung.
+ * @param state Generatorzustand.
+ * @returns VeriFast-Kommentarzeile.
+ * @throws Error bei nicht unterstützter Art oder ownership-unsicherem assume.
+ */
 function generateVerificationStatement(
   statement: VerificationStatement,
   context: Pseudo2GeneratorContext,
@@ -2097,6 +2810,20 @@ function generateVerificationStatement(
   }
 }
 
+/**
+ * Übersetzt einen ausführbaren Pseudo2-Ausdruck in einen Ausdruck der C-Runtime.
+ *
+ * Literale werden als `Ps2Value` konstruiert, Variablen und Selektionen auf Runtime-
+ * Zugriffe abgebildet, Methoden als freie Funktionen aufgerufen und Operatoren über
+ * semantikerhaltende Runtime-Helfer verkettet. Bereits materialisierte AST-Knoten
+ * werden durch ihren temporären Namen ersetzt. Spezifikationsausdrücke sind hier verboten.
+ *
+ * @param expr Zu übersetzender Pseudo2-Ausdruck.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns C-Ausdruck mit `Ps2Value`-Semantik.
+ * @throws Error bei Spezifikations- oder unbekannten Ausdruckstypen.
+ */
 function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_STATE): string {
   const materialized = state.expressionTemps?.get(expr);
   if (materialized) return materialized;
@@ -2162,6 +2889,18 @@ function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_S
   throw new Error(`Unsupported expression type for C generator: ${expr.$type}`);
 }
 
+/**
+ * Übersetzt einen Pseudo2-Annotationsausdruck in reine VeriFast-Logik.
+ * Anders als `genExpr` entstehen keine Runtime-Aufrufe zur Ausführung, sondern Zugriffe
+ * auf das abstrakte Wertmodell und gegebenenfalls gebundene Heap-Zustandslisten.
+ * Direkte sowie verschachtelte Arrayindizes verwenden dieselbe 1-basierte Abbildung.
+ *
+ * @param expr Zu übersetzender Spezifikationsausdruck.
+ * @param context Generator-Kontext.
+ * @param state Zustand mit optional gebundenen Heapzuständen.
+ * @returns VeriFast-Ausdruck.
+ * @throws Error bei einem in Annotationen nicht unterstützten Ausdruck.
+ */
 function genSpecExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_STATE): string {
   if (isStringLiteral(expr)) return expr.value;
   if (isIntLiteral(expr)) return String(expr.value);
@@ -2194,6 +2933,17 @@ function genSpecExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAU
   throw new Error(`Unsupported VeriFast annotation expression: ${expr.$type}. Use a string literal for raw C/VeriFast specs.`);
 }
 
+/**
+ * Übersetzt eine mehrgliedrige logische, vergleichende oder arithmetische Spezifikationskette.
+ * Potenzen werden schrittweise über `ps2_model_power` aufgebaut; alle anderen Operatoren
+ * bleiben als geklammerte VeriFast-Ausdrücke erhalten.
+ * @param left Erster Operand.
+ * @param ops Operatoren zwischen den Operanden.
+ * @param rights Nachfolgende Operanden.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns VeriFast-Ausdruck der gesamten Kette.
+ */
 function genSpecRepeated(
   left: Expr,
   ops: string[],
@@ -2224,6 +2974,7 @@ function genSpecRepeated(
   return out;
 }
 
+/** @param op Pseudo2-Operator. @returns Entsprechender VeriFast-Operator, insbesondere `%` für `mod`. */
 function specOperator(op: string): string {
   if (op === 'mod') {
     return '%';
@@ -2231,6 +2982,14 @@ function specOperator(op: string): string {
   return op;
 }
 
+/**
+ * Dispatcht ein eingebautes `vf_*`-Prädikat an seine modellspezifische Übersetzung.
+ * @param expr Prädikatausdruck einschließlich Art und Argumenten.
+ * @param context Generator-Kontext.
+ * @param state Spezifikationszustand.
+ * @returns Boolescher oder wertliefernder VeriFast-Ausdruck.
+ * @throws Error bei einem unbekannten Prädikat.
+ */
 function genSpecPredicate(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   switch (expr.kind) {
     case 'vf_value':
@@ -2274,6 +3033,14 @@ function genSpecPredicate(expr: SpecPredicateExpr, context: Pseudo2GeneratorCont
   }
 }
 
+/**
+ * Erzeugt die Modelltypprüfung für `vf_array` oder `vf_struct`.
+ * @param expr Prädikatausdruck mit genau einem Wertargument.
+ * @param context Generator-Kontext.
+ * @param state Spezifikationszustand.
+ * @param kind Erwartete Heapart.
+ * @returns Konjunktion aus Modell-Kind und spezialisiertem Modellprädikat.
+ */
 function genSpecHeapKind(
   expr: SpecPredicateExpr,
   context: Pseudo2GeneratorContext,
@@ -2286,6 +3053,10 @@ function genSpecHeapKind(
   return `((ps2_model_kind(${value}) == ${modelKind}) && (${modelPredicate}(${value}) == true))`;
 }
 
+/**
+ * Übersetzt `vf_same(a, b)` als Identität der beiden modellierten Empfänger.
+ * @throws Error, wenn nicht genau zwei Argumente angegeben sind.
+ */
 function genSpecSame(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const args = expr.args ?? [];
   if (args.length !== 2) {
@@ -2294,11 +3065,19 @@ function genSpecSame(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, 
   return `(${genSpecExpr(args[0], context, state)} == ${genSpecExpr(args[1], context, state)})`;
 }
 
+/**
+ * Übersetzt `vf_integer(x)` als Zahlenart plus gesetztes Integralitätsmerkmal.
+ * @returns Boolescher VeriFast-Modellausdruck.
+ */
 function genSpecInteger(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const value = genSingleSpecArg(expr, context, state);
   return `((ps2_model_kind(${value}) == ps2_number_kind) && (ps2_model_integral(${value}) == true))`;
 }
 
+/**
+ * Übersetzt `vf_ratio(z, n)` in eine exakte reelle Division mit literalem, nichtnulligem Nenner.
+ * @throws Error bei falscher Stelligkeit oder ungültigem Nenner.
+ */
 function genSpecRatio(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const args = expr.args ?? [];
   if (args.length !== 2) {
@@ -2311,11 +3090,22 @@ function genSpecRatio(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext,
   return `(real_of_int(${genSpecExpr(args[0], context, state)}) / ${denominator.value}r)`;
 }
 
+/**
+ * Bildet die Pseudo2-Truthiness vollständig auf die abstrakten Modellarten von VeriFast ab.
+ * Null und undefined sind falsch; bool, Zahl und String verwenden ihren Inhalt;
+ * Arrays und Structs sind wahr.
+ * @returns Boolescher VeriFast-Ausdruck.
+ */
 function genSpecTruthy(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const value = genSingleSpecArg(expr, context, state);
   return `(ps2_model_kind(${value}) == ps2_undefined_kind || ps2_model_kind(${value}) == ps2_null_kind ? false : ps2_model_kind(${value}) == ps2_bool_kind ? ps2_model_bool(${value}) : ps2_model_kind(${value}) == ps2_number_kind ? ps2_model_real(${value}) != 0 : ps2_model_kind(${value}) == ps2_string_kind ? ps2_model_string_content(${value}) != nil : true)`;
 }
 
+/**
+ * Übersetzt `vf_string(x)` als Stringtypprüfung und optional `vf_string(x, "text")`
+ * zusätzlich als exakte Gleichheit der Codepoint-Liste.
+ * @throws Error bei falscher Stelligkeit oder nichtliteralem erwartetem Inhalt.
+ */
 function genSpecString(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const args = expr.args ?? [];
   if (args.length !== 1 && args.length !== 2) {
@@ -2335,6 +3125,14 @@ function genSpecString(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext
   return `(${typeFact} && (ps2_model_string_content(${value}) == ${genVeriFastStringContent(expected.value)}))`;
 }
 
+/**
+ * Prüft die gemeinsame Einstelligkeit einfacher `vf_*`-Prädikate und übersetzt ihr Argument.
+ * @param expr Einstelliger Prädikatausdruck.
+ * @param context Generator-Kontext.
+ * @param state Spezifikationszustand.
+ * @returns Übersetztes einziges Argument.
+ * @throws Error bei abweichender Argumentanzahl.
+ */
 function genSingleSpecArg(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const args = expr.args ?? [];
   if (args.length !== 1) {
@@ -2343,6 +3141,14 @@ function genSingleSpecArg(expr: SpecPredicateExpr, context: Pseudo2GeneratorCont
   return genSpecExpr(args[0], context, state);
 }
 
+/**
+ * Ermittelt den gebundenen Heapzustand für einen AST-Empfängerausdruck.
+ * @param kind Erwartete Heapart.
+ * @param receiverExpr Empfängerausdruck.
+ * @param context Generator-Kontext.
+ * @param state Spezifikationszustand.
+ * @returns Passender Zustand oder `undefined`.
+ */
 function getBoundHeapState(
   kind: HeapKind,
   receiverExpr: Expr,
@@ -2353,6 +3159,13 @@ function getBoundHeapState(
   return getBoundHeapStateForReceiver(kind, receiver, state);
 }
 
+/**
+ * Schlägt einen gebundenen Heapzustand direkt über Art und bereits erzeugten Empfänger nach.
+ * @param kind Erwartete Heapart.
+ * @param receiver C-/VeriFast-Empfängerausdruck.
+ * @param state Spezifikationszustand.
+ * @returns Passender Zustand oder `undefined`.
+ */
 function getBoundHeapStateForReceiver(
   kind: HeapKind,
   receiver: string,
@@ -2361,6 +3174,11 @@ function getBoundHeapStateForReceiver(
   return state.specHeapStates?.get(heapStateKey(kind, receiver));
 }
 
+/**
+ * Übersetzt `vf_len(array)` über die Länge der gebundenen Zustandsliste oder als
+ * abstrakten Modellzugriff, wenn noch kein Ownership-Prädikat vorliegt.
+ * @throws Error bei falscher Stelligkeit.
+ */
 function genSpecArrayLength(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const args = expr.args ?? [];
   if (args.length !== 1) {
@@ -2372,6 +3190,10 @@ function genSpecArrayLength(expr: SpecPredicateExpr, context: Pseudo2GeneratorCo
     : `ps2_model_array_length(${genSpecExpr(args[0], context, state)})`;
 }
 
+/**
+ * Übersetzt `vf_elem(array, index)` über die gemeinsame natürliche Arrayzugriffsabbildung.
+ * @throws Error bei falscher Stelligkeit.
+ */
 function genSpecArrayElement(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const args = expr.args ?? [];
   if (args.length !== 2) {
@@ -2389,6 +3211,12 @@ function genSpecArrayElement(expr: SpecPredicateExpr, context: Pseudo2GeneratorC
  * Zustandsliste gelesen. Ohne gebundenen Zustand bleibt der abstrakte
  * Fixpunktzugriff erhalten. Diese gemeinsame Abbildung wird sowohl für
  * `vf_elem(A, i)` als auch für die natürliche Schreibweise `A[i]` genutzt.
+ *
+ * @param receiver Bereits übersetzter Arrayempfänger.
+ * @param indexExpr Einsbasierter Pseudo2-Index.
+ * @param context Generator-Kontext.
+ * @param state Spezifikationszustand.
+ * @returns Zugriff auf die Zustandsliste oder das abstrakte Arraymodell.
  */
 function genSpecArrayElementAccess(
   receiver: string,
@@ -2403,6 +3231,11 @@ function genSpecArrayElementAccess(
     : `ps2_model_array_item(${receiver}, ${index})`;
 }
 
+/**
+ * Übersetzt `vf_in_bounds(array, index)` als einsbasierte Bereichsprüfung gegen
+ * gebundene Zustandslistenlänge oder abstrakte Modelllänge.
+ * @throws Error bei falscher Stelligkeit.
+ */
 function genSpecArrayBounds(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const args = expr.args ?? [];
   if (args.length !== 2) {
@@ -2416,6 +3249,14 @@ function genSpecArrayBounds(expr: SpecPredicateExpr, context: Pseudo2GeneratorCo
   return `((1 <= ${index}) && (${index} <= ${length}))`;
 }
 
+/**
+ * Übersetzt einen Pseudo2-Index in eine VeriFast-Ganzzahl. Literale und `vf_int`
+ * bleiben direkt, andere Werte werden über `ps2_model_int` projiziert.
+ * @param expr Indexausdruck.
+ * @param context Generator-Kontext.
+ * @param state Spezifikationszustand.
+ * @returns Ganzzahliger VeriFast-Ausdruck.
+ */
 function genSpecIndexExpr(expr: Expr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const unwrapped = unwrapSingletonSpecExpr(expr);
   if (isIntLiteral(unwrapped)) {
@@ -2428,6 +3269,11 @@ function genSpecIndexExpr(expr: Expr, context: Pseudo2GeneratorContext, state: C
   return `ps2_model_int(${genSpecExpr(expr, context, state)})`;
 }
 
+/**
+ * Übersetzt `vf_field(receiver, "name")` in einen Zugriff auf den gebundenen
+ * Struct-Zustand oder das abstrakte Struct-Modell.
+ * @throws Error bei falscher Stelligkeit, nichtliteralem oder nicht auflösbarem Feldnamen.
+ */
 function genSpecStructField(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const args = expr.args ?? [];
   if (args.length !== 2) {
@@ -2449,6 +3295,14 @@ function genSpecStructField(expr: SpecPredicateExpr, context: Pseudo2GeneratorCo
     : `ps2_model_struct_field(${genSpecExpr(args[0], context, state)}, ${fieldId})`;
 }
 
+/**
+ * Löst einen Feldnamen bevorzugt im statisch bekannten Empfänger-Struct auf und fällt
+ * nur bei fehlender Typinformation auf einen global eindeutigen Quellfeldnamen zurück.
+ * @param receiver Struct-Empfängerausdruck.
+ * @param fieldName Feldname aus der Pseudo2-Annotation.
+ * @param context Generator-Kontext.
+ * @returns Aufgelöste Struct-Attributdeklaration oder `undefined`.
+ */
 function resolveSpecStructField(
   receiver: Expr,
   fieldName: string,
@@ -2465,6 +3319,12 @@ function resolveSpecStructField(
   return context.getUniqueStructFieldBySourceName(fieldName);
 }
 
+/**
+ * Bestimmt den Struct-Namen eines Spezifikationsempfängers aus seinem Typ oder, bei
+ * `result`, aus den Rückgabeausdrücken der umgebenden Funktion.
+ * @param receiver Zu untersuchender Empfänger.
+ * @returns Struct-Quellname oder `undefined`.
+ */
 function structNameForSpecReceiver(receiver: Expr): string | undefined {
   const unwrapped = unwrapSingletonSpecExpr(receiver);
   if (isResultExpr(unwrapped)) {
@@ -2475,6 +3335,12 @@ function structNameForSpecReceiver(receiver: Expr): string | undefined {
   return receiverType.isStructType() && receiverType.name ? receiverType.name : undefined;
 }
 
+/**
+ * Inferiert den Struct-Typ von `result`, indem die wertliefernden returns der
+ * umgebenden Funktion nach einem benannten Struct-Typ durchsucht werden.
+ * @param expr Result-Ausdruck innerhalb einer Funktionsannotation.
+ * @returns Erster gefundener Struct-Name oder `undefined`.
+ */
 function structNameForEnclosingFunctionResult(expr: Expr): string | undefined {
   const fn = AstUtils.getContainerOfType(expr, isFunctionDeclaration);
   if (!fn) {
@@ -2494,6 +3360,11 @@ function structNameForEnclosingFunctionResult(expr: Expr): string | undefined {
   return undefined;
 }
 
+/**
+ * Entfernt rekursiv Gruppierungen und operatorische AST-Hüllen ohne rechten Operanden.
+ * @param expr Zu reduzierender Ausdruck.
+ * @returns Semantischer Kernausdruck.
+ */
 function unwrapSingletonSpecExpr(expr: Expr): Expr {
   if ((isOr(expr) || isAnd(expr) || isEquality(expr) || isComparison(expr) || isAddition(expr) || isMultiplication(expr) || isExponentiation(expr)) && (expr.right?.length ?? 0) === 0) {
     return unwrapSingletonSpecExpr(expr.left);
@@ -2504,12 +3375,26 @@ function unwrapSingletonSpecExpr(expr: Expr): Expr {
   return expr;
 }
 
+/**
+ * Erzeugt einen globalen Funktionsaufruf mit automatisch ergänzten Arraylängen.
+ * @param expr Funktionsaufruf.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns C-Aufrufausdruck.
+ */
 function genFunctionCall(expr: FunctionCall, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const target = expr.f?.ref;
   const fnName = target ? context.getFunctionName(target) : 'ps2_null';
   return buildExpandedCall(fnName, target?.params, expr.params ?? [], context, state);
 }
 
+/**
+ * Erzeugt einen Methodenaufruf als freien C-Funktionsaufruf mit Empfänger als erstem Argument.
+ * @param expr Methodenselektion.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns C-Aufrufausdruck einschließlich impliziter Arraylängen.
+ */
 function genMethSelectionCall(expr: MethSelection, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const receiver = genExpr(expr.receiver, context, state);
   const target = expr.methref.f?.ref;
@@ -2517,11 +3402,25 @@ function genMethSelectionCall(expr: MethSelection, context: Pseudo2GeneratorCont
   return buildExpandedCall(methName, target?.params, expr.methref.params ?? [], context, state, [receiver]);
 }
 
+/**
+ * Erzeugt den aritätsspezifischen C-Helferaufruf für ein Arrayliteral.
+ * @param expr Arrayliteral.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns C-Ausdruck des konstruierten Arrays.
+ */
 function genArrayLiteral(expr: ArrayLiteral, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const elems = (expr.elems ?? []).map(elem => genExpr(elem, context, state));
   return `${arrayLiteralHelperName(elems.length)}(${elems.join(', ')})`;
 }
 
+/**
+ * Übersetzt eine Variablenreferenz, einen impliziten this-Feldzugriff und optionale Arrayindizes.
+ * @param expr Variablenreferenz.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns C-Leseausdruck.
+ */
 function genVarRef(expr: VarRef, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const target = expr.ref?.ref;
   const name = target ? context.getVarName(target) : '/* unresolved */';
@@ -2534,6 +3433,13 @@ function genVarRef(expr: VarRef, context: Pseudo2GeneratorContext, state: CGener
   return expr.index ? genArrayGet(name, expr.index, context, state) : name;
 }
 
+/**
+ * Übersetzt eine explizite Struct-Attributselektion und einen optionalen Feldarrayindex.
+ * @param expr Attributselektion.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns C-Runtime-Leseausdruck.
+ */
 function genAttSelection(expr: AttSelection, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const receiver = genExpr(expr.receiver, context, state);
   const target = expr.attref.ref?.ref;
@@ -2542,6 +3448,16 @@ function genAttSelection(expr: AttSelection, context: Pseudo2GeneratorContext, s
   return expr.attref.index ? genArrayGet(attribute, expr.attref.index, context, state) : attribute;
 }
 
+/**
+ * Erzeugt die direkte Schreiboperation für Variable, implizites oder explizites
+ * Struct-Feld sowie Arrayelement.
+ * @param target Zuweisungsziel.
+ * @param value Rechter C-Wertausdruck.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns C-Ausdruck ohne abschließendes Semikolon.
+ * @throws Error bei einem nicht unterstützten Zieltyp.
+ */
 function genAssignmentTarget(target: Expr, value: string, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   if (isVarRef(target)) {
     const decl = target.ref?.ref;
@@ -2581,22 +3497,41 @@ function genAssignmentTarget(target: Expr, value: string, context: Pseudo2Genera
   throw new Error(`Unsupported assignment target for C generator: ${target.$type}`);
 }
 
+/** @returns C-Runtime-Aufruf für einen einsbasierten Array-Lesezugriff. */
 function genArrayGet(array: string, index: Expr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   return `ps2_array_get(${array}, ${genExpr(index, context, state)})`;
 }
 
+/** @returns C-Runtime-Aufruf für einen einsbasierten Array-Schreibzugriff. */
 function genArraySet(array: string, index: Expr, value: string, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   return `ps2_array_set(${array}, ${genExpr(index, context, state)}, ${value})`;
 }
 
+/** @returns Modellgestützter C-Runtime-Aufruf zum Lesen eines Struct-Feldes. */
 function genStructGet(receiver: string, field: string, fieldId: number): string {
   return `ps2_struct_get_model(${receiver}, ${JSON.stringify(field)}, ${fieldId})`;
 }
 
+/** @returns Modellgestützter C-Runtime-Aufruf zum Schreiben eines Struct-Feldes. */
 function genStructSet(receiver: string, field: string, fieldId: number, value: string): string {
   return `ps2_struct_set_model(${receiver}, ${JSON.stringify(field)}, ${fieldId}, ${value})`;
 }
 
+/**
+ * Erzeugt VeriFast-Invarianten und decreases-Klauseln einer Schleife.
+ *
+ * Explizite Annotationen werden mit automatisch gebundenen Heap-Prädikaten,
+ * generatorinternen Zusatzinvarianten und bei globalem Kontrollfluss mit den
+ * points-to-Prädikaten globaler Variablen kombiniert.
+ *
+ * @param annotations Pseudo2-Schleifenannotationen.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung der Schleife.
+ * @param state Generatorzustand.
+ * @param additionalInvariants Interne zusätzliche logische Bedingungen.
+ * @param additionalHeapReceivers Interne zusätzliche Heapempfänger.
+ * @returns VeriFast-invariant- und decreases-Zeilen.
+ */
 function generateLoopInvariants(
   annotations: LoopAnnotation[],
   context: Pseudo2GeneratorContext,
@@ -2632,6 +3567,14 @@ function generateLoopInvariants(
   return [...invariantOutput, ...decreasesOutput];
 }
 
+/**
+ * Erzeugt eine Zustandskopie mit den für eine Schleife gebundenen Heapzuständen.
+ * @param annotations Schleifenannotationen.
+ * @param context Generator-Kontext.
+ * @param state Ausgangszustand.
+ * @param additionalHeapReceivers Zusätzliche interne Empfänger.
+ * @returns Erweiterter Generatorzustand.
+ */
 function withLoopSpecHeapStates(
   annotations: LoopAnnotation[],
   context: Pseudo2GeneratorContext,
@@ -2644,6 +3587,14 @@ function withLoopSpecHeapStates(
   };
 }
 
+/**
+ * Sammelt Heapempfänger aus Schleifeninvarianten und bindet sie an logische `loop`-Zustände.
+ * @param annotations Schleifenannotationen.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @param additionalHeapReceivers Zusätzliche interne Empfänger.
+ * @returns Gebundene Schleifen-Heapzustände.
+ */
 function createLoopSpecHeapStates(
   annotations: LoopAnnotation[],
   context: Pseudo2GeneratorContext,
@@ -2658,11 +3609,24 @@ function createLoopSpecHeapStates(
   return createSpecHeapStates(heapReceivers, 'loop', new Map(), context, state);
 }
 
+/**
+ * Übersetzt eine boolesche Operandenfolge mit Runtime-Truthiness und kapselt das Ergebnis als Ps2Value.
+ * @param left Erster Operand.
+ * @param op Logischer C-Operator.
+ * @param rights Weitere Operanden.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns Boolescher Runtime-Wert.
+ */
 function genBooleanChain(left: Expr, op: '&&' | '||', rights: Expr[], context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const parts = [left, ...rights].map(expr => `ps2_truthy(${genExpr(expr, context, state)})`);
   return `ps2_bool(${parts.join(` ${op} `)})`;
 }
 
+/**
+ * Übersetzt verkettete Gleichheitsvergleiche paarweise über `ps2_equals` und verknüpft sie mit UND.
+ * @returns Boolescher Runtime-Wert der gesamten Vergleichskette.
+ */
 function genEqualityChain(left: Expr, ops: string[], rights: Expr[], context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const parts: string[] = [];
   let previous = left;
@@ -2676,6 +3640,10 @@ function genEqualityChain(left: Expr, ops: string[], rights: Expr[], context: Ps
   return `ps2_bool(${parts.join(' && ')})`;
 }
 
+/**
+ * Übersetzt verkettete Ordnungsvergleiche paarweise über die passende Runtime-Funktion.
+ * @returns Boolescher Runtime-Wert der gesamten Vergleichskette.
+ */
 function genComparisonChain(left: Expr, ops: string[], rights: Expr[], context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const parts: string[] = [];
   let previous = left;
@@ -2688,6 +3656,11 @@ function genComparisonChain(left: Expr, ops: string[], rights: Expr[], context: 
   return `ps2_bool(${parts.join(' && ')})`;
 }
 
+/**
+ * Faltet eine arithmetische Operatorfolge linksassoziativ in Runtime-Aufrufe.
+ * Divisionen durch bekannte Ganzzahlliterale verwenden ihren präziseren Spezialhelfer.
+ * @returns C-Ausdruck des gefalteten Runtime-Werts.
+ */
 function genOpChain(left: Expr, ops: string[], rights: Expr[], context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   let out = genExpr(left, context, state);
 
@@ -2705,6 +3678,12 @@ function genOpChain(left: Expr, ops: string[], rights: Expr[], context: Pseudo2G
   return out;
 }
 
+/**
+ * Ordnet einen arithmetischen Pseudo2-Operator seiner C-Runtime-Funktion zu.
+ * @param op Pseudo2-Operator.
+ * @returns Name der Runtime-Funktion.
+ * @throws Error bei einem unbekannten Operator.
+ */
 function binaryRuntimeFunction(op: string): string {
   switch (op) {
     case '+': return 'ps2_add';
@@ -2718,6 +3697,12 @@ function binaryRuntimeFunction(op: string): string {
   }
 }
 
+/**
+ * Ordnet einen ordnenden Pseudo2-Vergleich seiner C-Runtime-Funktion zu.
+ * @param op Vergleichsoperator.
+ * @returns Name der Runtime-Funktion.
+ * @throws Error bei einem unbekannten Operator.
+ */
 function comparisonRuntimeFunction(op: string): string {
   switch (op) {
     case '<': return 'ps2_less';

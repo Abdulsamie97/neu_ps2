@@ -1,3 +1,13 @@
+/**
+ * @file ParsingCustom.test.ts
+ * @brief Prüft projektspezifische Parser- und Diagnosefälle außerhalb der Lehrbeispiele.
+ *
+ * Neben gültigen Funktionen, Arrays und Selektionen werden Fehlerpositionen auf
+ * konkreten AST-Knoten und überlappende LSP-Bereiche abgesichert.
+ *
+ * @author Abdul
+ */
+
 import { describe, test, expect } from 'vitest';
 import { AstUtils, EmptyFileSystem, URI, type AstNode, type LangiumDocument } from 'langium';
 
@@ -5,10 +15,17 @@ import type { Program } from '../../src/generated/ast.js';
 import { isVarRef } from '../../src/generated/ast.js';
 import { createPseudo2Services } from '../../src/pseudo2-module.js';
 
+/** Parsing-Suite für projektspezifische Syntax- und Diagnosefälle. */
 describe('ParsingTests_CustomTests', () => {
+  /** Fortlaufende Nummer für eindeutige In-Memory-Testdokumente. */
   let docCounter = 0;
 
   // Entfernt gemeinsame führende Einrückung aus Template-Strings.
+  /**
+   * Entfernt Randzeilen und gemeinsame Einrückung aus einem Testprogramm.
+   * @param text Eingerückter Pseudo2-Template-String.
+   * @returns Normalisierter Quelltext.
+   */
   function dedent(text: string): string {
     const lines = text.replace(/\r/g, '').split('\n');
 
@@ -28,6 +45,11 @@ describe('ParsingTests_CustomTests', () => {
   }
 
   // Parst ein Pseudo2-Programm mit frischen Services.
+  /**
+   * Parst und validiert ein projektspezifisches Pseudo2-Testprogramm.
+   * @param text Pseudo2-Quelltext.
+   * @returns Program-AST und Dokumentdiagnosen.
+   */
   async function parseModel(text: string): Promise<{ model: Program; document: LangiumDocument }> {
     const services = createPseudo2Services(EmptyFileSystem);
     const documentBuilder = services.shared.workspace.DocumentBuilder;
@@ -45,17 +67,25 @@ describe('ParsingTests_CustomTests', () => {
   }
 
   // Liefert alle Fehlerdiagnosen eines Dokuments.
+  /** @param document Validiertes Dokument. @returns Diagnosen mit Fehlerseverity. */
   function errorDiagnostics(document: LangiumDocument) {
     return (document.diagnostics ?? []).filter(d => d.severity === 1);
   }
 
   // Prüft, dass keine Fehlerdiagnosen vorhanden sind.
+  /** @param document Dokument, dessen Fehlermenge leer sein muss. */
   function assertNoErrors(document: LangiumDocument): void {
     const errors = errorDiagnostics(document);
     expect(errors.map(e => e.message).join('\n')).toBe('');
   }
 
   // Sucht den ersten Knoten eines bestimmten Typs.
+  /**
+   * Sucht Wurzel und Nachfahren nach dem ersten Knoten eines durch einen Type Guard bestimmten Typs.
+   * @param root Ausgangsknoten.
+   * @param guard Type Guard des Zieltyps.
+   * @returns Erster passender Knoten oder `undefined`.
+   */
   function firstNodeOfType<T extends AstNode>(
     root: AstNode,
     guard: (node: AstNode) => node is T
@@ -72,6 +102,11 @@ describe('ParsingTests_CustomTests', () => {
   }
 
   // Prüft, dass an einem Knoten mindestens eine Fehlerdiagnose hängt.
+  /**
+   * Erwartet mindestens eine Fehlerdiagnose, deren Bereich den ersten Zielknoten überlappt.
+   * @param input Zu validierendes Pseudo2-Programm.
+   * @param guard Type Guard des erwarteten Zielknotens.
+   */
   async function assertAnyErrorOnNode<T extends AstNode>(
     input: string,
     guard: (node: AstNode) => node is T
@@ -95,6 +130,12 @@ describe('ParsingTests_CustomTests', () => {
   }
 
   // Prüft, ob sich zwei Ranges überlappen.
+  /**
+   * Vergleicht zwei LSP-Bereiche über linearisierte Zeilen- und Zeichenpositionen.
+   * @param a Erster Bereich.
+   * @param b Zweiter Bereich.
+   * @returns `true`, wenn sich die geschlossenen Bereiche überschneiden.
+   */
   function rangesOverlap(
     a: { start: { line: number; character: number }; end: { line: number; character: number } },
     b: { start: { line: number; character: number }; end: { line: number; character: number } }

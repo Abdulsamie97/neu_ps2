@@ -1,4 +1,9 @@
 // packages/language/src/scoping/pseudo2-scope.ts
+/**
+ * @file pseudo2-scope.ts
+ * @brief Berechnet lexikalische Variablen-, Funktions-, Struct- und Member-Scopes.
+ * @author Abdul
+ */
 
 import type { AstNode, ReferenceInfo, Scope, AstNodeDescription} from 'langium';
 import { AstUtils, DefaultScopeProvider, MapScope, EMPTY_SCOPE } from 'langium';
@@ -53,33 +58,76 @@ import {
 
 import { Pseudo2TypeComputer, TypeComputationContext } from '../typing/pseudo2-type-computer.js';
 
+/** Minimale gemeinsame Sicht auf alle benannten Scope-Elemente. */
 type Named = { name: string };
+/** Aktiviert bei Bedarf ausführliche Scope-Diagnosen auf der Konsole. */
 const DEBUG_SCOPE = false;
 
+/**
+ * Gibt Scope-Diagnosen nur bei aktiviertem Debug-Schalter aus.
+ *
+ * @param values Beliebige an `console.log` weiterzureichende Werte.
+ */
 function debugScope(...values: unknown[]): void {
   if (DEBUG_SCOPE) {
     console.log(...values);
   }
 }
 
+/**
+ * Erkennt globale Funktionen anhand des expliziten `func`-Schlüsselworts.
+ *
+ * @param fn Zu prüfende Funktionsdeklaration.
+ * @returns `true` für globale Funktionen.
+ */
 function isGlobalFunctionDecl(fn: FunctionDeclaration): boolean {
   return fn.keyword === true;
 }
 
+/**
+ * Erkennt schlüsselwortlose Struct-Methoden.
+ *
+ * @param fn Zu prüfende Funktionsdeklaration.
+ * @returns `true` für Methoden.
+ */
 function isMethodDecl(fn: FunctionDeclaration): boolean {
   return fn.keyword !== true;
 }
 
-
+/**
+ * Sprachspezifischer ScopeProvider für Pseudo2-Cross-References.
+ *
+ * Variablen folgen Quellreihenfolge und lexikalischer Verschattung. Funktionen
+ * und Structs sind global, während Attribute und Methoden aus dem statischen
+ * Typ des jeweiligen Empfängers bestimmt werden.
+ */
 export class Pseudo2ScopeProvider extends DefaultScopeProvider {
+  /** Erzeugt Langium-Beschreibungen für die berechneten Scope-Elemente. */
   private readonly descProvider: Pseudo2Services['workspace']['AstNodeDescriptionProvider'];
+  /** Bestimmt den Struct-Typ von Member-Empfängern. */
   private readonly types = new Pseudo2TypeComputer();
 
+  /**
+   * Erstellt den Provider aus den injizierten Pseudo2-Services.
+   *
+   * @param services Vollständig konfigurierte Pseudo2-Langium-Services.
+   */
   constructor(services: Pseudo2Services) {
     super(services);
     this.descProvider = services.workspace.AstNodeDescriptionProvider;
   }
 
+  /**
+   * Berechnet den Scope für die konkrete Cross-Reference.
+   *
+   * Variablenreferenzen erhalten sichtbare lokale Variablen, Iteratoren,
+   * Parameter, Struct-Attribute und globale Variablen. Freie Funktionsaufrufe
+   * sehen nur globale Funktionen. Struct-Typen und `new` sehen globale Structs;
+   * Memberreferenzen werden anhand des Empfängertyps auf ein Struct eingeschränkt.
+   *
+   * @param context Langium-Information über Container, Eigenschaft und Referenz.
+   * @returns Spezifischer Pseudo2-Scope oder der Langium-Standardscope.
+   */
   override getScope(context: ReferenceInfo): Scope {
     const c = context.container;
     const r = context.reference;
@@ -173,6 +221,14 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     return super.getScope(context);
   }
 
+  /**
+   * Erstellt einen abgeschlossenen MapScope aus AST-Knoten.
+   *
+   * @typeParam T Typ der aufzunehmenden AST-Knoten.
+   * @param nodes Sichtbare AST-Knoten.
+   * @param nameOf Funktion zur Bestimmung des Scope-Namens.
+   * @returns Scope ohne äußeren Fallback.
+   */
   private scopeFromNodes<T extends AstNode>(nodes: T[], nameOf: (n: T) => string): Scope {
     const descriptions: AstNodeDescription[] = nodes.map(n =>
       this.descProvider.createDescription(n, nameOf(n))
@@ -180,6 +236,12 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     return new MapScope(descriptions, EMPTY_SCOPE);
   }
 
+  /**
+   * Erstellt einen abgeschlossenen MapScope aus minimal benannten AST-Objekten.
+   *
+   * @param nodes Sichtbare Deklarationen in Prioritätsreihenfolge.
+   * @returns Scope mit den angegebenen Quellnamen.
+   */
   private scopeFromNamed(nodes: Named[]): Scope {
     const astNodes = nodes as unknown as AstNode[];
     const descriptions: AstNodeDescription[] = astNodes.map((n, i) =>
@@ -188,6 +250,16 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     return new MapScope(descriptions, EMPTY_SCOPE);
   }
 
+  /**
+   * Berechnet sämtliche sichtbaren Namen für eine Variablenreferenz.
+   *
+   * Die Methode behandelt Schleifenannotation, Blockreihenfolge, If-Zweige,
+   * Schleifeniteratoren, Funktionsparameter, Methodenattribute und Top-Level
+   * getrennt. Innere Deklarationen stehen vor äußeren Namen.
+   *
+   * @param node Variablenreferenz oder enthaltener AST-Knoten.
+   * @returns Sichtbare Deklarationen in Auflösungspriorität.
+   */
   private scopeForVarRef(node: AstNode): Named[] {
     const loopAnnotation = AstUtils.getContainerOfType(node, isLoopAnnotation);
     if (loopAnnotation && isForLoop(loopAnnotation.$container) && loopAnnotation.$container.iterator) {
@@ -276,15 +348,37 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     return this.dedupByName(this.collectGlobalVars(node));
   }
 
+  /**
+   * Liefert die berechneten Variablennamen für Scope-Tests und Diagnosen.
+   *
+   * @param node Zu untersuchende Variablenreferenz.
+   * @returns Sichtbare Namen in Auflösungsreihenfolge.
+   */
   public debugVarRefScopeNames(node: VarRef): string[] {
     return this.scopeForVarRef(node).map(v => v.name);
   }
 
+  /**
+   * Verbindet lokale und äußere Namen unter Beibehaltung lokaler Duplikate.
+   *
+   * Äußere Deklarationen werden nur dann entfernt, wenn ihr Name bereits lokal
+   * vorkommt; so bildet die Liste lexikalische Verschattung ab.
+   *
+   * @param locals Lokale Deklarationen in Quellpriorität.
+   * @param outer Sichtbare Deklarationen äußerer Scopes.
+   * @returns Zusammengeführte Scope-Liste.
+   */
   private mergeLocalsWithOuter(locals: Named[], outer: Named[]): Named[] {
     const localNames = new Set(locals.map(v => v.name));
     return [...locals, ...outer.filter(v => !localNames.has(v.name))];
   }
 
+  /**
+   * Sammelt die Attribute des Structs, das den Ausgangsknoten umschließt.
+   *
+   * @param from Ausgangsknoten der Containersuche.
+   * @returns Struct-Attribute oder eine leere Liste außerhalb einer Methode.
+   */
   private collectEnclosingStructAttributes(from: AstNode): Named[] {
     const enclosingStruct = AstUtils.getContainerOfType(from, isStructDeclaration);
     if (!enclosingStruct) return [];
@@ -293,6 +387,15 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     return attrs;
   }
 
+  /**
+   * Berechnet rekursiv sichtbare Variablen aus einem Container und seinen Vorfahren.
+   *
+   * Direkte Locals, Iteratoren, Struct-Attribute, Parameter und globale Variablen
+   * werden in dieser Priorität gesammelt und anschließend nach Namen dedupliziert.
+   *
+   * @param container Startcontainer oder `undefined`.
+   * @returns Sichtbare Namen in Auflösungspriorität.
+   */
   private scopeForVarRefFrom(container: AstNode | undefined): Named[] {
     if (!container) return [];
 
@@ -321,6 +424,15 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     ]);
   }
 
+  /**
+   * Sammelt lokale Deklarationen, die vor der aktuellen Anweisung sichtbar sind.
+   *
+   * Block- und If-Zweiggrenzen werden beachtet; Deklarationen aus dem jeweils
+   * anderen If-Zweig werden nicht aufgenommen.
+   *
+   * @param container Zu untersuchender AST-Container.
+   * @returns Vor der aktuellen Position deklarierte lokale Variablen.
+   */
   private collectVisibleLocalsFromContainer(container: AstNode): VarDecl[] {
     const currentInstr = this.getEnclosingInstruction(container);
     if (!currentInstr) {
@@ -347,6 +459,13 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     return [];
   }
 
+  /**
+   * Berechnet lokale und äußere Namen innerhalb des zutreffenden If-Zweigs.
+   *
+   * @param ifStmt Umschließende If-Anweisung.
+   * @param currentInstr Aktuelle Anweisung im Then- oder Else-Zweig.
+   * @returns Vorherige Zweigdeklarationen gefolgt von äußeren Namen.
+   */
   private handleIfStatement(ifStmt: IfStatement, currentInstr: Instruction): Named[] {
     const thenInstrs: Instruction[] = ifStmt.thenBlock?.instructions ?? [];
     const elseInstrs: Instruction[] = ifStmt.elseBlock?.instructions ?? [];
@@ -369,6 +488,16 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     
   }
 
+  /**
+   * Extrahiert Variablendeklarationen vor einer bestimmten Anweisung.
+   *
+   * Das Ergebnis wird umgedreht, sodass die zuletzt deklarierte und damit
+   * nächstgelegene Variable zuerst aufgelöst wird.
+   *
+   * @param instrs Anweisungen eines gemeinsamen Containers.
+   * @param current Aktuelle Anweisung als exklusive Grenze.
+   * @returns Vorherige Variablendeklarationen in umgekehrter Quellreihenfolge.
+   */
   private extractVarDeclsBeforeCurrent(instrs: Instruction[], current: Instruction): VarDecl[] {
     const out: VarDecl[] = [];
 
@@ -390,7 +519,12 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     return out.reverse();
   }
 
-
+  /**
+   * Entfernt spätere Namensduplikate und erhält jeweils den ersten Treffer.
+   *
+   * @param vars Deklarationen in gewünschter Prioritätsreihenfolge.
+   * @returns Nach Namen deduplizierte Liste.
+   */
   private dedupByName(vars: Named[]): Named[] {
     const seen = new Set<string>();
     const out: Named[] = [];
@@ -403,6 +537,12 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     return out;
   }
 
+  /**
+   * Sucht aufwärts die nächstgelegene eigenständige Pseudo2-Anweisung.
+   *
+   * @param node Ausgangsknoten der Containersuche.
+   * @returns Nächste Anweisung oder `undefined`.
+   */
   private getEnclosingInstruction(node: AstNode): Instruction | undefined {
     let n: AstNode | undefined = node;
     while (n) {
@@ -412,6 +552,12 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     return undefined;
   }
 
+  /**
+   * Prüft, ob ein AST-Knoten in Pseudo2 als eigenständige Anweisung zählt.
+   *
+   * @param n Zu prüfender AST-Knoten.
+   * @returns `true` für unterstützte Instruktionstypen und freie Call-Anweisungen.
+   */
   private isInstructionNode(n: AstNode): boolean {
     return (
       isIfStatement(n) ||
@@ -432,7 +578,15 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     );
   }
 
-
+  /**
+   * Erkennt einen Funktionsaufruf, der direkt in Block oder Programm steht.
+   *
+   * Aufrufe innerhalb größerer Ausdrücke dürfen nicht als umschließende
+   * Anweisung behandelt werden.
+   *
+   * @param node Erwarteter Funktionsaufruf.
+   * @returns `true`, wenn sein direkter Container Block oder Programm ist.
+   */
   private isStandaloneFunctionCallInstruction(node: AstNode): boolean {
     const parent = node.$container;
     return (
@@ -445,11 +599,23 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
     );
   }
   
+  /**
+   * Sammelt globale Variablen in umgekehrter Quellreihenfolge.
+   *
+   * @param from Beliebiger Knoten des Dokuments.
+   * @returns Globale Variablen mit späteren Deklarationen zuerst.
+   */
   private collectGlobalVars(from: AstNode): VarDecl[] {
     const program = this.getProgram(from);
     return program ? [...program.instructions.filter(isVarDecl)].reverse() : [];
   }
 
+  /**
+   * Sammelt alle explizit globalen Funktionen des Dokuments.
+   *
+   * @param from Beliebiger Knoten des Dokuments.
+   * @returns Globale Funktionsdeklarationen in Quellreihenfolge.
+   */
   private collectGlobalFunctions(from: AstNode): FunctionDeclaration[] {
     const program = this.getProgram(from);
     return program
@@ -459,6 +625,12 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
       : [];
   }
 
+  /**
+   * Sammelt formale Parameter und synthetische Array-Längenparameter.
+   *
+   * @param fn Funktion oder Methode.
+   * @returns Benannte Parameter in Signaturreihenfolge.
+   */
   private collectFunctionParameters(fn: FunctionDeclaration): Named[] {
   const out: Named[] = [];
 
@@ -470,19 +642,38 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
   }
 
   return out;
-}
+  }
 
+  /**
+   * Sammelt alle global deklarierten Structs.
+   *
+   * @param from Beliebiger Knoten des Dokuments.
+   * @returns Struct-Deklarationen in Quellreihenfolge.
+   */
   private collectStructs(from: AstNode): StructDeclaration[] {
     const program = this.getProgram(from);
     return program ? program.instructions.filter(isStructDeclaration) : [];
   }
 
+  /**
+   * Sucht ein globales Struct anhand seines Quellnamens.
+   *
+   * @param from Beliebiger Knoten des Dokuments.
+   * @param name Gesuchter Struct-Name.
+   * @returns Erste passende Deklaration oder `undefined`.
+   */
   private findStructByName(from: AstNode, name: string): StructDeclaration | undefined {
     const program = this.getProgram(from);
     if (!program) return undefined;
     return program.instructions.filter(isStructDeclaration).find(sd => sd.name === name);
   }
 
+  /**
+   * Liefert die Programmwurzel des Langium-Dokuments eines AST-Knotens.
+   *
+   * @param node Beliebiger an ein Dokument gebundener AST-Knoten.
+   * @returns Geparstes Pseudo2-Programm.
+   */
   private getProgram(node: AstNode): Program | undefined {
     const doc = AstUtils.getDocument(node);
     return doc.parseResult.value as unknown as Program;

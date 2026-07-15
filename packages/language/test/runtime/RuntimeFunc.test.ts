@@ -1,6 +1,13 @@
+/**
+ * @file RuntimeFunc.test.ts
+ * @brief Prüft Aufrufe, Parameter, Rückgaben, Rekursion und wertlose Funktionen zur Laufzeit.
+ * @author Abdul
+ */
+
 import { describe, test } from 'vitest';
 import { assertExecResult } from '../helpers/runtime-test-utils.js';
 
+/** Ausführungsbasierte Regressionstests globaler Pseudo2-Funktionen. */
 describe('RuntimeTestsFunc', () => {
   test('simple function return', async () => {
     await assertExecResult(`

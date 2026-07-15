@@ -1,6 +1,13 @@
+/**
+ * @file RuntimeLoop.test.ts
+ * @brief Prüft for-, while- und do-while-Schleifen einschließlich Richtung, Schrittweite und Fehlerfällen.
+ * @author Abdul
+ */
+
 import { describe, test } from 'vitest';
 import { assertExecResult, assertExecThrows } from '../helpers/runtime-test-utils.js';
 
+/** Ausführungsbasierte Regressionstests des Pseudo2-Schleifenkontrollflusses. */
 describe('RuntimeTestsLoop', () => {
   test('for loop with iterator', async () => {
     await assertExecResult(`

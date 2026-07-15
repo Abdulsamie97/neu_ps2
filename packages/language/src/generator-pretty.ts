@@ -1,3 +1,9 @@
+/**
+ * @file generator-pretty.ts
+ * @brief Erzeugt eine kanonische Pseudo2-Fassung mit expliziten Blockklammern.
+ * @author Abdul
+ */
+
 import type {
   Block,
   Expr,
@@ -58,14 +64,33 @@ import {
   isWhileLoop
 } from './generated/ast.js';
 
+/**
+ * Konfiguration der formatierten Pseudo2-Ausgabe.
+ */
 export interface PrettyPseudo2Options {
+  /** Pro Verschachtelungsebene verwendete Einrückungszeichen. */
   indent?: string;
 }
 
+/**
+ * Normalisierter, intern an alle Druckfunktionen weitergereichter Kontext.
+ */
 interface PrettyContext {
+  /** Tatsächlich verwendete Einrückungszeichenfolge. */
   indent: string;
 }
 
+/**
+ * Druckt ein vollständiges Programm mit expliziten geschweiften Blockklammern.
+ *
+ * Top-Level-Anweisungen werden durch Leerzeilen getrennt. Eine nicht leere
+ * Ausgabe endet immer mit genau einem Zeilenumbruch; ein leeres Programm liefert
+ * den Leerstring.
+ *
+ * @param program Zu formatierender Pseudo2-AST.
+ * @param options Optionale Einrückungskonfiguration.
+ * @returns Kanonisch formatierter Pseudo2-Quelltext.
+ */
 export function generatePrettyPseudo2(program: Program, options: PrettyPseudo2Options = {}): string {
   const ctx: PrettyContext = {
     indent: options.indent ?? '  '
@@ -79,6 +104,18 @@ export function generatePrettyPseudo2(program: Program, options: PrettyPseudo2Op
   return code.length > 0 ? `${code}\n` : '';
 }
 
+/**
+ * Verteilt eine Anweisung an den passenden spezialisierten Druckpfad.
+ *
+ * Die Funktion erhält Annotationen und alle sprachlichen Konstrukte. Nicht
+ * erkannte AST-Typen werden sichtbar als `<unknown instruction>` ausgegeben,
+ * damit der Pretty-Printer auch bei zukünftigen Grammatikergänzungen definiert bleibt.
+ *
+ * @param instruction Zu druckende Pseudo2-Anweisung.
+ * @param level Aktuelle Verschachtelungstiefe.
+ * @param ctx Pretty-Print-Kontext.
+ * @returns Vollständig eingerückter Anweisungstext.
+ */
 function printInstruction(instruction: Instruction, level: number, ctx: PrettyContext): string {
   const prefix = indentation(level, ctx);
 
@@ -161,6 +198,14 @@ function printInstruction(instruction: Instruction, level: number, ctx: PrettyCo
   return `${prefix}<unknown instruction>`;
 }
 
+/**
+ * Druckt einen Block unabhängig von seiner ursprünglichen Einrückungsform mit Klammern.
+ *
+ * @param block Braced- oder Indented-Block aus dem AST.
+ * @param level Einrückungsebene der schließenden Klammer.
+ * @param ctx Pretty-Print-Kontext.
+ * @returns `{}` für leere oder mehrzeilige Darstellung für gefüllte Blöcke.
+ */
 function printBlock(block: Block, level: number, ctx: PrettyContext): string {
   const instructions = block.instructions ?? [];
 
@@ -175,6 +220,17 @@ function printBlock(block: Block, level: number, ctx: PrettyContext): string {
   return `{\n${body}\n${indentation(level, ctx)}}`;
 }
 
+/**
+ * Druckt Funktionsverträge, Signatur, Parameter und Body einer Funktion oder Methode.
+ *
+ * Das Schlüsselwort `func` wird nur bei globalen Funktionen ausgegeben; Methoden
+ * behalten die in der Grammatik vorgesehene schlüsselwortlose Form.
+ *
+ * @param fn Zu druckende Funktions- oder Methodendeklaration.
+ * @param level Aktuelle Einrückungsebene.
+ * @param ctx Pretty-Print-Kontext.
+ * @returns Mehrzeilige Deklaration einschließlich Annotationen.
+ */
 function printFunction(fn: FunctionDeclaration, level: number, ctx: PrettyContext): string {
   const prefix = indentation(level, ctx);
   const annotations = (fn.annotations ?? [])
@@ -187,6 +243,15 @@ function printFunction(fn: FunctionDeclaration, level: number, ctx: PrettyContex
   return [...annotations, declaration].join('\n');
 }
 
+/**
+ * Stellt Loop-Annotationen unmittelbar vor den bereits gedruckten Schleifentext.
+ *
+ * @param annotations Invarianten und Varianten in Quellreihenfolge.
+ * @param loopText Vollständig gedruckter Schleifenkopf samt Body.
+ * @param level Einrückungsebene der Annotationen.
+ * @param ctx Pretty-Print-Kontext.
+ * @returns Annotationen und Schleife oder unveränderten Schleifentext.
+ */
 function withLoopAnnotations(
   annotations: LoopAnnotation[],
   loopText: string,
@@ -202,6 +267,15 @@ function withLoopAnnotations(
   return [...annotationLines, loopText].join('\n');
 }
 
+/**
+ * Druckt einen skalaren oder Array-Parameter.
+ *
+ * Für Array-Parameter wird der 1-basierte Bereich aus Start und symbolischem
+ * Längenparameter rekonstruiert. Fehlt der Start, gilt `1`.
+ *
+ * @param parameter Zu druckender Parameter.
+ * @returns Parametertext für die Funktionssignatur.
+ */
 function printParameter(parameter: ParameterDecl): string {
   if (!parameter.isArray) {
     return parameter.name;
@@ -212,6 +286,14 @@ function printParameter(parameter: ParameterDecl): string {
   return `${parameter.name}[${start}..${len}]`;
 }
 
+/**
+ * Druckt eine Struct-Deklaration samt Attributen und Methoden.
+ *
+ * @param struct Zu druckendes Struct.
+ * @param level Aktuelle Einrückungsebene.
+ * @param ctx Pretty-Print-Kontext.
+ * @returns Ein- oder mehrzeilige Struct-Deklaration.
+ */
 function printStruct(struct: StructDeclaration, level: number, ctx: PrettyContext): string {
   const prefix = indentation(level, ctx);
   const children = (struct.children ?? [])
@@ -225,6 +307,14 @@ function printStruct(struct: StructDeclaration, level: number, ctx: PrettyContex
   return `${prefix}struct ${struct.name} {\n${children}\n${prefix}}`;
 }
 
+/**
+ * Verteilt ein Struct-Kind auf Attribut- oder Methodendruck.
+ *
+ * @param child Attribut- oder Methodendeklaration.
+ * @param level Einrückungsebene innerhalb des Structs.
+ * @param ctx Pretty-Print-Kontext.
+ * @returns Gedrucktes Struct-Kind.
+ */
 function printStructChild(child: StructDeclarationChild, level: number, ctx: PrettyContext): string {
   if (isStructAttDeclaration(child)) {
     return printStructAttribute(child, level, ctx);
@@ -233,10 +323,24 @@ function printStructChild(child: StructDeclarationChild, level: number, ctx: Pre
   return printFunction(child, level, ctx);
 }
 
+/**
+ * Druckt Typ und Namen eines Struct-Attributs.
+ *
+ * @param attribute Zu druckende Attributdeklaration.
+ * @param level Einrückungsebene innerhalb des Structs.
+ * @param ctx Pretty-Print-Kontext.
+ * @returns Vollständig eingerückte Attributzeile.
+ */
 function printStructAttribute(attribute: StructAttDeclaration, level: number, ctx: PrettyContext): string {
   return `${indentation(level, ctx)}${printType(attribute.type)} ${attribute.name}`;
 }
 
+/**
+ * Rekonstruiert einen Pseudo2-Typ einschließlich beliebig vieler Arraydimensionen.
+ *
+ * @param type AST-Typreferenz.
+ * @returns Pseudo2-Typtext oder sichtbarer Fallback bei ungelösten Typen.
+ */
 function printType(type: TypeRef): string {
   if (isArrayType(type)) {
     return `${printType(type.base)}${'[]'.repeat(type.dimensions.length)}`;
@@ -250,6 +354,16 @@ function printType(type: TypeRef): string {
   return '<unknown-type>';
 }
 
+/**
+ * Druckt einen Ausdruck rekursiv und erhält seine AST-Auswertungsstruktur.
+ *
+ * Binäre Ketten werden schrittweise geklammert, Selektionsketten vollständig
+ * rekonstruiert und VeriFast-Helfer wie normale Pseudo2-Aufrufe ausgegeben.
+ * Ungelöste Cross-References und unbekannte Ausdrücke erhalten sichtbare Fallbacks.
+ *
+ * @param expr Zu druckender Pseudo2-Ausdruck.
+ * @returns Kanonische Ausdrucksdarstellung.
+ */
 function printExpr(expr: Expr): string {
   if (isOr(expr)) {
     return printBinaryChain(expr.left, expr.right, expr.right.map(() => '||'));
@@ -338,6 +452,14 @@ function printExpr(expr: Expr): string {
   return '<unknown-expr>';
 }
 
+/**
+ * Druckt eine linksassoziative binäre Operatorfolge mit expliziter Klammerung.
+ *
+ * @param left Erster Operand.
+ * @param right Weitere Operanden in AST-Reihenfolge.
+ * @param operators Operatoren zwischen den Operanden.
+ * @returns Schrittweise geklammerte Ausdruckskette.
+ */
 function printBinaryChain(left: Expr, right: Expr[], operators: string[]): string {
   let current = printExpr(left);
 
@@ -348,6 +470,13 @@ function printBinaryChain(left: Expr, right: Expr[], operators: string[]): strin
   return current;
 }
 
+/**
+ * Berechnet die Einrückung einer Verschachtelungsebene.
+ *
+ * @param level Nichtnegative Einrückungstiefe.
+ * @param ctx Kontext mit dem gewählten Einrückungsmuster.
+ * @returns Wiederholte Einrückungszeichenfolge.
+ */
 function indentation(level: number, ctx: PrettyContext): string {
   return ctx.indent.repeat(level);
 }

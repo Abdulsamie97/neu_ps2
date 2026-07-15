@@ -1,6 +1,13 @@
+/**
+ * @file RuntimeExp.test.ts
+ * @brief Prüft Literale, unäre Ausdrücke, Operatorpräzedenz, Vergleiche und Stringverkettung zur Laufzeit.
+ * @author Abdul
+ */
+
 import { describe, test } from 'vitest';
 import { assertExecResult } from '../helpers/runtime-test-utils.js';
 
+/** Ausführungsbasierte Regressionstests der Ausdruckssemantik. */
 describe('RuntimeTestsExp', () => {
   test('simple', async () => {
     await assertExecResult(`

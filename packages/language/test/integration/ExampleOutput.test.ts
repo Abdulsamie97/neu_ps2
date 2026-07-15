@@ -1,3 +1,13 @@
+/**
+ * @file ExampleOutput.test.ts
+ * @brief Führt alle freigegebenen Pseudo2-Beispiele aus und vergleicht ihre dokumentierte Ausgabe.
+ *
+ * Beispielpfade und erwartete Konsolenausgaben bilden eine Regressionstabelle für
+ * Sprachgenerator und JavaScript-Runtime über grundlegende und komplexe Programme.
+ *
+ * @author Abdul
+ */
+
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -84,6 +94,7 @@ const exampleOutputs: Array<[string, string]> = [
   ['serverExamples/tree/binaryTreeCreatedAutomatically.pseudo2', '5 2 3 6 7 finished']
 ];
 
+/** Datengesteuerte Integrationssuite für die Ausgabe der mitgelieferten Beispielprogramme. */
 describe('ExampleOutput', () => {
   test.each(exampleOutputs)('%s', async (relativePath, expected) => {
     const examplesRoot = fileURLToPath(new URL('../../../../examples/', import.meta.url));

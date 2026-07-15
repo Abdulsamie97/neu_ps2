@@ -1,3 +1,9 @@
+/**
+ * @file index.ts
+ * @brief Öffentliche API des Pseudo2-Sprachpakets und kompakte Programmanalyse.
+ * @author Abdul
+ */
+
 import { AstUtils, EmptyFileSystem, URI } from 'langium';
 import type { LangiumServices } from 'langium/lsp';
 import { createPseudo2Services as createPseudo2ServicesImpl } from './pseudo2-module.js';
@@ -22,9 +28,22 @@ export * from './generated/ast.js';
 export * from './generated/grammar.js';
 export * from './generated/module.js';
 
+/** Wiederverwendete Language-Services für speicherinterne Zusammenfassungen. */
 let summaryServices: LangiumServices | undefined;
+/** Zähler für eindeutige URIs temporärer Zusammenfassungsdokumente. */
 let summaryDocumentCounter = 0;
 
+/**
+ * Parst und validiert Pseudo2-Quelltext und erstellt eine strukturelle Kurzfassung.
+ *
+ * Die Services werden verzögert einmalig angelegt. Jedes Dokument erhält eine
+ * eigene Memory-URI, damit Langiums Dokumentverwaltung frühere Analysen nicht
+ * überschreibt. Die Zusammenfassung zählt Deklarationen und Diagnosen, führt das
+ * Programm aber nicht aus.
+ *
+ * @param code Vollständiger Pseudo2-Quelltext.
+ * @returns Mehrzeilige Zusammenfassung von Zeilen, Deklarationen und Diagnosen.
+ */
 export async function getSummaryFromCode(code: string): Promise<string> {
   if (code.trim().length === 0) {
     return 'Empty Pseudo2 program.';
@@ -60,10 +79,22 @@ export async function getSummaryFromCode(code: string): Promise<string> {
   ].join('\n');
 }
 
+/**
+ * Zählt Zeilen unabhängig von Windows- oder Unix-Zeilenenden.
+ *
+ * @param code Zu untersuchender Quelltext.
+ * @returns Anzahl der durch Newlines getrennten Zeilen.
+ */
 function countLines(code: string): number {
   return code.replace(/\r/g, '').split('\n').length;
 }
 
+/**
+ * Formatiert eine Namensliste für die Programzusammenfassung.
+ *
+ * @param names Namen in gewünschter Ausgabereihenfolge.
+ * @returns Kommagetrennte Namen oder `(none)` für eine leere Liste.
+ */
 function formatNames(names: string[]): string {
   return names.length > 0 ? names.join(', ') : '(none)';
 }

@@ -1,3 +1,13 @@
+/**
+ * @file ScopeTests.test.ts
+ * @brief Prüft sichtbare Variablen-, Parameter-, Iterator- und Struct-Attributnamen in Pseudo2-Scope-Kontexten.
+ *
+ * Die Suite baut frische Dokumente, lokalisiert konkrete Referenzknoten und vergleicht
+ * die vom Pseudo2ScopeProvider gelieferten Namen in Schleifen, Funktionen und Selektionen.
+ *
+ * @author Abdul
+ */
+
 import { describe, test, expect } from 'vitest';
 import { AstUtils, EmptyFileSystem, URI, type AstNode, type LangiumDocument} from 'langium';
 
@@ -32,10 +42,13 @@ import {
 import { createPseudo2Services } from '../../src/pseudo2-module.js';
 import { Pseudo2ScopeProvider } from '../../src/scoping/pseudo2-scope.js';
 
+/** Scoping-Regressionssuite für Variablen- und Attributreferenzen. */
 describe('ScopeTests', () => {
+  /** Fortlaufende Nummer für eindeutige Scope-Testdokumente. */
   let docCounter = 0;
 
   // Entfernt gemeinsame führende Einrückung aus Template-Strings.
+  /** @param text Eingerückter Pseudo2-Quelltext. @returns Normalisierter Quelltext. */
   function dedent(text: string): string {
     const lines = text.replace(/\r/g, '').split('\n');
 
@@ -56,6 +69,7 @@ describe('ScopeTests', () => {
   }
 
   // Prüft, dass beim Parsen/Bauen keine Fehlerdiagnosen entstanden sind.
+  /** @param document Dokument, das keine Fehlerdiagnosen enthalten darf. */
   function assertNoDocumentErrors(document: LangiumDocument): void {
     const errors = (document.diagnostics ?? []).filter(d => d.severity === 1);
     expect(errors.map(e => e.message).join('\n')).toBe('');
@@ -63,6 +77,11 @@ describe('ScopeTests', () => {
 
   // Parst einen Pseudo2-Text mit frischen Services,
   // damit keine vorherigen Testdokumente in den Scope hineinwirken.
+  /**
+   * Parst ein Pseudo2-Programm mit isolierten Diensten und liefert zusätzlich den ScopeProvider.
+   * @param text Pseudo2-Quelltext.
+   * @returns Program-AST, Dokument und zugehöriger ScopeProvider.
+   */
   async function parseModel(text: string): Promise<{
     model: Program;
     document: LangiumDocument;
@@ -86,6 +105,7 @@ describe('ScopeTests', () => {
   }
 
   // Sucht den letzten PrintCommand innerhalb eines Teilbaums.
+  /** @param root Zu durchsuchender AST-Teilbaum. @returns Letztes print-Kommando oder `undefined`. */
   function lastPrintCommand(root: AstNode): PrintCommand | undefined {
     let last: PrintCommand | undefined;
 
@@ -99,6 +119,7 @@ describe('ScopeTests', () => {
   }
 
   // Entpackt Ausdruckshüllen der Präzedenzkette, bis der eigentliche Kern-Ausdruck erreicht ist.
+  /** @param expr Zu reduzierender Ausdruck. @returns Semantischer Kernausdruck hinter Gruppierungs- und Einzelhüllen. */
   function unwrapExpr(expr: Expr): Expr {
     let current: Expr = expr;
 
@@ -148,6 +169,12 @@ describe('ScopeTests', () => {
   }
 
   // Liefert die sichtbaren Namen im Scope einer Variablenreferenz.
+  /**
+   * Fragt Langiums Scope für die `ref`-Eigenschaft einer Variablenreferenz ab.
+   * @param scopeProvider Zu testender ScopeProvider.
+   * @param context Referenzknoten und Auflösungskontext.
+   * @returns Sichtbare Namen in Provider-Reihenfolge.
+   */
   function getScopeNamesForVarRef(
     scopeProvider: ReturnType<typeof createPseudo2Services>['Pseudo2']['references']['ScopeProvider'],
     context: VarRef
@@ -161,6 +188,12 @@ describe('ScopeTests', () => {
   }
 
   // Liefert die sichtbaren Namen im Scope einer Attributreferenz.
+  /**
+   * Fragt Langiums Scope für die `ref`-Eigenschaft einer Struct-Attributreferenz ab.
+   * @param scopeProvider Zu testender ScopeProvider.
+   * @param context Attributreferenz und Auflösungskontext.
+   * @returns Sichtbare Attributnamen in Provider-Reihenfolge.
+   */
   function getScopeNamesForAttRef(
     scopeProvider: ReturnType<typeof createPseudo2Services>['Pseudo2']['references']['ScopeProvider'],
     context: AttRef
@@ -174,6 +207,7 @@ describe('ScopeTests', () => {
   }
 
   // Prüft, ob der Scope einer VarRef genau den erwarteten Namen entspricht.
+  /** @param scopeProvider Zu testender Provider. @param context Variablenreferenz. @param expected Erwartete Namensliste. */
   function assertVarRefScope(
     scopeProvider: ReturnType<typeof createPseudo2Services>['Pseudo2']['references']['ScopeProvider'],
     context: VarRef,
@@ -183,6 +217,7 @@ describe('ScopeTests', () => {
   }
 
   // Prüft, ob der Scope einer AttRef genau den erwarteten Namen entspricht.
+  /** @param scopeProvider Zu testender Provider. @param context Attributreferenz. @param expected Erwartete Namensliste. */
   function assertAttRefScope(
     scopeProvider: ReturnType<typeof createPseudo2Services>['Pseudo2']['references']['ScopeProvider'],
     context: AttRef,
@@ -192,6 +227,12 @@ describe('ScopeTests', () => {
   }
 
   // Sucht im AST den ersten Knoten, der zum gewünschten Typ passt.
+  /**
+   * Sucht Wurzel und Nachfahren nach dem ersten Knoten eines durch einen Type Guard bestimmten Typs.
+   * @param root Ausgangsknoten.
+   * @param guard Type Guard des Zieltyps.
+   * @returns Erster passender Knoten oder `undefined`.
+   */
   function firstNodeOfType<T extends AstNode>(
     root: AstNode,
     guard: (node: AstNode) => node is T

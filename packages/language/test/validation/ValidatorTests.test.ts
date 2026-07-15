@@ -1,3 +1,13 @@
+/**
+ * @file ValidatorTests.test.ts
+ * @brief Prüft die vollständige semantische Pseudo2-Validierung anhand gültiger und ungültiger Programme.
+ *
+ * Die Suite deckt Namenskonflikte, Typen, Arrays, Structs, Funktionen, Methoden,
+ * Kontrollfluss, Rückgaben, Linkingfehler und Warnungen über stabile Diagnosecodes ab.
+ *
+ * @author Abdul
+ */
+
 import { describe, test, expect } from 'vitest';
 import { EmptyFileSystem, URI, type LangiumDocument } from 'langium';
 
@@ -21,10 +31,13 @@ import {
   ARRAY_ACCESS_ON_PLAIN_TYPE
 } from '../../src/pseudo2-validator.js';
 
+/** Umfassende Regressionstests des Pseudo2Validators. */
 describe('ValidatorTests', () => {
+  /** Fortlaufende Nummer für eindeutige Validator-Testdokumente. */
   let docCounter = 0;
 
   // Entfernt gemeinsame führende Einrückung aus Template-Strings.
+  /** @param text Eingerücktes Testprogramm. @returns Normalisierter Pseudo2-Quelltext. */
   function dedent(text: string): string {
     const lines = text.replace(/\r/g, '').split('\n');
 
@@ -40,6 +53,11 @@ describe('ValidatorTests', () => {
   }
 
   // Parst ein Pseudo2-Programm mit frischen Services.
+  /**
+   * Parst und validiert ein Programm mit isolierten Pseudo2-Diensten.
+   * @param text Pseudo2-Quelltext.
+   * @returns Program-AST und Dokument mit vollständigen Diagnosen.
+   */
   async function parseModel(text: string): Promise<{ model: Program; document: LangiumDocument }> {
     const services = createPseudo2Services(EmptyFileSystem);
     const documentBuilder = services.shared.workspace.DocumentBuilder;
@@ -57,22 +75,26 @@ describe('ValidatorTests', () => {
   }
 
   // Liefert alle Fehlerdiagnosen eines Dokuments.
+  /** @param document Validiertes Dokument. @returns Diagnosen mit Fehlerseverity. */
   function errorDiagnostics(document: LangiumDocument) {
     return (document.diagnostics ?? []).filter(d => d.severity === 1);
   }
 
   // Liefert alle Warnungen eines Dokuments.
+  /** @param document Validiertes Dokument. @returns Diagnosen mit Warnungsseverity. */
   function warningDiagnostics(document: LangiumDocument) {
     return (document.diagnostics ?? []).filter(d => d.severity === 2);
   }
 
   // Prüft, dass keine Fehlerdiagnosen vorhanden sind.
+  /** @param document Dokument, dessen Fehlerdiagnosen leer sein müssen. */
   function assertNoErrors(document: LangiumDocument): void {
     const errors = errorDiagnostics(document);
     expect(errors.map(e => e.message).join('\n')).toBe('');
   }
 
   // Prüft, dass mindestens ein Fehler vorhanden ist.
+  /** @param document Dokument, das mindestens einen Fehler enthalten muss. */
   function assertHasAnyError(document: LangiumDocument): void {
     expect(errorDiagnostics(document).length).toBeGreaterThan(0);
   }
@@ -83,6 +105,7 @@ describe('ValidatorTests', () => {
   }*/
 
   // Prüft, dass ein Fehlercode vorkommt.
+  /** @param document Validiertes Dokument. @param expectedCode Erwarteter stabiler Diagnosecode. */
   function assertHasErrorCode(document: LangiumDocument, expectedCode: string): void {
     const codes = errorDiagnostics(document).map(d => String(d.code ?? ''));
     expect(codes).toContain(expectedCode);
@@ -95,12 +118,14 @@ describe('ValidatorTests', () => {
   }*/
 
   // Prüft, dass eine Warnung einen bestimmten Text enthält.
+  /** @param document Validiertes Dokument. @param messagePart Erwarteter Teil einer Warnmeldung. */
   function assertHasWarningMessage(document: LangiumDocument, messagePart: string): void {
     const messages = warningDiagnostics(document).map(d => d.message);
     expect(messages.some(m => m.includes(messagePart))).toBe(true);
   }
 
   // Prüft auf eine typische Linking-/Unbekannt-Referenz-Fehlermeldung.
+  /** @param document Dokument, das mindestens eine bekannte Linking-Diagnose enthalten muss. */
   function assertHasLinkingLikeError(document: LangiumDocument): void {
     const messages = errorDiagnostics(document).map(d => d.message);
     expect(

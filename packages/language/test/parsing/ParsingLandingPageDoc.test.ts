@@ -1,3 +1,13 @@
+/**
+ * @file ParsingLandingPageDoc.test.ts
+ * @brief Prüft alle auf der Pseudo2-Landingpage dokumentierten Sprachbeispiele und Fehlercodes.
+ *
+ * Die Suite bildet die öffentlich gezeigten Programme, Warnungen und Validatorfälle
+ * als Regressionstests ab, damit Dokumentation und Implementierung übereinstimmen.
+ *
+ * @author Abdul
+ */
+
 import { describe, test, expect } from 'vitest';
 import { AstUtils, EmptyFileSystem, URI, type AstNode, type LangiumDocument } from 'langium';
 
@@ -12,10 +22,17 @@ import {
   INCOMPATIBLE_TYPES
 } from '../../src/pseudo2-validator.js';
 
+/** Parsing- und Validierungssuite der Landingpage-Dokumentation. */
 describe('ParsingTests_LandingPageDoc', () => {
+  /** Fortlaufende Nummer für eindeutige Landingpage-Testdokumente. */
   let docCounter = 0;
 
   // Entfernt gemeinsame führende Einrückung aus Template-Strings.
+  /**
+   * Entfernt Randzeilen und gemeinsame Einrückung eines dokumentierten Beispiels.
+   * @param text Eingerückter Pseudo2-Template-String.
+   * @returns Normalisierter Quelltext.
+   */
   function dedent(text: string): string {
     const lines = text.replace(/\r/g, '').split('\n');
 
@@ -35,6 +52,11 @@ describe('ParsingTests_LandingPageDoc', () => {
   }
 
   // Parst ein Pseudo2-Programm mit frischen Services.
+  /**
+   * Parst und validiert ein Landingpage-Beispiel in einem eindeutigen Speicherdokument.
+   * @param text Pseudo2-Quelltext.
+   * @returns Program-AST und Dokumentdiagnosen.
+   */
   async function parseModel(text: string): Promise<{ model: Program; document: LangiumDocument }> {
     const services = createPseudo2Services(EmptyFileSystem);
     const documentBuilder = services.shared.workspace.DocumentBuilder;
@@ -52,17 +74,25 @@ describe('ParsingTests_LandingPageDoc', () => {
   }
 
   // Liefert alle Fehlerdiagnosen eines Dokuments.
+  /** @param document Validiertes Dokument. @returns Diagnosen mit Fehlerseverity. */
   function errorDiagnostics(document: LangiumDocument) {
     return (document.diagnostics ?? []).filter(d => d.severity === 1);
   }
 
   // Prüft, dass keine Fehlerdiagnosen vorhanden sind.
+  /** @param document Dokument, dessen Fehlermenge leer sein muss. */
   function assertNoErrors(document: LangiumDocument): void {
     const errors = errorDiagnostics(document);
     expect(errors.map(e => e.message).join('\n')).toBe('');
   }
 
   // Sucht den ersten Knoten eines bestimmten Typs.
+  /**
+   * Sucht den ersten AST-Knoten, der einen angegebenen Type Guard erfüllt.
+   * @param root Ausgangsknoten.
+   * @param guard Type Guard des Zieltyps.
+   * @returns Erster passender Knoten oder `undefined`.
+   */
   function firstNodeOfType<T extends AstNode>(
     root: AstNode,
     guard: (node: AstNode) => node is T
@@ -99,6 +129,12 @@ describe('ParsingTests_LandingPageDoc', () => {
   }*/
 
   // Prüft, ob sich zwei Ranges überlappen.
+  /**
+   * Prüft die Überschneidung zweier LSP-Quellbereiche.
+   * @param a Erster Bereich.
+   * @param b Zweiter Bereich.
+   * @returns `true` bei mindestens einer gemeinsamen Position.
+   */
   function rangesOverlap(
     a: { start: { line: number; character: number }; end: { line: number; character: number } },
     b: { start: { line: number; character: number }; end: { line: number; character: number } }
@@ -112,6 +148,12 @@ describe('ParsingTests_LandingPageDoc', () => {
   }
 
   // Prüft, dass an einem Knoten mindestens eine Fehlerdiagnose mit passendem Code auftritt.
+  /**
+   * Erwartet einen bestimmten Validatorcode am ersten Knoten des gesuchten Typs.
+   * @param input Zu validierendes Pseudo2-Programm.
+   * @param guard Type Guard des erwarteten Zielknotens.
+   * @param expectedCode Stabiler Validator-Diagnosecode.
+   */
   async function assertErrorCodeOnNode<T extends AstNode>(
     input: string,
     guard: (node: AstNode) => node is T,

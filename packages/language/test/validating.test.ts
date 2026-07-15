@@ -1,3 +1,13 @@
+/**
+ * @file validating.test.ts
+ * @brief Prüft die Langium-Validierung und grundlegende Syntaxregeln der VeriFast-Annotationen.
+ *
+ * Abgedeckt sind Parserfehler, der Gültigkeitsbereich von `result` und `vf_*`,
+ * Prädikatstelligkeit, Stringinhalte, rationale Nenner und Schleifeniteratoren.
+ *
+ * @author Abdul
+ */
+
 import { beforeAll, describe, expect, test } from 'vitest';
 import { EmptyFileSystem, type LangiumDocument } from 'langium';
 import { expandToString as s } from 'langium/generate';
@@ -6,16 +16,21 @@ import type { Diagnostic } from 'vscode-languageserver-types';
 import type { Program } from 'pseudo2-language';
 import { createPseudo2Services, isProgram } from 'pseudo2-language';
 
+/** Gemeinsam genutzte Pseudo2-Dienste der Testsuite. */
 let services: ReturnType<typeof createPseudo2Services>;
+/** Parsehilfe, die für jedes Dokument die vollständige Validierung aktiviert. */
 let parse: ReturnType<typeof parseHelper<Program>>;
+/** Zuletzt geparstes und validiertes Dokument. */
 let document: LangiumDocument<Program> | undefined;
 
+/** Initialisiert Services und eine validierende Parsefunktion einmalig vor der Suite. */
 beforeAll(async () => {
     services = createPseudo2Services(EmptyFileSystem);
     const doParse = parseHelper<Program>(services.Pseudo2);
     parse = (input: string) => doParse(input, { validation: true });
 });
 
+/** Testgruppe für Parser- und semantische Validierungsdiagnosen. */
 describe('Validating', () => {
     test('check no errors for valid block', async () => {
         document = await parse('{}');
@@ -147,6 +162,11 @@ describe('Validating', () => {
     });
 });
 
+/**
+ * Prüft Parserfehler und den erwarteten Program-Wurzeltyp.
+ * @param document Zu untersuchendes Langium-Dokument.
+ * @returns Formatierte Strukturdiagnose oder `undefined` bei gültigem Parse-Ergebnis.
+ */
 function checkDocumentValid(document: LangiumDocument): string | undefined {
     return document.parseResult.parserErrors.length && s`
         Parser errors:
@@ -157,6 +177,11 @@ function checkDocumentValid(document: LangiumDocument): string | undefined {
         || undefined;
 }
 
+/**
+ * Formatiert eine LSP-Diagnose einschließlich nullbasierter Start- und Endposition.
+ * @param d Zu formatierende Diagnose.
+ * @returns Kompakte Zeichenkette für Testvergleiche.
+ */
 function diagnosticToString(d: Diagnostic) {
     return `[${d.range.start.line}:${d.range.start.character}..${d.range.end.line}:${d.range.end.character}]: ${d.message}`;
 }

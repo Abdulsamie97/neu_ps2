@@ -1,6 +1,17 @@
+/**
+ * @file RuntimeStruct.test.ts
+ * @brief Prüft Struct-Erzeugung, Attribute, Methoden, Aliase, Verkettung und verschachtelte Structs.
+ *
+ * Die Suite sichert sowohl die aktuelle Runtime als auch portierte historische
+ * Struct-Szenarien und deren erwarteten Kontrollfluss ab.
+ *
+ * @author Abdul
+ */
+
 import { describe, test } from 'vitest';
 import { assertExecResult, assertExecThrows } from '../helpers/runtime-test-utils.js';
 
+/** Ausführungsbasierte Regressionstests der Pseudo2-Struct- und Methodensemantik. */
 describe('RuntimeTestsStruct', () => {
   test('simple struct attribute access', async () => {
     await assertExecResult(`

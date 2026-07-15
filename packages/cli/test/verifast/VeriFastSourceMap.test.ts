@@ -147,24 +147,23 @@ describe('VeriFast source maps', () => {
   });
 
   const testWithVeriFast = fs.existsSync(verifastExe) ? test : test.skip;
+  const examplesDestination = fs.existsSync(verifastExe)
+    ? fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-verifast-examples-'))
+    : '';
 
-  testWithVeriFast('runs all VeriFast examples and maps failing diagnostics to Pseudo2 lines', async () => {
-    const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-verifast-examples-'));
-    //Testet die validen Beispiele
-    for (const example of validExamples) {
-      const result = await generateAndVerify(example, destination);
-      expect(result.ok, formatFailure(example, result)).toBe(true);
-    }
-    //Testet der Invaliden Beispiele
-    for (const example of invalidExamples) {
-      const result = await generateAndVerify(example, destination);
-      expect(result.ok, `${example} should fail VeriFast`).toBe(false);
-      expect(
-        result.errors.some(error => typeof error.sourceLine === 'number'),
-        `${example} should contain at least one Pseudo2-mapped diagnostic:\n${formatFailure(example, result)}`
-      ).toBe(true);
-    }
-  }, 240000);
+  testWithVeriFast.each(validExamples)('verifies valid example %s', async example => {
+    const result = await generateAndVerify(example, examplesDestination);
+    expect(result.ok, formatFailure(example, result)).toBe(true);
+  }, 65_000);
+
+  testWithVeriFast.each(invalidExamples)('maps diagnostics for invalid example %s', async example => {
+    const result = await generateAndVerify(example, examplesDestination);
+    expect(result.ok, `${example} should fail VeriFast`).toBe(false);
+    expect(
+      result.errors.some(error => typeof error.sourceLine === 'number'),
+      `${example} should contain at least one Pseudo2-mapped diagnostic:\n${formatFailure(example, result)}`
+    ).toBe(true);
+  }, 65_000);
 
   testWithVeriFast('verifies the concrete C array and Struct heap runtime', async () => {
     const result = await runVeriFast({

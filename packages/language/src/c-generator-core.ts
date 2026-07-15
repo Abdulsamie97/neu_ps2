@@ -70,6 +70,8 @@ import {
   isVerificationStatement,
   isWhileLoop
 } from './generated/ast.js';
+import { C_RUNTIME_CONTRACTS } from './c-runtime-contracts.js';
+import { C_RUNTIME_IMPLEMENTATION } from './c-runtime-implementation.js';
 import { Pseudo2GeneratorContext } from './generator-context.js';
 import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
 
@@ -147,7 +149,7 @@ function generateCProgramInternal(
   options: GenerateCProgramOptions,
   sourceMap: boolean
 ): string {
-  const runtimePrelude = options.runtime === 'implementation' ? C_RUNTIME_IMPLEMENTATION : C_RUNTIME_PRELUDE;
+  const runtimePrelude = options.runtime === 'implementation' ? C_RUNTIME_IMPLEMENTATION : C_RUNTIME_CONTRACTS;
   const moduleName = toCModuleName(options.moduleName ?? 'pseudo2_program');
   const declarations = program.instructions.filter(isTopLevelDeclaration);
   const globalVariables = program.instructions.filter(isVarDecl);
@@ -1474,18 +1476,34 @@ function collectExprHeapReceivers(
   const receivers: Array<Omit<SpecHeapState, 'stateName'>> = [];
   const nodes = [expr, ...AstUtils.streamAllContents(expr)];
   for (const node of nodes) {
-    if (!isSpecPredicateExpr(node) || !node.args[0]) {
+    if (isVarRef(node) && node.index) {
+      const target = node.ref?.ref;
+      receivers.push({
+        kind: 'array',
+        receiver: target ? context.getVarName(target) : '/* unresolved */'
+      });
       continue;
     }
-    const kind = heapKindForSpecPredicate(node.kind);
-    if (!kind) {
+
+    if (isIndexSelection(node)) {
+      receivers.push({
+        kind: 'array',
+        receiver: genSpecExpr(node.receiver, context, { ...state, specHeapStates: undefined }),
+        expression: node.receiver
+      });
       continue;
     }
-    receivers.push({
-      kind,
-      receiver: genSpecExpr(node.args[0], context, { ...state, specHeapStates: undefined }),
-      expression: node.args[0]
-    });
+
+    if (isSpecPredicateExpr(node) && node.args[0]) {
+      const kind = heapKindForSpecPredicate(node.kind);
+      if (kind) {
+        receivers.push({
+          kind,
+          receiver: genSpecExpr(node.args[0], context, { ...state, specHeapStates: undefined }),
+          expression: node.args[0]
+        });
+      }
+    }
   }
   return mergeHeapReceivers(receivers);
 }
@@ -2153,14 +2171,15 @@ function genSpecExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAU
   if (isSpecPredicateExpr(expr)) return genSpecPredicate(expr, context, state);
   if (isThisExpr(expr)) return state.thisName;
   if (isVarRef(expr)) {
-    if (expr.index) {
-      throw new Error('Array access in VeriFast annotations is not supported yet. Use a raw string annotation for C-specific specs.');
-    }
     const target = expr.ref?.ref;
-    return target ? context.getVarName(target) : '/* unresolved */';
+    const receiver = target ? context.getVarName(target) : '/* unresolved */';
+    return expr.index
+      ? genSpecArrayElementAccess(receiver, expr.index, context, state)
+      : receiver;
   }
   if (isIndexSelection(expr)) {
-    throw new Error('Array access in VeriFast annotations must use vf_elem(array, index).');
+    const receiver = genSpecExpr(expr.receiver, context, { ...state, specHeapStates: undefined });
+    return genSpecArrayElementAccess(receiver, expr.index, context, state);
   }
   if (isGrouping(expr)) return `(${genSpecExpr(expr.value, context, state)})`;
   if (isNot(expr)) return `(!${genSpecExpr(expr.value, context, state)})`;
@@ -2331,6 +2350,14 @@ function getBoundHeapState(
   state: CGeneratorState
 ): SpecHeapState | undefined {
   const receiver = genSpecExpr(receiverExpr, context, { ...state, specHeapStates: undefined });
+  return getBoundHeapStateForReceiver(kind, receiver, state);
+}
+
+function getBoundHeapStateForReceiver(
+  kind: HeapKind,
+  receiver: string,
+  state: CGeneratorState
+): SpecHeapState | undefined {
   return state.specHeapStates?.get(heapStateKey(kind, receiver));
 }
 
@@ -2351,11 +2378,29 @@ function genSpecArrayElement(expr: SpecPredicateExpr, context: Pseudo2GeneratorC
     throw new Error('vf_elem expects exactly two arguments.');
   }
 
-  const heapState = getBoundHeapState('array', args[0], context, state);
-  const index = genSpecIndexExpr(args[1], context, state);
+  const receiver = genSpecExpr(args[0], context, { ...state, specHeapStates: undefined });
+  return genSpecArrayElementAccess(receiver, args[1], context, state);
+}
+
+/**
+ * Übersetzt einen 1-basierten Pseudo2-Arrayzugriff in das VeriFast-Modell.
+ *
+ * Ist für den Empfänger ein Heap-Prädikat gebunden, wird direkt aus dessen
+ * Zustandsliste gelesen. Ohne gebundenen Zustand bleibt der abstrakte
+ * Fixpunktzugriff erhalten. Diese gemeinsame Abbildung wird sowohl für
+ * `vf_elem(A, i)` als auch für die natürliche Schreibweise `A[i]` genutzt.
+ */
+function genSpecArrayElementAccess(
+  receiver: string,
+  indexExpr: Expr,
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): string {
+  const heapState = getBoundHeapStateForReceiver('array', receiver, state);
+  const index = genSpecIndexExpr(indexExpr, context, state);
   return heapState
     ? `nth(${index} - 1, ${heapState.stateName})`
-    : `ps2_model_array_item(${genSpecExpr(args[0], context, state)}, ${index})`;
+    : `ps2_model_array_item(${receiver}, ${index})`;
 }
 
 function genSpecArrayBounds(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
@@ -2682,718 +2727,3 @@ function comparisonRuntimeFunction(op: string): string {
     default: throw new Error(`Unsupported comparison operator for C generator: ${op}`);
   }
 }
-
-function withTrivialVeriFastContracts(source: string): string {
-  return source.replace(
-    /^(static [^{;\n]+?\([^;\n]*\)) \{/gm,
-    '$1\n//@ requires true;\n//@ ensures true;\n{'
-  );
-}
-
-function withTerminatingVeriFastContracts(source: string): string {
-  return source.replace(
-    /(    \/\/@ ensures [^\n]+;)/g,
-    '$1\n    //@ terminates;'
-  );
-}
-
-const C_RUNTIME_PRELUDE = withTerminatingVeriFastContracts(String.raw`#include <math.h>
-//@ #include "nat.gh"
-//@ #include "list.gh"
-#include "vf__floating_point.h"
-
-typedef struct Ps2Value { int _; } Ps2Value;
-typedef struct Ps2Array { int _; } Ps2Array;
-typedef struct Ps2Struct { int _; } Ps2Struct;
-
-/*@
-inductive Ps2ModelKind = ps2_undefined_kind | ps2_null_kind | ps2_number_kind | ps2_bool_kind | ps2_string_kind | ps2_array_kind | ps2_struct_kind;
-fixpoint Ps2ModelKind ps2_model_kind(Ps2Value* value);
-fixpoint bool ps2_model_value(Ps2Value* value);
-fixpoint bool ps2_model_array(Ps2Value* value);
-fixpoint bool ps2_model_struct(Ps2Value* value);
-fixpoint bool ps2_model_bool(Ps2Value* value);
-fixpoint bool ps2_model_string(Ps2Value* value);
-fixpoint list<int> ps2_model_string_content(Ps2Value* value);
-fixpoint list<int> ps2_model_to_string_content(Ps2Value* value);
-fixpoint bool ps2_model_null(Ps2Value* value);
-fixpoint bool ps2_model_undefined(Ps2Value* value);
-fixpoint int ps2_model_array_length(Ps2Value* value);
-fixpoint int ps2_model_int(Ps2Value* value);
-fixpoint real ps2_model_real(Ps2Value* value);
-fixpoint bool ps2_model_integral(Ps2Value* value);
-fixpoint real ps2_model_real_divide(real left, real right);
-fixpoint Ps2Value* ps2_model_array_item(Ps2Value* value, int index);
-fixpoint Ps2Value* ps2_model_struct_field(Ps2Value* value, int field);
-fixpoint list<Ps2Value*> ps2_repeat_value(nat count, Ps2Value* value) {
-    switch (count) {
-        case zero: return nil;
-        case succ(rest): return cons(value, ps2_repeat_value(rest, value));
-    }
-}
-lemma void ps2_repeat_update_prefix(list<Ps2Value*> items, int index, Ps2Value* value)
-    requires 0 <= index &*& index < length(items) &*& take(index, items) == ps2_repeat_value(nat_of_int(index), value);
-    ensures take(index + 1, update(index, value, items)) == ps2_repeat_value(nat_of_int(index + 1), value);
-{
-    switch (items) {
-        case nil:
-        case cons(head, tail):
-            if (index > 0) {
-                succ_int(index - 1);
-                assert head == value;
-                assert take(index - 1, tail) == ps2_repeat_value(nat_of_int(index - 1), value);
-                ps2_repeat_update_prefix(tail, index - 1, value);
-            }
-            succ_int(index);
-    }
-}
-predicate ps2_array_state(Ps2Value* value; list<Ps2Value*> items);
-predicate ps2_struct_builder_state(Ps2Struct* value; int capacity, list<pair<int, Ps2Value*> > fields);
-predicate ps2_struct_state(Ps2Value* value; list<pair<int, Ps2Value*> > fields);
-fixpoint Ps2Value* ps2_struct_field_lookup(int field, list<pair<int, Ps2Value*> > fields) {
-    switch (fields) {
-        case nil: return 0;
-        case cons(entry, rest): return fst(entry) == field ? snd(entry) : ps2_struct_field_lookup(field, rest);
-    }
-}
-fixpoint list<pair<int, Ps2Value*> > ps2_struct_field_update(int field, Ps2Value* value, list<pair<int, Ps2Value*> > fields) {
-    return cons(pair(field, value), fields);
-}
-lemma_auto void ps2_struct_field_lookup_update_same(int field, Ps2Value* value, list<pair<int, Ps2Value*> > fields)
-    requires true;
-    ensures ps2_struct_field_lookup(field, ps2_struct_field_update(field, value, fields)) == value;
-{
-}
-fixpoint int ps2_model_power(int base, int exponent) {
-    return exponent < 0 ? 0 : pow_nat(base, nat_of_int(exponent));
-}
-@*/
-
-void ps2_preserve_array_ownership(Ps2Value* value);
-    //@ requires ps2_array_state(value, ?items);
-    //@ ensures ps2_array_state(value, items);
-
-void ps2_preserve_struct_ownership(Ps2Value* value);
-    //@ requires ps2_struct_state(value, ?fields);
-    //@ ensures ps2_struct_state(value, fields);
-
-Ps2Value* ps2_undefined(void);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_undefined_kind &*& ps2_model_undefined(result) == true;
-
-Ps2Value* ps2_null(void);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_null_kind &*& ps2_model_null(result) == true;
-
-Ps2Value* ps2_num(double number);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind;
-
-Ps2Value* ps2_int(int number);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == true &*& ps2_model_int(result) == number &*& ps2_model_real(result) == real_of_int(number);
-
-Ps2Value* ps2_bool(int boolean);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_bool_kind &*& ps2_model_bool(result) == (boolean == 0 ? false : true);
-
-Ps2Value* ps2_string(const char* string);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_string_kind &*& ps2_model_string(result) == true;
-
-Ps2Value* ps2_copy_value(Ps2Value* value);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_model_kind(value) &*& (ps2_model_array(value) == true ? result == value &*& ps2_model_array(result) == true &*& ps2_model_array_length(result) == ps2_model_array_length(value) : true) &*& (ps2_model_struct(value) == true ? result == value &*& ps2_model_struct(result) == true : true) &*& ps2_model_integral(result) == ps2_model_integral(value) &*& ps2_model_int(result) == ps2_model_int(value) &*& ps2_model_real(result) == ps2_model_real(value) &*& ps2_model_bool(result) == ps2_model_bool(value) &*& ps2_model_string(result) == ps2_model_string(value) &*& ps2_model_string_content(result) == ps2_model_string_content(value) &*& ps2_model_to_string_content(result) == ps2_model_to_string_content(value) &*& ps2_model_null(result) == ps2_model_null(value) &*& ps2_model_undefined(result) == ps2_model_undefined(value);
-
-double ps2_as_num(Ps2Value* value);
-    //@ requires true;
-    //@ ensures true;
-
-int ps2_as_int(Ps2Value* value);
-    //@ requires true;
-    //@ ensures result == ps2_model_int(value);
-
-int ps2_truthy(Ps2Value* value);
-    //@ requires true;
-    //@ ensures result == (ps2_model_kind(value) == ps2_undefined_kind || ps2_model_kind(value) == ps2_null_kind ? 0 : ps2_model_kind(value) == ps2_bool_kind ? (ps2_model_bool(value) ? 1 : 0) : ps2_model_kind(value) == ps2_number_kind ? (ps2_model_real(value) != 0 ? 1 : 0) : ps2_model_kind(value) == ps2_string_kind ? (ps2_model_string_content(value) != nil ? 1 : 0) : 1);
-
-void ps2_print(Ps2Value* value);
-    //@ requires true;
-    //@ ensures true;
-
-void ps2_throw(Ps2Value* value);
-    //@ requires true;
-    //@ ensures false;
-
-Ps2Value* ps2_array_create(int length);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_array_kind &*& ps2_model_array(result) == true &*& ps2_model_array_length(result) == length &*& ps2_array_state(result, ?items) &*& length(items) == length;
-
-int ps2_array_length(Ps2Value* value);
-    //@ requires true;
-    //@ ensures result == ps2_model_array_length(value);
-
-void ps2_array_set_zero_based(Ps2Value* array_value, int index, Ps2Value* value);
-    //@ requires ps2_array_state(array_value, ?items) &*& 0 <= index &*& index < length(items);
-    //@ ensures ps2_array_state(array_value, update(index, value, items));
-
-Ps2Value* ps2_array_get(Ps2Value* array_value, Ps2Value* source_index);
-    //@ requires ps2_array_state(array_value, ?items) &*& 1 <= ps2_model_int(source_index) &*& ps2_model_int(source_index) <= length(items);
-    //@ ensures ps2_array_state(array_value, items) &*& result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_model_kind(nth(ps2_model_int(source_index) - 1, items)) &*& (ps2_model_kind(result) == ps2_array_kind || ps2_model_kind(result) == ps2_struct_kind ? result == nth(ps2_model_int(source_index) - 1, items) : true) &*& ps2_model_integral(result) == ps2_model_integral(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_int(result) == ps2_model_int(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_real(result) == ps2_model_real(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_bool(result) == ps2_model_bool(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_string(result) == ps2_model_string(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_string_content(result) == ps2_model_string_content(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_null(result) == ps2_model_null(nth(ps2_model_int(source_index) - 1, items)) &*& ps2_model_undefined(result) == ps2_model_undefined(nth(ps2_model_int(source_index) - 1, items));
-
-void ps2_array_set(Ps2Value* array_value, Ps2Value* source_index, Ps2Value* value);
-    //@ requires ps2_array_state(array_value, ?items) &*& 1 <= ps2_model_int(source_index) &*& ps2_model_int(source_index) <= length(items);
-    //@ ensures ps2_array_state(array_value, update(ps2_model_int(source_index) - 1, value, items));
-
-Ps2Value* ps2_array_literal(int count, ...);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_array(result) == true &*& ps2_model_array_length(result) == count;
-
-Ps2Struct* ps2_struct_create(int field_count);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_struct_builder_state(result, field_count, nil);
-
-void ps2_struct_define(Ps2Struct* object, int index, int field_id, const char* name, Ps2Value* value);
-    //@ requires ps2_struct_builder_state(object, ?capacity, ?fields) &*& index == length(fields) &*& index < capacity;
-    //@ ensures ps2_struct_builder_state(object, capacity, append(fields, cons(pair(field_id, value), nil)));
-
-Ps2Value* ps2_struct_value(Ps2Struct* object);
-    //@ requires ps2_struct_builder_state(object, ?capacity, ?fields) &*& length(fields) == capacity;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_struct_kind &*& ps2_model_struct(result) == true &*& ps2_struct_state(result, fields);
-
-Ps2Value* ps2_struct_get(Ps2Value* value, const char* field);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true;
-
-void ps2_struct_set(Ps2Value* value, const char* field, Ps2Value* new_value);
-    //@ requires true;
-    //@ ensures true;
-
-Ps2Value* ps2_struct_get_model(Ps2Value* value, const char* field, int field_id);
-    //@ requires ps2_struct_state(value, ?fields);
-    //@ ensures ps2_struct_state(value, fields) &*& result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_model_kind(ps2_struct_field_lookup(field_id, fields)) &*& (ps2_model_kind(result) == ps2_array_kind || ps2_model_kind(result) == ps2_struct_kind ? result == ps2_struct_field_lookup(field_id, fields) : true) &*& ps2_model_integral(result) == ps2_model_integral(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_int(result) == ps2_model_int(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_real(result) == ps2_model_real(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_bool(result) == ps2_model_bool(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_string(result) == ps2_model_string(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_string_content(result) == ps2_model_string_content(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_null(result) == ps2_model_null(ps2_struct_field_lookup(field_id, fields)) &*& ps2_model_undefined(result) == ps2_model_undefined(ps2_struct_field_lookup(field_id, fields));
-
-void ps2_struct_set_model(Ps2Value* value, const char* field, int field_id, Ps2Value* new_value);
-    //@ requires ps2_struct_state(value, ?fields);
-    //@ ensures ps2_struct_state(value, ps2_struct_field_update(field_id, new_value, fields)) &*& ps2_struct_field_lookup(field_id, ps2_struct_field_update(field_id, new_value, fields)) == new_value;
-
-Ps2Value* ps2_add(Ps2Value* left, Ps2Value* right);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& (ps2_model_kind(left) == ps2_string_kind || ps2_model_kind(right) == ps2_string_kind ? ps2_model_kind(result) == ps2_string_kind &*& ps2_model_string(result) == true &*& ps2_model_string_content(result) == append(ps2_model_to_string_content(left), ps2_model_to_string_content(right)) &*& ps2_model_to_string_content(result) == ps2_model_string_content(result) : ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == (ps2_model_integral(left) && ps2_model_integral(right)) &*& (ps2_model_integral(left) && ps2_model_integral(right) ? ps2_model_int(result) == ps2_model_int(left) + ps2_model_int(right) : true) &*& ps2_model_real(result) == ps2_model_real(left) + ps2_model_real(right));
-
-Ps2Value* ps2_subtract(Ps2Value* left, Ps2Value* right);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == (ps2_model_integral(left) && ps2_model_integral(right)) &*& (ps2_model_integral(left) && ps2_model_integral(right) ? ps2_model_int(result) == ps2_model_int(left) - ps2_model_int(right) : true) &*& ps2_model_real(result) == ps2_model_real(left) - ps2_model_real(right);
-
-Ps2Value* ps2_multiply(Ps2Value* left, Ps2Value* right);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == (ps2_model_integral(left) && ps2_model_integral(right)) &*& (ps2_model_integral(left) && ps2_model_integral(right) ? ps2_model_int(result) == ps2_model_int(left) * ps2_model_int(right) : true) &*& ps2_model_real(result) == ps2_model_real(left) * ps2_model_real(right);
-
-Ps2Value* ps2_divide(Ps2Value* left, Ps2Value* right);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == (ps2_model_integral(left) && ps2_model_integral(right) && ps2_model_int(right) != 0 && ps2_model_int(left) % ps2_model_int(right) == 0) &*& ps2_model_real(result) == ps2_model_real_divide(ps2_model_real(left), ps2_model_real(right)) &*& (ps2_model_integral(result) ? ps2_model_int(result) == ps2_model_int(left) / ps2_model_int(right) : true);
-
-Ps2Value* ps2_modulo(Ps2Value* left, Ps2Value* right);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == (ps2_model_integral(left) && ps2_model_integral(right) && ps2_model_int(right) != 0) &*& (ps2_model_integral(result) ? ps2_model_int(result) == ps2_model_int(left) % ps2_model_int(right) &*& ps2_model_real(result) == real_of_int(ps2_model_int(result)) : true);
-
-Ps2Value* ps2_power(Ps2Value* left, Ps2Value* right);
-    //@ requires true;
-    //@ ensures result != 0 &*& ps2_model_value(result) == true &*& ps2_model_kind(result) == ps2_number_kind &*& ps2_model_integral(result) == (ps2_model_integral(left) && ps2_model_integral(right) && 0 <= ps2_model_int(right)) &*& (ps2_model_integral(result) ? ps2_model_int(result) == ps2_model_power(ps2_model_int(left), ps2_model_int(right)) &*& ps2_model_real(result) == real_of_int(ps2_model_int(result)) : true);
-
-int ps2_less(Ps2Value* left, Ps2Value* right);
-    //@ requires true;
-    //@ ensures result == (ps2_model_integral(left) && ps2_model_integral(right) ? (ps2_model_int(left) < ps2_model_int(right) ? 1 : 0) : (ps2_model_real(left) < ps2_model_real(right) ? 1 : 0));
-
-int ps2_less_equal(Ps2Value* left, Ps2Value* right);
-    //@ requires true;
-    //@ ensures result == (ps2_model_integral(left) && ps2_model_integral(right) ? (ps2_model_int(left) <= ps2_model_int(right) ? 1 : 0) : (ps2_model_real(left) <= ps2_model_real(right) ? 1 : 0));
-
-int ps2_greater(Ps2Value* left, Ps2Value* right);
-    //@ requires true;
-    //@ ensures result == (ps2_model_integral(left) && ps2_model_integral(right) ? (ps2_model_int(left) > ps2_model_int(right) ? 1 : 0) : (ps2_model_real(left) > ps2_model_real(right) ? 1 : 0));
-
-int ps2_greater_equal(Ps2Value* left, Ps2Value* right);
-    //@ requires true;
-    //@ ensures result == (ps2_model_integral(left) && ps2_model_integral(right) ? (ps2_model_int(left) >= ps2_model_int(right) ? 1 : 0) : (ps2_model_real(left) >= ps2_model_real(right) ? 1 : 0));
-
-int ps2_equals(Ps2Value* left, Ps2Value* right);
-    //@ requires true;
-    //@ ensures result == (ps2_model_kind(left) != ps2_model_kind(right) ? 0 : ps2_model_kind(left) == ps2_number_kind ? (ps2_model_integral(left) && ps2_model_integral(right) ? (ps2_model_int(left) == ps2_model_int(right) ? 1 : 0) : (ps2_model_real(left) == ps2_model_real(right) ? 1 : 0)) : ps2_model_kind(left) == ps2_bool_kind ? (ps2_model_bool(left) == ps2_model_bool(right) ? 1 : 0) : ps2_model_kind(left) == ps2_string_kind ? (ps2_model_string_content(left) == ps2_model_string_content(right) ? 1 : 0) : ps2_model_kind(left) == ps2_array_kind || ps2_model_kind(left) == ps2_struct_kind ? (left == right ? 1 : 0) : 1);`);
-
-const C_RUNTIME_IMPLEMENTATION = withTrivialVeriFastContracts(String.raw`#include <math.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-typedef struct Ps2Value Ps2Value;
-typedef struct Ps2Array Ps2Array;
-typedef struct Ps2Struct Ps2Struct;
-
-typedef enum {
-  PS2_UNDEFINED,
-  PS2_NULL,
-  PS2_NUM,
-  PS2_BOOL,
-  PS2_STRING,
-  PS2_ARRAY,
-  PS2_STRUCT
-} Ps2Kind;
-
-struct Ps2Array {
-  int length;
-  Ps2Value** items;
-};
-
-struct Ps2Struct {
-  int field_count;
-  int defined_count;
-  int* field_ids;
-  const char** names;
-  Ps2Value** values;
-};
-
-struct Ps2Value {
-  Ps2Kind kind;
-  double number;
-  int boolean;
-  char* string;
-  Ps2Array* array;
-  Ps2Struct* object;
-};
-
-static void ps2_panic(const char* message) {
-  fprintf(stderr, "%s\n", message);
-  exit(1);
-}
-
-static char* ps2_strdup(const char* source) {
-  size_t len = strlen(source);
-  char* out = malloc(len + 1);
-  if (out == 0) {
-    ps2_panic("out of memory");
-  }
-  memcpy(out, source, len + 1);
-  return out;
-}
-
-static Ps2Value* ps2_value(Ps2Kind kind) {
-  Ps2Value* value = malloc(sizeof(Ps2Value));
-  if (value == 0) {
-    ps2_panic("out of memory");
-  }
-  value->kind = kind;
-  value->number = 0;
-  value->boolean = 0;
-  value->string = 0;
-  value->array = 0;
-  value->object = 0;
-  return value;
-}
-
-static Ps2Value* ps2_undefined(void) {
-  return ps2_value(PS2_UNDEFINED);
-}
-
-static Ps2Value* ps2_null(void) {
-  return ps2_value(PS2_NULL);
-}
-
-static Ps2Value* ps2_num(double number) {
-  Ps2Value* value = ps2_value(PS2_NUM);
-  value->number = number;
-  return value;
-}
-
-static Ps2Value* ps2_int(int number) {
-  Ps2Value* value = ps2_value(PS2_NUM);
-  value->number = number;
-  return value;
-}
-
-static Ps2Value* ps2_bool(int boolean) {
-  Ps2Value* value = ps2_value(PS2_BOOL);
-  value->boolean = boolean ? 1 : 0;
-  return value;
-}
-
-static Ps2Value* ps2_string(const char* string) {
-  Ps2Value* value = ps2_value(PS2_STRING);
-  value->string = ps2_strdup(string);
-  return value;
-}
-
-static Ps2Value* ps2_array_value(Ps2Array* array) {
-  Ps2Value* value = ps2_value(PS2_ARRAY);
-  value->array = array;
-  return value;
-}
-
-static Ps2Value* ps2_struct_value(Ps2Struct* object) {
-  Ps2Value* value = ps2_value(PS2_STRUCT);
-  value->object = object;
-  return value;
-}
-
-static Ps2Value* ps2_copy_value(Ps2Value* value) {
-  if (value == 0) {
-    return ps2_null();
-  }
-  switch (value->kind) {
-    case PS2_NUM:
-      return ps2_num(value->number);
-    case PS2_BOOL:
-      return ps2_bool(value->boolean);
-    case PS2_STRING:
-      return ps2_string(value->string);
-    case PS2_ARRAY:
-    case PS2_STRUCT:
-      return value;
-    case PS2_UNDEFINED:
-      return ps2_undefined();
-    case PS2_NULL:
-    default:
-      return ps2_null();
-  }
-}
-
-static double ps2_as_num(Ps2Value* value) {
-  if (value == 0 || value->kind == PS2_NULL || value->kind == PS2_UNDEFINED) {
-    return 0;
-  }
-  if (value->kind == PS2_NUM) {
-    return value->number;
-  }
-  if (value->kind == PS2_BOOL) {
-    return value->boolean ? 1 : 0;
-  }
-  ps2_panic("expected numeric Pseudo2 value");
-  return 0;
-}
-
-static int ps2_as_int(Ps2Value* value) {
-  return (int)ps2_as_num(value);
-}
-
-static int ps2_truthy(Ps2Value* value) {
-  if (value == 0 || value->kind == PS2_NULL || value->kind == PS2_UNDEFINED) {
-    return 0;
-  }
-  if (value->kind == PS2_BOOL) {
-    return value->boolean;
-  }
-  if (value->kind == PS2_NUM) {
-    return value->number != 0;
-  }
-  if (value->kind == PS2_STRING) {
-    return value->string != 0 && value->string[0] != '\0';
-  }
-  return 1;
-}
-
-static char* ps2_to_cstring(Ps2Value* value) {
-  char buffer[64];
-  if (value == 0 || value->kind == PS2_NULL) {
-    return ps2_strdup("null");
-  }
-  if (value->kind == PS2_UNDEFINED) {
-    return ps2_strdup("undefined");
-  }
-  if (value->kind == PS2_BOOL) {
-    return ps2_strdup(value->boolean ? "true" : "false");
-  }
-  if (value->kind == PS2_NUM) {
-    snprintf(buffer, sizeof(buffer), "%g", value->number);
-    return ps2_strdup(buffer);
-  }
-  if (value->kind == PS2_STRING) {
-    return ps2_strdup(value->string);
-  }
-  if (value->kind == PS2_ARRAY) {
-    return ps2_strdup("[array]");
-  }
-  return ps2_strdup("[struct]");
-}
-
-static void ps2_print(Ps2Value* value) {
-  char* text = ps2_to_cstring(value);
-  printf("%s\n", text);
-  free(text);
-}
-
-static void ps2_throw(Ps2Value* value) {
-  char* text = ps2_to_cstring(value);
-  fprintf(stderr, "%s\n", text);
-  free(text);
-  exit(1);
-}
-
-static Ps2Array* ps2_array_alloc(int length) {
-  if (length < 0) {
-    ps2_panic("negative array length");
-  }
-  Ps2Array* array = malloc(sizeof(Ps2Array));
-  if (array == 0) {
-    ps2_panic("out of memory");
-  }
-  array->length = length;
-  array->items = malloc(sizeof(Ps2Value*) * (size_t)length);
-  if (length > 0 && array->items == 0) {
-    ps2_panic("out of memory");
-  }
-  for (int i = 0; i < length; i++) {
-    array->items[i] = ps2_null();
-  }
-  return array;
-}
-
-static Ps2Value* ps2_array_create(int length) {
-  return ps2_array_value(ps2_array_alloc(length));
-}
-
-static int ps2_array_length(Ps2Value* value) {
-  if (value == 0 || value->kind != PS2_ARRAY || value->array == 0) {
-    ps2_panic("expected array");
-  }
-  return value->array->length;
-}
-
-static void ps2_array_set_zero_based(Ps2Value* array_value, int index, Ps2Value* value) {
-  if (array_value == 0 || array_value->kind != PS2_ARRAY || array_value->array == 0) {
-    ps2_panic("expected array");
-  }
-  if (index < 0 || index >= array_value->array->length) {
-    ps2_panic("array index out of bounds");
-  }
-  array_value->array->items[index] = ps2_copy_value(value);
-}
-
-static Ps2Value* ps2_array_get(Ps2Value* array_value, Ps2Value* source_index) {
-  int index = ps2_as_int(source_index) - 1;
-  if (array_value == 0 || array_value->kind != PS2_ARRAY || array_value->array == 0) {
-    ps2_panic("expected array");
-  }
-  if (index < 0 || index >= array_value->array->length) {
-    ps2_panic("array index out of bounds");
-  }
-  return array_value->array->items[index];
-}
-
-static void ps2_array_set(Ps2Value* array_value, Ps2Value* source_index, Ps2Value* value) {
-  ps2_array_set_zero_based(array_value, ps2_as_int(source_index) - 1, value);
-}
-
-static Ps2Value* ps2_array_literal(int count, ...) {
-  Ps2Value* array_value = ps2_array_create(count);
-  va_list args;
-  va_start(args, count);
-  for (int i = 0; i < count; i++) {
-    Ps2Value* item = va_arg(args, Ps2Value*);
-    ps2_array_set_zero_based(array_value, i, item);
-  }
-  va_end(args);
-  return array_value;
-}
-
-static Ps2Struct* ps2_struct_create(int field_count) {
-  Ps2Struct* object = malloc(sizeof(Ps2Struct));
-  if (object == 0) {
-    ps2_panic("out of memory");
-  }
-  object->field_count = field_count;
-  object->defined_count = 0;
-  object->field_ids = malloc(sizeof(int) * (size_t)field_count);
-  object->names = malloc(sizeof(const char*) * (size_t)field_count);
-  object->values = malloc(sizeof(Ps2Value*) * (size_t)field_count);
-  if (field_count > 0 && (object->field_ids == 0 || object->names == 0 || object->values == 0)) {
-    ps2_panic("out of memory");
-  }
-  return object;
-}
-
-static void ps2_struct_define(Ps2Struct* object, int index, int field_id, const char* name, Ps2Value* value) {
-  if (object == 0 || index < 0 || index >= object->field_count) {
-    ps2_panic("invalid struct field definition");
-  }
-  object->field_ids[index] = field_id;
-  object->names[index] = name;
-  object->values[index] = ps2_copy_value(value);
-  if (object->defined_count <= index) {
-    object->defined_count = index + 1;
-  }
-}
-
-static Ps2Struct* ps2_as_struct(Ps2Value* value) {
-  if (value == 0 || value->kind == PS2_NULL) {
-    ps2_panic("null pointer while accessing struct");
-  }
-  if (value->kind != PS2_STRUCT || value->object == 0) {
-    ps2_panic("expected struct");
-  }
-  return value->object;
-}
-
-static int ps2_struct_field_index(Ps2Struct* object, const char* field) {
-  for (int i = 0; i < object->field_count; i++) {
-    if (strcmp(object->names[i], field) == 0) {
-      return i;
-    }
-  }
-  ps2_panic("unknown struct field");
-  return -1;
-}
-
-static int ps2_struct_field_id_index(Ps2Struct* object, int field_id) {
-  for (int i = 0; i < object->defined_count; i++) {
-    if (object->field_ids[i] == field_id) {
-      return i;
-    }
-  }
-  ps2_panic("unknown struct field id");
-  return -1;
-}
-
-static Ps2Value* ps2_struct_get(Ps2Value* value, const char* field) {
-  Ps2Struct* object = ps2_as_struct(value);
-  return object->values[ps2_struct_field_index(object, field)];
-}
-
-static void ps2_struct_set(Ps2Value* value, const char* field, Ps2Value* new_value) {
-  Ps2Struct* object = ps2_as_struct(value);
-  object->values[ps2_struct_field_index(object, field)] = ps2_copy_value(new_value);
-}
-
-static Ps2Value* ps2_struct_get_model(Ps2Value* value, const char* field, int field_id) {
-  (void)field;
-  Ps2Struct* object = ps2_as_struct(value);
-  return object->values[ps2_struct_field_id_index(object, field_id)];
-}
-
-static void ps2_struct_set_model(Ps2Value* value, const char* field, int field_id, Ps2Value* new_value) {
-  (void)field;
-  Ps2Struct* object = ps2_as_struct(value);
-  object->values[ps2_struct_field_id_index(object, field_id)] = ps2_copy_value(new_value);
-}
-
-static Ps2Value* ps2_concat(Ps2Value* left, Ps2Value* right) {
-  char* l = ps2_to_cstring(left);
-  char* r = ps2_to_cstring(right);
-  size_t len = strlen(l) + strlen(r);
-  char* out = malloc(len + 1);
-  if (out == 0) {
-    ps2_panic("out of memory");
-  }
-  strcpy(out, l);
-  strcat(out, r);
-  Ps2Value* value = ps2_string(out);
-  free(out);
-  free(l);
-  free(r);
-  return value;
-}
-
-static Ps2Value* ps2_binary_op(const char* op, Ps2Value* left, Ps2Value* right) {
-  if (strcmp(op, "+") == 0) {
-    if ((left != 0 && left->kind == PS2_STRING) || (right != 0 && right->kind == PS2_STRING)) {
-      return ps2_concat(left, right);
-    }
-    return ps2_num(ps2_as_num(left) + ps2_as_num(right));
-  }
-  if (strcmp(op, "-") == 0) return ps2_num(ps2_as_num(left) - ps2_as_num(right));
-  if (strcmp(op, "*") == 0) return ps2_num(ps2_as_num(left) * ps2_as_num(right));
-  if (strcmp(op, "/") == 0) return ps2_num(ps2_as_num(left) / ps2_as_num(right));
-  if (strcmp(op, "%") == 0 || strcmp(op, "mod") == 0) return ps2_num(fmod(ps2_as_num(left), ps2_as_num(right)));
-  if (strcmp(op, "^") == 0) return ps2_num(pow(ps2_as_num(left), ps2_as_num(right)));
-  ps2_panic("unknown operator");
-  return ps2_null();
-}
-
-static int ps2_compare(const char* op, Ps2Value* left, Ps2Value* right) {
-  double l = ps2_as_num(left);
-  double r = ps2_as_num(right);
-  if (strcmp(op, "<") == 0) return l < r;
-  if (strcmp(op, "<=") == 0) return l <= r;
-  if (strcmp(op, ">") == 0) return l > r;
-  if (strcmp(op, ">=") == 0) return l >= r;
-  return 0;
-}
-
-static Ps2Value* ps2_add(Ps2Value* left, Ps2Value* right) {
-  return ps2_binary_op("+", left, right);
-}
-
-static Ps2Value* ps2_subtract(Ps2Value* left, Ps2Value* right) {
-  return ps2_binary_op("-", left, right);
-}
-
-static Ps2Value* ps2_multiply(Ps2Value* left, Ps2Value* right) {
-  return ps2_binary_op("*", left, right);
-}
-
-static Ps2Value* ps2_divide(Ps2Value* left, Ps2Value* right) {
-  return ps2_binary_op("/", left, right);
-}
-
-static Ps2Value* ps2_modulo(Ps2Value* left, Ps2Value* right) {
-  return ps2_binary_op("mod", left, right);
-}
-
-static Ps2Value* ps2_power(Ps2Value* left, Ps2Value* right) {
-  return ps2_binary_op("^", left, right);
-}
-
-static int ps2_less(Ps2Value* left, Ps2Value* right) {
-  return ps2_compare("<", left, right);
-}
-
-static int ps2_less_equal(Ps2Value* left, Ps2Value* right) {
-  return ps2_compare("<=", left, right);
-}
-
-static int ps2_greater(Ps2Value* left, Ps2Value* right) {
-  return ps2_compare(">", left, right);
-}
-
-static int ps2_greater_equal(Ps2Value* left, Ps2Value* right) {
-  return ps2_compare(">=", left, right);
-}
-
-static int ps2_equals(Ps2Value* left, Ps2Value* right) {
-  if (left == right) {
-    return 1;
-  }
-  if (left == 0 || right == 0) {
-    return 0;
-  }
-  if (left->kind == PS2_NULL || right->kind == PS2_NULL) {
-    return left->kind == right->kind;
-  }
-  if (left->kind != right->kind) {
-    return 0;
-  }
-  switch (left->kind) {
-    case PS2_NUM:
-      return left->number == right->number;
-    case PS2_BOOL:
-      return left->boolean == right->boolean;
-    case PS2_STRING:
-      return strcmp(left->string, right->string) == 0;
-    case PS2_ARRAY:
-      return left->array == right->array;
-    case PS2_STRUCT:
-      return left->object == right->object;
-    case PS2_UNDEFINED:
-    case PS2_NULL:
-    default:
-      return 1;
-  }
-}
-
-static void ps2_preserve_array_ownership(Ps2Value* value) {
-  (void)value;
-}
-
-static void ps2_preserve_struct_ownership(Ps2Value* value) {
-  (void)value;
-}`);

@@ -1,3 +1,22 @@
+/**
+ * @file ObservableStruct.ts
+ * @brief Definiert die als JavaScript-Quelltext eingebettete Struct-Runtime des Pseudo2-Generators.
+ * @author Abdul
+ */
+
+/**
+ * @brief Enthält die JavaScript-Implementierung für Struct-Referenzen und Attributzugriffe.
+ *
+ * Der Konstruktor erzeugt eine leere Attributtabelle oder übernimmt die Referenz eines
+ * vorhandenen `ObservableStruct`. `get()` liefert den Wrapper, `getRef()` seine interne
+ * Referenz. `attrVal` und `setAttr` lesen beziehungsweise schreiben Attribute mit
+ * expliziter Nullreferenzprüfung; Nullwerte werden als null gesetzte Struct-Wrapper
+ * gespeichert. `setAttrIndex` und `attrValIndex` delegieren indexierte Attribute an
+ * `ObservableArray`. `set` setzt die Referenz auf null, kopiert eine Struct-Referenz
+ * oder verwirft inkompatible Werte mit einem Fehler.
+ *
+ * @note Der String wird unverändert vor dem generierten Programm eingebettet.
+ */
 export const OBSERVABLE_STRUCT_RUNTIME = String.raw`var ObservableStruct = function (val) {
   this.ref = new Object();
   if (val instanceof ObservableStruct) {

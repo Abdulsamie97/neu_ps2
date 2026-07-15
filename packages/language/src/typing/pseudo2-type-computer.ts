@@ -1,3 +1,9 @@
+/**
+ * @file pseudo2-type-computer.ts
+ * @brief Leitet statische Pseudo2-Typen aus Ausdrücken, Deklarationen, Aufrufen und AST-Kontexten ab.
+ * @author Abdul
+ */
+
 // packages/language/src/typing/pseudo2-type-computer.ts
 
 import { AstUtils } from 'langium';
@@ -72,21 +78,64 @@ import {
   TYPE_ARRAY_NUM
 } from './pseudo2-type.js';
 
+/** @brief Eindimensionaler Arraytyp mit noch unbekanntem Elementtyp für lokale Typableitungen. */
 export const TYPE_ARRAY_UNKNOWN = Pseudo2Type.create({ name: '', isStruct: false, isArray: true });
+
+/**
+ * @brief Verfolgt bereits untersuchte Deklarationen, Funktionen und Ausdrücke zur Zyklenerkennung.
+ *
+ * Der Type-Computer folgt Initialisierern, Rückgabewerten und Aufrufargumenten rekursiv.
+ * Getrennte Mengen verhindern Endlosschleifen, ohne unabhängige Zweige derselben
+ * Berechnung zu blockieren. `copy()` erzeugt deshalb vor rekursiven Alternativen Snapshots.
+ */
 export class TypeComputationContext {
+  /** @brief Bereits verfolgte Variablen, Parameter und Structattribute. */
   readonly vars = new Set<VarDecl | ParameterDecl | StructAttDeclaration>();
+  /** @brief Bereits verfolgte Funktions- und Methodendeklarationen. */
   readonly fns = new Set<FunctionDeclaration>();
+  /** @brief Bereits verfolgte Ausdrucksknoten. */
   readonly exps = new Set<Expr>();
 
+  /**
+   * @brief Markiert eine Deklaration im aktuellen Berechnungspfad als besucht.
+   * @param v Besuchte Variable, Parameter- oder Structattributdeklaration.
+   */
   addVar(v: VarDecl | ParameterDecl | StructAttDeclaration): void { this.vars.add(v); }
+  /**
+   * @brief Prüft, ob eine Deklaration im aktuellen Berechnungspfad bereits besucht wurde.
+   * @param v Zu prüfende Variable, Parameter- oder Structattributdeklaration.
+   * @return `true`, wenn die Deklaration in der Besuchsmenge enthalten ist.
+   */
   hasVar(v: VarDecl | ParameterDecl | StructAttDeclaration): boolean { return this.vars.has(v); }
 
+  /**
+   * @brief Markiert eine Funktion oder Methode im aktuellen Berechnungspfad als besucht.
+   * @param f Besuchte Funktions- oder Methodendeklaration.
+   */
   addFn(f: FunctionDeclaration): void { this.fns.add(f); }
+  /**
+   * @brief Prüft, ob eine Funktion oder Methode im aktuellen Berechnungspfad bereits besucht wurde.
+   * @param f Zu prüfende Funktions- oder Methodendeklaration.
+   * @return `true`, wenn die Deklaration in der Besuchsmenge enthalten ist.
+   */
   hasFn(f: FunctionDeclaration): boolean { return this.fns.has(f); }
 
+  /**
+   * @brief Markiert einen Ausdruck im aktuellen Berechnungspfad als besucht.
+   * @param e Besuchter Ausdrucksknoten.
+   */
   addExp(e: Expr): void { this.exps.add(e); }
+  /**
+   * @brief Prüft, ob ein Ausdruck im aktuellen Berechnungspfad bereits besucht wurde.
+   * @param e Zu prüfender Ausdrucksknoten.
+   * @return `true`, wenn der Ausdruck in der Besuchsmenge enthalten ist.
+   */
   hasExp(e: Expr): boolean { return this.exps.has(e); }
 
+  /**
+   * @brief Kopiert alle Besuchsmengen für einen unabhängigen rekursiven Berechnungszweig.
+   * @return Neuer Kontext mit denselben bisher besuchten AST-Elementen.
+   */
   copy(): TypeComputationContext {
     const c = new TypeComputationContext();
     for (const v of this.vars) c.vars.add(v);
@@ -96,7 +145,26 @@ export class TypeComputationContext {
   }
 }
 
+/**
+ * @brief Berechnet Pseudo2-Typen durch strukturelle Fallunterscheidung über den AST.
+ *
+ * Literale und Operatoren besitzen direkte Regeln. Referenzen folgen ihren
+ * Deklarationen, Funktionsaufrufe analysieren Rückgaben und untypisierte Parameter
+ * können Struct- oder Arraytypen aus nichtrekursiven Aufrufstellen übernehmen.
+ */
 export class Pseudo2TypeComputer {
+  /**
+   * @brief Bestimmt den Typ eines beliebigen Pseudo2-Ausdrucks.
+   *
+   * Fehlende oder zyklisch erneut besuchte Ausdrücke ergeben `TYPE_UNKNOWN`.
+   * Boolesche Vergleiche, Arithmetik, Literale, Gruppierungen, Structkonstruktion,
+   * Referenzen, Selektionen und Aufrufe werden an ihre spezialisierten Regeln delegiert.
+   * Operatorstufen ohne rechten Operanden reichen den Typ ihres linken Ausdrucks durch.
+   *
+   * @param e Zu analysierender Ausdruck oder fehlender optionaler AST-Knoten.
+   * @param ctx Kontext zur Zyklenerkennung des aktuellen Berechnungspfads.
+   * @return Bestmöglich bestimmter, gegebenenfalls unbekannter Pseudo2-Typ.
+   */
   typeFor(e: Expr | undefined | null, ctx = new TypeComputationContext()): Pseudo2Type {
     if (!e) return TYPE_UNKNOWN;
 
@@ -142,22 +210,48 @@ export class Pseudo2TypeComputer {
     return TYPE_UNKNOWN;
   }
 
+  /**
+   * @brief Liefert den konkreten Structnamen eines Ausdrucks, sofern eindeutig bestimmbar.
+   * @param e Zu analysierender Ausdruck.
+   * @param ctx Optionaler bestehender Berechnungskontext.
+   * @return Structname oder `undefined` für Skalare, Arrays und unbekannte Structs.
+   */
   structNameOf(e: Expr, ctx = new TypeComputationContext()): string | undefined {
     const t = this.typeFor(e, ctx);
     return t.isStruct && t.name ? t.name : undefined;
   }
 
   // ---- handlers ----
+  /**
+   * @brief Bestimmt den Typ von `this` aus der umgebenden Structdeklaration.
+   * @param e Zu analysierender This-Ausdruck.
+   * @return Typ des umgebenden Structs oder `TYPE_UNKNOWN` außerhalb eines Structs.
+   */
   private handleThis(e: ThisExpr): Pseudo2Type {
     const sd = AstUtils.getContainerOfType(e, isStructDeclaration);
     return sd ? TYPE_STRUCT(sd.name) : TYPE_UNKNOWN;
   }
 
+  /**
+   * @brief Bestimmt den Typ eines `new`-Ausdrucks aus seiner aufgelösten Structreferenz.
+   * @param e Zu analysierender Konstruktor-Ausdruck.
+   * @return Konkret benannter Structtyp oder `TYPE_UNKNOWN` bei ungelöster Referenz.
+   */
   private handleNew(e: NewExpr): Pseudo2Type {
     const sd = e.type?.ref;
     return sd ? TYPE_STRUCT(sd.name) : TYPE_UNKNOWN;
   }
 
+  /**
+   * @brief Leitet den Arraytyp aus dem ersten Element eines Arrayliterals ab.
+   *
+   * Ein leeres Literal bleibt `Array(UNKNOWN)`. Bei vorhandenen Elementen wird der
+   * Typ des ersten Elements in einem kopierten Kontext bestimmt und um eine Dimension erweitert.
+   *
+   * @param e Arrayliteral mit null oder mehr Elementausdrücken.
+   * @param ctx Aktueller Berechnungskontext.
+   * @return Arraytyp des ersten Elements oder unbekannter Arraytyp.
+   */
   private handleArrayLiteral(e: ArrayLiteral, ctx: TypeComputationContext): Pseudo2Type {
     const elems = e.elems ?? [];
     if (elems.length === 0) return TYPE_ARRAY_UNKNOWN;
@@ -165,6 +259,11 @@ export class Pseudo2TypeComputer {
     return firstType.asArrayType();
   }
 
+  /**
+   * @brief Ordnet eingebaute VeriFast-Prädikatausdrücke ihrem Pseudo2-Ergebnistyp zu.
+   * @param e Verifikationsprädikat der Pseudo2-Grammatik.
+   * @return `num` für Längen-/Zahlprädikate, unbekannt für Element-/Feldzugriff, sonst `bool`.
+   */
   private handleSpecPredicate(e: SpecPredicateExpr): Pseudo2Type {
     if (e.kind === 'vf_len' || e.kind === 'vf_int' || e.kind === 'vf_real' || e.kind === 'vf_ratio') {
       return TYPE_NUM;
@@ -175,6 +274,17 @@ export class Pseudo2TypeComputer {
     return TYPE_BOOL;
   }
 
+  /**
+   * @brief Bestimmt, ob eine Additionskette numerische Addition oder Stringverkettung liefert.
+   *
+   * Unbekannte, Array- oder Structoperanden machen das Ergebnis unbekannt. Sobald ein
+   * String beteiligt ist, entsteht ein String. Boolesche Operanden ohne String sind
+   * ungültig; ausschließlich numerische Operanden ergeben `num`.
+   *
+   * @param e Additionsausdruck mit linkem und optionalen rechten Operanden.
+   * @param ctx Aktueller Berechnungskontext.
+   * @return `string`, `num` oder `TYPE_UNKNOWN` gemäß den Additionsregeln.
+   */
   private handlePlus(e: Addition, ctx: TypeComputationContext): Pseudo2Type {
     const parts: Expr[] = [e.left, ...(e.right ?? [])];
     const types = parts.map(p => this.typeFor(p, ctx.copy()));
@@ -205,6 +315,18 @@ export class Pseudo2TypeComputer {
     return TYPE_NUM;
   }
 
+  /**
+   * @brief Folgt einer Variablenreferenz zu Variable, Parameter oder Structattribut.
+   *
+   * Längenparameter werden als Zahl erkannt. Variablen beziehen ihren Typ aus dem
+   * Initialisierer und erhalten bei Arraydeklarationen eine zusätzliche Arrayhülle.
+   * Parameter werden über Aufrufstellen inferiert, Structattribute über ihre TypeRef.
+   * Ein vorhandener Indexzugriff entfernt jeweils genau eine Arraydimension.
+   *
+   * @param v Zu analysierende Variablenreferenz.
+   * @param ctx Kontext zur Vermeidung rekursiver Deklarationszyklen.
+   * @return Abgeleiteter Referenz- oder Elementtyp.
+   */
   private handleVarRef(v: VarRef, ctx: TypeComputationContext): Pseudo2Type {
     const target = v.ref?.ref;
     if (!target) return TYPE_UNKNOWN;
@@ -258,6 +380,18 @@ export class Pseudo2TypeComputer {
     return TYPE_UNKNOWN;
   }
 
+  /**
+   * @brief Inferiert Struct- und Arraytypen untypisierter Parameter aus realen Aufrufstellen.
+   *
+   * Ermittelt Position und besitzende Funktion beziehungsweise Methode, durchsucht
+   * anschließend das gesamte Dokument nach passenden Aufrufen und ignoriert rekursive
+   * Aufrufe innerhalb derselben Deklaration. Nur konkrete Struct- oder Arrayargumente
+   * werden übernommen; für Skalare und fehlende Aufrufe bleibt der passende Unknown-Typ.
+   *
+   * @param p Zu inferierender Funktions- oder Methodenparameter.
+   * @param ctx Aktueller Berechnungskontext.
+   * @return Gefundener Struct-/Arraytyp oder unbekannter Skalar-/Arraytyp des Parameters.
+   */
   private handleParameter(p: ParameterDecl, ctx: TypeComputationContext): Pseudo2Type {
     const defaultUnknown = p.isArray ? TYPE_ARRAY_UNKNOWN : TYPE_UNKNOWN;
 
@@ -327,6 +461,12 @@ export class Pseudo2TypeComputer {
     return defaultUnknown;
   }
 
+  /**
+   * @brief Prüft über die Containerkette, ob ein AST-Knoten innerhalb einer bestimmten Funktion liegt.
+   * @param node Mögliche Aufrufstelle.
+   * @param fn Funktion oder Methode, gegen deren Containerbereich geprüft wird.
+   * @return `true`, wenn `fn` ein direkter oder indirekter Container des Knotens ist.
+   */
   private isInsideFunction(node: AstNode, fn: FunctionDeclaration): boolean {
     let current: AstNode | undefined = node.$container;
 
@@ -340,18 +480,36 @@ export class Pseudo2TypeComputer {
     return false;
   }
 
+  /**
+   * @brief Bestimmt den Rückgabetyp eines freien Funktionsaufrufs.
+   * @param fc Funktionsaufruf mit optional aufgelöster Deklarationsreferenz.
+   * @param ctx Aktueller Berechnungskontext.
+   * @return Aus der Deklaration abgeleiteter Rückgabetyp oder `TYPE_UNKNOWN`.
+   */
   private handleFunctionCall(fc: FunctionCall, ctx: TypeComputationContext): Pseudo2Type {
     const fd = fc.f?.ref;
     if (!fd) return TYPE_UNKNOWN;
     return this.typeForFunctionDeclaration(fd, ctx);
   }
 
+  /**
+   * @brief Bestimmt den Rückgabetyp eines ausgewählten Methodenaufrufs.
+   * @param ms Methodenselektion mit Empfänger und Methodenreferenz.
+   * @param ctx Aktueller Berechnungskontext.
+   * @return Aus der Methodendeklaration abgeleiteter Rückgabetyp oder `TYPE_UNKNOWN`.
+   */
   private handleMethSelection(ms: MethSelection, ctx: TypeComputationContext): Pseudo2Type {
     const fd = ms.methref.f?.ref;
     if (!fd) return TYPE_UNKNOWN;
     return this.typeForFunctionDeclaration(fd, ctx);
   }
 
+  /**
+   * @brief Leitet den Rückgabetyp einer Funktion oder Methode aus ihren Return-Anweisungen ab.
+   * @param fd Zu analysierende Funktionsdeklaration.
+   * @param ctx Kontext zur Erkennung rekursiver Rückgabetypzyklen.
+   * @return Erster konkreter Rückgabetyp oder `TYPE_UNKNOWN`.
+   */
   private typeForFunctionDeclaration(fd: FunctionDeclaration, ctx: TypeComputationContext): Pseudo2Type {
     if (ctx.hasFn(fd)) return TYPE_UNKNOWN;
     const c2 = ctx.copy();
@@ -360,11 +518,22 @@ export class Pseudo2TypeComputer {
     return this.firstConcreteReturnType(returnTypes);
   }
 
+  /**
+   * @brief Berechnet die Typen sämtlicher Return-Anweisungen mit Ausdruck.
+   * @param fd Zu untersuchende Funktions- oder Methodendeklaration.
+   * @param ctx Gemeinsamer Ausgangskontext, der pro Return-Zweig kopiert wird.
+   * @return Rückgabetypen in AST-Reihenfolge.
+   */
   private allReturnTypes(fd: FunctionDeclaration, ctx: TypeComputationContext): Pseudo2Type[] {
     const returns = this.allReturnsWithValue(fd);
     return returns.map(r => this.typeFor(r.retExpr!, ctx.copy()));
   }
 
+  /**
+   * @brief Wählt aus mehreren Rückgabetypen den ersten vollständig bekannten Typ.
+   * @param types Berechnete Rückgabetypen in Quellreihenfolge.
+   * @return Erster weder vollständig noch teilweise unbekannter Typ, sonst `TYPE_UNKNOWN`.
+   */
   private firstConcreteReturnType(types: Pseudo2Type[]): Pseudo2Type {
     for (const t of types) {
       if (!t.isUnknown() && !t.isPartiallyUnknown()) return t;
@@ -372,6 +541,12 @@ export class Pseudo2TypeComputer {
     return TYPE_UNKNOWN;
   }
 
+  /**
+   * @brief Bestimmt den Typ eines Structattributzugriffs aus der referenzierten Attributdeklaration.
+   * @param sel Attributselektion mit optionalem Arrayindex.
+   * @param ctx Aktueller Berechnungskontext; für die einheitliche Handler-Signatur mitgeführt.
+   * @return Deklarierter Attributtyp, bei Indexzugriff um eine Dimension reduziert.
+   */
   private handleAttSelection(sel: AttSelection, ctx: TypeComputationContext): Pseudo2Type {
     const attDecl = sel.attref.ref?.ref;
     if (!attDecl?.type) return TYPE_UNKNOWN;
@@ -381,6 +556,16 @@ export class Pseudo2TypeComputer {
     return res;
   }
 
+  /**
+   * @brief Übersetzt eine explizite Grammatik-TypeRef in das interne Pseudo2-Typmodell.
+   *
+   * Structtypen verwenden den aufgelösten Structnamen. Arraytypen werden rekursiv
+   * vom Basistyp aufgebaut und berücksichtigen alle Dimensionsknoten. Num-, String-
+   * und Bool-TypeRefs werden auf ihre kanonischen Konstanten abgebildet.
+   *
+   * @param tr Typreferenz aus Parameter- oder Structattributdeklaration.
+   * @return Interner konkreter Typ oder `TYPE_UNKNOWN` bei ungelösten Referenzen.
+   */
   typeForTypeRef(tr: TypeRef): Pseudo2Type {
     if (isStructType(tr as unknown as StructType)) {
       const s = (tr as unknown as StructType).struct?.ref;
@@ -404,12 +589,22 @@ export class Pseudo2TypeComputer {
     return TYPE_UNKNOWN;
   }
 
+  /**
+   * @brief Erkennt synthetische Längenvariablen eines Arrayparameters.
+   * @param v Zu prüfende Variablendeklaration.
+   * @return `true`, wenn ein Parameter der umgebenden Funktion `v` als Längendeklaration referenziert.
+   */
   private isLengthParameterDecl(v: VarDecl): boolean {
     const parent: any = v.$container;
     if (!parent || !isFunctionDeclaration(parent)) return false;
     return (parent.params ?? []).some((p: any) => p.len === v);
   }
 
+  /**
+   * @brief Sammelt alle Return-Anweisungen mit Rückgabewert innerhalb einer Funktion.
+   * @param fd Zu durchlaufende Funktions- oder Methodendeklaration.
+   * @return Return-Knoten mit vorhandenem Ausdruck in AST-Reihenfolge.
+   */
   private allReturnsWithValue(fd: FunctionDeclaration): ReturnStmt[] {
     const out: ReturnStmt[] = [];
     for (const n of AstUtils.streamAllContents(fd)) {
@@ -419,4 +614,5 @@ export class Pseudo2TypeComputer {
   }
 }
 
+/** @brief Exportiert die vom Type-Computer verwendeten kanonischen Typen über dieses Modul weiter. */
 export { TYPE_NUM, TYPE_STRING, TYPE_STRUCT, TYPE_BOOL, TYPE_ARRAY_NUM, TYPE_UNKNOWN };

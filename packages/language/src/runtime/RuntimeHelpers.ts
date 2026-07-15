@@ -1,3 +1,23 @@
+/**
+ * @file RuntimeHelpers.ts
+ * @brief Definiert die JavaScript-Hilfsfunktionen, über die generierter Pseudo2-Code auf Runtime-Werte zugreift.
+ * @author Abdul
+ */
+
+/**
+ * @brief Enthält die Brücke zwischen generiertem JavaScript und den Observable-Runtimeklassen.
+ *
+ * `__ps2_array` erzeugt ein Array fester Länge und ruft die Initialisierungsfunktion
+ * für jedes Element separat auf. `__ps2_arrayLiteral` übernimmt Literalwerte,
+ * `__ps2_arrayIndex` rechnet einsbasierte Pseudo2-Indizes in nullbasierte Runtime-
+ * Indizes um, und Get/Set/Length kapseln den Arrayzugriff. `__ps2_struct` und
+ * `__ps2_newStruct` erzeugen Structs; StructGet/StructSet lesen und schreiben Felder
+ * und verpacken Arrayfelder passend. `__ps2_wrapValue` wählt anhand von Wert und
+ * Typkennzeichen den richtigen Wrapper. StructRef, AsArray und AsStruct normalisieren
+ * Referenzen beziehungsweise prüfen den erwarteten Runtime-Typ.
+ *
+ * @note Der String wird nach den Observable-Klassen in die Runtime-Präambel eingebettet.
+ */
 export const PSEUDO2_RUNTIME_HELPERS = String.raw`function __ps2_array(size, init) {
   return new ObservableArray(Array.from({ length: size }, () => init()));
 }

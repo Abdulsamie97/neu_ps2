@@ -85,7 +85,9 @@ literals such as `[1, 2]`, and constant array declarations with simple literal
 initializers such as `var A[2] = 7`. `vf_in_bounds` can be used for dynamic
 1-based array indices. `vf_undefined` is used for default Struct fields after
 `new S`. Array and Struct parameters are available in function contracts, so
-contracts such as `@requires vf_array(A) && vf_int(vf_elem(A, i)) == 7` and
+array elements can be written directly as `A[i]` in annotations. This natural
+syntax is equivalent to `vf_elem(A, i)`; both forms remain supported. Contracts
+such as `@requires vf_array(A) && vf_int(A[i]) == 7` and
 `@requires vf_struct(s) && vf_int(vf_field(s, "value")) == 7` are supported.
 The helpers are covered by the `examples/verifast/valid_model_*.pseudo2` and
 `examples/verifast/invalid_model_*.pseudo2` examples.
@@ -111,9 +113,9 @@ matching invalid examples. `vf_same(A, B)` in a precondition makes two formal
 heap parameters share one ownership state, allowing calls such as `f(A, A)`.
 
 Arrays may contain arrays. Types preserve every dimension, chained reads and
-writes use `matrix[i][j]`, and contracts use nested helpers such as
-`vf_elem(vf_elem(matrix, i), j)`. Struct fields may declare types such as
-`num[][] matrix`.
+writes and contracts use `matrix[i][j]`. The nested helper form
+`vf_elem(vf_elem(matrix, i), j)` remains supported for compatibility. Struct
+fields may declare types such as `num[][] matrix`.
 
 `runtime/c/pseudo2_heap_runtime.c` verifies the concrete array and Struct memory
 representation, including pointer arrays, field mutation, owned-child

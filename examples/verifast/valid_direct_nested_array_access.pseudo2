@@ -1,0 +1,11 @@
+@requires vf_array(matrix) && vf_len(matrix) == 2 && vf_array(matrix[1]) && vf_len(matrix[1]) == 2 && vf_int(matrix[1][2]) == 2
+@ensures vf_int(result) == 2
+func readNestedDirect(matrix[1..rows])
+  return matrix[1][2]
+
+func directNestedArrays()
+  var matrix = [[1, 2], [3, 4]]
+  @assert vf_int(matrix[2][1]) == 3
+  return readNestedDirect(matrix)
+
+print directNestedArrays()

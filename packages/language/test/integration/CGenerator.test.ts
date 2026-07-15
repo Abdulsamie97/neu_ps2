@@ -368,6 +368,35 @@ describe('CGenerator', () => {
     expect(c).toContain('ps2_model_int(ps2_struct_field_lookup(0, __ps2_struct_requires_0)) == 7');
   });
 
+  test('treats direct annotation array access like vf_elem', async () => {
+    const legacy = await generateC(`
+      @requires vf_array(matrix) && vf_array(vf_elem(matrix, 1)) && vf_int(vf_elem(vf_elem(matrix, 1), 2)) == 7
+      @ensures vf_int(result) == 7
+      func read(matrix[1..rows])
+        return matrix[1][2]
+    `);
+    const direct = await generateC(`
+      @requires vf_array(matrix) && vf_array(matrix[1]) && vf_int(matrix[1][2]) == 7
+      @ensures vf_int(result) == 7
+      func read(matrix[1..rows])
+        return matrix[1][2]
+    `);
+
+    expect(direct).toBe(legacy);
+    expect(direct).toContain('ps2_array_state(matrix_0, ?__ps2_array_requires_0)');
+    expect(direct).toMatch(/ps2_array_state\(nth\(1 - 1, __ps2_array_requires_0\), \?__ps2_array_requires_\d+\)/);
+    expect(direct).toMatch(/ps2_model_int\(nth\(2 - 1, __ps2_array_requires_\d+\)\) == 7/);
+  });
+
+  test('keeps direct annotation heap access forbidden in assume', async () => {
+    await expect(generateC(`
+      func invalidAssume()
+        var A[1] = 7
+        @assume vf_int(A[1]) == 7
+        return 0
+    `)).rejects.toThrow('Heap model helpers are not supported in @assume');
+  });
+
   test('emits precise arithmetic, comparison, equality and truthiness contracts', async () => {
     const c = await generateC(`
       @requires true

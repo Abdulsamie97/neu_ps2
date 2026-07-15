@@ -40,6 +40,8 @@ Wichtige Generator-Dateien:
 
 - `packages/language/src/generator-core.ts`: JavaScript-Generator.
 - `packages/language/src/c-generator-core.ts`: C-/VeriFast-Generator.
+- `packages/language/src/c-runtime-contracts.ts`: abstrakte C-Runtime mit praezisen VeriFast-Vertraegen.
+- `packages/language/src/c-runtime-implementation.ts`: ausfuehrbare C-Runtime fuer `run-c`.
 - `packages/language/src/generator-pretty.ts`: Pretty-Printer, der Pseudo2 mit geschweiften Klammern ausgibt.
 - `packages/language/src/generator-context.ts`: eindeutige Zielnamen fuer Variablen, Funktionen und Structs.
 - `packages/language/src/generator-artifacts.ts`: gemeinsamer Einstieg fuer JS-, Pretty-Pseudo2- und Graphviz-Artefakte.
@@ -411,6 +413,7 @@ Unterstuetzte Pseudo2-Annotationen:
   - `vf_null(x)` bedeutet: `x` ist der abstrakte Pseudo2-Wert `null`.
   - `vf_undefined(x)` bedeutet: `x` ist der abstrakte Pseudo2-Wert `undefined`.
   - `vf_elem(array, index)` liefert das abstrakte Pseudo2-Arrayelement an der 1-basierten Pseudo2-Position `index`. Das funktioniert fuer Array-Zuweisungen, fuer Array-Literale wie `[1, 2]` und fuer konstante Array-Deklarationen mit einfachen Literal-Initializern wie `var A[2] = 7`.
+  - Arrayelemente koennen bevorzugt direkt in Pseudo2-Syntax geschrieben werden: `A[i]` ist in Annotationen gleichbedeutend mit `vf_elem(A, i)`. Verschachtelte Arrays verwenden `matrix[i][j]`. `vf_elem` bleibt aus Kompatibilitaetsgruenden vollstaendig unterstuetzt.
   - `vf_in_bounds(array, index)` bedeutet: `index` liegt innerhalb der 1-basierten Pseudo2-Arraygrenzen von `array`.
   - `vf_field(struct, "fieldName")` liefert den abstrakten Pseudo2-Struct-Feldwert. Der Feldname ist der Pseudo2-Quellname; der C-Generator uebersetzt ihn intern auf den eindeutigen generierten Feldnamen.
   - `vf_same(left, right)` bedeutet: Beide Ausdruecke bezeichnen dasselbe Array- oder Struct-Objekt. In `@requires` bindet dies mehrere formale Heap-Parameter an denselben Ownership-Zustand und ermoeglicht damit beispielsweise einen Aufruf `f(A, A)`.
@@ -457,10 +460,12 @@ Struct-Feldern und Arrays in Arrays inklusive tiefer Lese- und Schreibzugriffe
 verifizierbar. Die Typisierung erhaelt jede Arraydimension; Quellcode kann
 `matrix[i][j]` und Struct-Felder beispielsweise `num[][] matrix` verwenden.
 Verschachtelte Vertraege verwenden dieselbe Pseudo2-Syntax, zum Beispiel
-`vf_elem(vf_elem(matrix, 2), 1)`,
+`matrix[2][1]`,
 `vf_elem(vf_field(buffer, "values"), 2)` oder
 `vf_field(vf_elem(cells, 1), "value")`. Da die Chunks flach gekoppelt werden,
 bleiben auch erlaubte zyklische Struct-Referenzen endlich modellierbar.
+`vf_elem(vf_elem(matrix, 2), 1)` ist weiterhin die gleichwertige,
+rueckwaertskompatible Helferschreibweise.
 
 Beim Ersetzen eines bereits besetzten Child-Slots verfolgt der C-Generator die
 vorherige Belegung. Sobald das alte Child keinen weiteren bekannten
@@ -766,6 +771,7 @@ Die aktuelle VeriFast-Beispielgruppe deckt u. a. ab:
 - Runtime-konforme Wahrheitsauswertung fuer `&&`, `||` und `!` ueber `vf_truthy`.
 - konkrete String-Inhalte mit `vf_string(value, "text")`, einschliesslich positiver und absichtlich falscher Inhaltsvertraege.
 - Stringverkettung mit `+`, einschliesslich eines exakten Inhaltsbeweises fuer das Ergebnis.
+- direkte 1-basierte Arrayzugriffe in Annotationen mit `A[i]` sowie verschachtelte Zugriffe mit `matrix[i][j]`, jeweils mit positiven und absichtlich falschen Beispielen.
 - Array-Literal-Elemente, z. B. `vf_elem(result, 2)` nach `return [1, 2]`.
 - konstante Array-Initialisierung mit Literal-Werten, z. B. `vf_elem(result, 1)` nach `var A[2] = 7`.
 - Struct-Defaultfelder, z. B. `vf_undefined(vf_field(result, "value"))` nach `return new S`.

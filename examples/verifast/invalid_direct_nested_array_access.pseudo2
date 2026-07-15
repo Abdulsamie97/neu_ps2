@@ -1,0 +1,6 @@
+func checkNestedDirect()
+  var matrix = [[1, 2], [3, 4]]
+  @assert vf_int(matrix[2][1]) == 4
+  return 0
+
+print checkNestedDirect()

@@ -1,0 +1,6 @@
+func checkDirect()
+  var values[1] = 7
+  @assert vf_int(values[1]) == 8
+  return 0
+
+print checkDirect()

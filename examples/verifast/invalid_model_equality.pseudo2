@@ -1,4 +1,4 @@
 @requires true
-@ensures vf_bool(result)
+@ensures result == true
 func unequalStrings()
   return "left" == "right"

@@ -296,6 +296,12 @@ interface VerificationAnnotation {
   condition?: Expr
 }
 
+/** AST-Knoten einer in Spezifikationen und normalen Ausdrücken verwendbaren C-Ganzzahlgrenze. */
+interface SpecConstantExpr extends Expr {
+  /** Unterstützte Grenze aus limits.h. */
+  value: string
+}
+
 /** AST-Schnittstelle einer ausführungsnahen VeriFast-Anweisung. */
 interface VerificationStatement {
   /** Art der Anweisung: assert, assume, open, close oder leak. */
@@ -314,18 +320,18 @@ interface LoopAnnotation {
 
 /** Liest requires, ensures und die parameterlose terminates-Annotation einer Funktion. */
 VerificationAnnotationRule returns VerificationAnnotation:
-    '@' kind=('requires' | 'ensures') condition=Expression
-  | '@' kind='terminates'
+    ('@' | '//@') kind=('requires' | 'ensures') condition=Expression
+  | ('@' | '//@') kind='terminates'
 ;
 
 /** Liest eine eigenständige VeriFast-Anweisung mit ihrem Ausdruck. */
 VerificationStatementRule returns VerificationStatement:
-  '@' kind=('assert' | 'assume' | 'open' | 'close' | 'leak') condition=Expression
+  ('@' | '//@') kind=('assert' | 'assume' | 'open' | 'close' | 'leak') condition=Expression
 ;
 
 /** Liest eine vor einer Schleife stehende invariant- oder decreases-Annotation. */
 LoopAnnotationRule returns LoopAnnotation:
-  '@' kind=('invariant' | 'decreases') condition=Expression
+  ('@' | '//@') kind=('invariant' | 'decreases') condition=Expression
 ;
 
 /** AST-Schnittstelle für globale Funktionen und methodenartige Struct-Deklarationen. */
@@ -480,7 +486,7 @@ interface IndexSelection extends Expr { receiver: Expr index: Expr }
  * neu erzeugten IndexSelection-, AttSelection- oder MethSelection-Knotens.
  */
 Selection returns Expr:
-  (VarRefRule | This)
+  (VarRefRule | This | ResultRule)
   (
       ({IndexSelection.receiver=current} '[' index=Expression ']')
     | ({AttSelection.receiver=current} '.' attref=AttRefRule)
@@ -503,7 +509,9 @@ interface StringLiteral extends Expr { value: string }
 interface NullLiteral extends Expr {}
 /** AST-Marker des VeriFast-Rückgabeplatzhalters `result`. */
 interface ResultExpr extends Expr {}
-/** AST-Knoten eines eingebauten `vf_*`-Prädikats mit variabler Argumentliste. */
+/** Nur in Annotationen erlaubter Vergleichswert für ein nicht initialisiertes Struct-Feld. */
+interface UndefinedSpecExpr extends Expr {}
+/** AST-Knoten eines eingebauten Annotationsprädikats mit variabler Argumentliste. */
 interface SpecPredicateExpr extends Expr { kind: string args: Expr[] }
 /** AST-Knoten der Konstruktion einer referenzierten Struct-Deklaration. */
 interface NewExpr extends Expr { type: @StructDeclaration }
@@ -540,12 +548,17 @@ ResultRule returns ResultExpr:
   {ResultExpr} 'result'
 ;
 
+/** Liest `undefined` als Pseudo2-Spezifikationsliteral. */
+UndefinedSpecRule returns UndefinedSpecExpr:
+  {UndefinedSpecExpr} 'undefined'
+;
+
 /**
  * Liest alle eingebauten VeriFast-Modellprädikate und ihre optionale Argumentliste.
  * Stelligkeit und prädikatspezifische Literalbedingungen werden semantisch validiert.
  */
 SpecPredicateRule returns SpecPredicateExpr:
-  {SpecPredicateExpr} kind=('vf_value' | 'vf_number' | 'vf_integer' | 'vf_array' | 'vf_struct' | 'vf_len' | 'vf_int' | 'vf_real' | 'vf_ratio' | 'vf_bool' | 'vf_truthy' | 'vf_string' | 'vf_null' | 'vf_undefined' | 'vf_elem' | 'vf_field' | 'vf_in_bounds' | 'vf_same')
+  {SpecPredicateExpr} kind=('length' | 'vf_value' | 'vf_number' | 'vf_integer' | 'vf_array' | 'vf_struct' | 'vf_len' | 'vf_int' | 'vf_real' | 'vf_ratio' | 'vf_bool' | 'vf_truthy' | 'vf_string' | 'vf_null' | 'vf_undefined' | 'vf_elem' | 'vf_field' | 'vf_in_bounds' | 'vf_same')
   '(' (args+=Expression (',' args+=Expression)*)? ')'
 ;
 
@@ -566,7 +579,7 @@ ArrayLiteralRule returns ArrayLiteral:
 /** AST-Knoten einer ODER-Kette mit erstem und nachfolgenden Operanden. */
 interface Or extends Expr { left: Expr right: Expr[] }
 /** AST-Knoten einer UND-Kette mit erstem und nachfolgenden Operanden. */
-interface And extends Expr { left: Expr right: Expr[] }
+interface And extends Expr { left: Expr op: string[] right: Expr[] }
 
 /** AST-Knoten einer Gleichheitskette und ihrer Operatoren. */
 interface Equality extends Expr { left: Expr op: string[] right: Expr[] }
@@ -596,7 +609,7 @@ Or returns Or:
 
 /** Liest linksassoziative logische UND-Verknüpfungen. */
 And returns And:
-  left=Equality ( '&&' right+=Equality )*
+  left=Equality ( op+=('&&' | '&*&') right+=Equality )*
 ;
 
 /** Liest verkettete Gleichheits- und Ungleichheitsoperatoren. */
@@ -641,6 +654,11 @@ NegRule returns Neg:
   {Neg} '-' value=Unary
 ;
 
+/** Liest die C-Ganzzahlgrenzen, die in natürlichen VeriFast-Verträgen verwendet werden können. */
+SpecConstantRule returns SpecConstantExpr:
+  {SpecConstantExpr} value=('INT_MAX' | 'INT_MIN')
+;
+
 /**
  * Wählt Literale, Gruppierungen, Konstruktionen, Selektionen und globale Aufrufe als
  * atomare Ausdrücke der Präzedenzleiter.
@@ -651,8 +669,9 @@ Primary returns Expr:
   | BoolLit
   | StringLit
   | NullLit
-  | ResultRule
+  | UndefinedSpecRule
   | SpecPredicateRule
+  | SpecConstantRule
   | NewRule
   | ArrayLiteralRule
   | Selection
@@ -671,8 +690,8 @@ terminal DEDENT: 'synthetic:dedent';
 
 /** Verstecktes Terminal für mehrzeilige Kommentare, einschließlich Doxygen-Blöcken. */
 hidden terminal ML_COMMENT: /\/\*[\s\S]*?\*\//;
-/** Verstecktes Terminal für einzeilige Kommentare bis zum Zeilenende. */
-hidden terminal SL_COMMENT: /\/\/[^\n\r]*/;
+/** Verstecktes Terminal für einzeilige Kommentare; `//@` bleibt als Annotation sichtbar. */
+hidden terminal SL_COMMENT: /\/\/(?!@)[^\n\r]*/;
 
 /** Ignoriert horizontale Leerzeichen; Zeilenumbrüche werden separat verarbeitet. */
 hidden terminal WS: /[\t ]+/;

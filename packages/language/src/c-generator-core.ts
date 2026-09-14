@@ -72,12 +72,14 @@ import {
   isOr,
   isPrintCommand,
   isResultExpr,
+  isSpecConstantExpr,
   isSpecPredicateExpr,
   isReturnStmt,
   isStringLiteral,
   isStructAttDeclaration,
   isStructDeclaration,
   isThisExpr,
+  isUndefinedSpecExpr,
   isThrowCommand,
   isVarDecl,
   isVarRef,
@@ -87,6 +89,7 @@ import {
 import { C_RUNTIME_CONTRACTS } from './c-runtime-contracts.js';
 import { C_RUNTIME_IMPLEMENTATION } from './c-runtime-implementation.js';
 import { Pseudo2GeneratorContext } from './generator-context.js';
+import { canonicalSpecPredicateKind } from './spec-predicates.js';
 import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
 
 /** Kontextzustand, der während der rekursiven C-Erzeugung weitergereicht wird. */
@@ -97,6 +100,10 @@ type CGeneratorState = {
   topLevel: boolean;
   /** Aktiviert temporäre Marker für die Pseudo2-zu-C-Quellabbildung. */
   sourceMap: boolean;
+  /** Unterscheidet abstrakte Vertragsprüfung von ausführbarer Runtime-Erzeugung. */
+  runtimeMode: 'contracts' | 'implementation';
+  /** Aktiviert C-Ganzzahl-Overflowprüfungen für entsprechend begrenzte Funktionsverträge. */
+  integerOverflowChecks?: boolean;
   /** Generierte Namen aller globalen Pseudo2-Variablen. */
   globalNames: string[];
   /** Arraydeklarationen, für die ein statischer Füllhelfer erzeugt wurde. */
@@ -145,7 +152,13 @@ type HeapReplacement = {
 };
 
 /** Unveränderter Ausgangszustand für Generatoraufrufe ohne speziellen Kontext. */
-const DEFAULT_STATE: CGeneratorState = { thisName: 'this', topLevel: false, sourceMap: false, globalNames: [] };
+const DEFAULT_STATE: CGeneratorState = {
+  thisName: 'this',
+  topLevel: false,
+  sourceMap: false,
+  runtimeMode: 'contracts',
+  globalNames: []
+};
 /** Expliziter erster Parameter jeder aus einer Struct-Methode erzeugten C-Funktion. */
 const METHOD_THIS_NAME = 'mythis';
 /** Erkennt den Beginn eines temporären Pseudo2-Quellzeilenbereichs. */
@@ -161,6 +174,8 @@ export type GenerateCProgramOptions = {
   runtime?: 'contracts' | 'implementation';
   /** Quell- oder Modulname für den VeriFast-main-Vertrag. */
   moduleName?: string;
+  /** Fügt für numerische Zuweisungen native C-Integer-Overflowprüfstellen hinzu. */
+  checkIntegerOverflow?: boolean;
 };
 
 /** Ordnet eine Zeile des bereinigten C-Codes ihrer Pseudo2-Ausgangszeile zu. */
@@ -247,6 +262,8 @@ function generateCProgramInternal(
   const rootState: CGeneratorState = {
     ...DEFAULT_STATE,
     sourceMap,
+    runtimeMode: options.runtime ?? 'contracts',
+    integerOverflowChecks: options.checkIntegerOverflow === true,
     globalNames,
     arrayFillDecls,
     stringLiteralNames,
@@ -960,9 +977,10 @@ function generateWhileLoop(
   const condition = genExpr(loop.condition, context, state);
   const loopState = withLoopSpecHeapStates(loop.annotations ?? [], context, state);
   const body = generateBlock(loop.body, context, indent, loopState);
+  const scalarInvariants = generateAutomaticScalarLoopInvariants(loop.body, context, state);
   return [
     `${indent}while (ps2_truthy(${condition}))`,
-    ...generateLoopInvariants(loop.annotations ?? [], context, indent, state),
+    ...generateLoopInvariants(loop.annotations ?? [], context, indent, state, scalarInvariants),
     body
   ].join('\n');
 }
@@ -1061,7 +1079,13 @@ function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent
     ...snapshotDeclarations,
     ...stepGuard,
     `${indent}while (${directionFunction}(${iterName}, ${endName}))`,
-    ...generateLoopInvariants(loop.annotations ?? [], context, indent, state, [snapshotInvariant]),
+    ...generateLoopInvariants(
+      loop.annotations ?? [],
+      context,
+      indent,
+      state,
+      [snapshotInvariant, ...generateAutomaticScalarLoopInvariants(loop.body, context, state)]
+    ),
     body
   ].join('\n');
 }
@@ -1126,9 +1150,88 @@ function generateDoWhileLoop(
   const condition = genExpr(loop.condition, context, state);
   return [
     `${indent}do`,
-    ...generateLoopInvariants(loop.annotations ?? [], context, indent, state),
+    ...generateLoopInvariants(
+      loop.annotations ?? [],
+      context,
+      indent,
+      state,
+      generateAutomaticScalarLoopInvariants(loop.body, context, state)
+    ),
     `${body} while (ps2_truthy(${condition}));`
   ].join('\n');
+}
+
+/**
+ * Bewahrt automatisch Zahlenart und Ganzzahligkeit lokaler Integer-Variablen,
+ * die innerhalb einer Schleife neu zugewiesen werden.
+ *
+ * Ein explizites `@invariant true` soll die vom Generator bereits sicher bekannte
+ * Runtime-Typinformation nicht verwerfen. Die fachliche Beziehung zwischen den
+ * Variablen wird weiterhin nicht erfunden; im Beispiel `multByAdd` bleibt daher
+ * `res == (a-xa)*b` Sache einer expliziten Benutzerinvariante.
+ *
+ * @param body Schleifenrumpf, dessen Zuweisungsziele analysiert werden.
+ * @param context Generator-Kontext für die C-Namen.
+ * @param state Generatorzustand zur Unterscheidung lokaler und globaler Schleifen.
+ * @returns Reine VeriFast-Bedingungen für sicher ganzzahlige, veränderte Lokale.
+ */
+function generateAutomaticScalarLoopInvariants(
+  body: Block,
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): string[] {
+  if (state.topLevel) {
+    return [];
+  }
+
+  const declarations = new Set<VarDecl>();
+  const nodes: AstNode[] = [...(body.instructions ?? []), ...AstUtils.streamAllContents(body)];
+  for (const node of nodes) {
+    if (!isAssignment(node)) {
+      continue;
+    }
+    const target = unwrapSingletonSpecExpr(node.sel as Expr);
+    if (!isVarRef(target) || target.index || !target.ref?.ref || !isVarDecl(target.ref.ref)) {
+      continue;
+    }
+    if (isDefinitelyIntegerInitializer(target.ref.ref.initializer)) {
+      declarations.add(target.ref.ref);
+    }
+  }
+
+  return [...declarations].flatMap(declaration => {
+    const name = context.getVarName(declaration);
+    return [
+      `ps2_model_kind(${name}) == ps2_number_kind`,
+      `ps2_model_integral(${name}) == true`
+    ];
+  });
+}
+
+/**
+ * Erkennt lokale Initialisierer, deren Runtime-Wert unabhängig von Typinferenz und
+ * Aufrufstellen sicher als ganzzahlig bekannt ist.
+ *
+ * @param expr Optionaler Initialisierer einer lokalen Variablen.
+ * @returns `true` für Integerliterale, C-Grenzen und daraus aufgebaute Integerarithmetik.
+ */
+function isDefinitelyIntegerInitializer(expr: Expr | undefined): boolean {
+  if (!expr) {
+    return false;
+  }
+  const unwrapped = unwrapSingletonSpecExpr(expr);
+  if (isIntLiteral(unwrapped) || isSpecConstantExpr(unwrapped)) {
+    return true;
+  }
+  if (isNeg(unwrapped)) {
+    return isDefinitelyIntegerInitializer(unwrapped.value);
+  }
+  if (isAddition(unwrapped) || isMultiplication(unwrapped) || isExponentiation(unwrapped)) {
+    return isDefinitelyIntegerInitializer(unwrapped.left) &&
+      (unwrapped.right ?? []).every(isDefinitelyIntegerInitializer) &&
+      !(unwrapped.op ?? []).includes('/');
+  }
+  return false;
 }
 
 /**
@@ -1155,7 +1258,7 @@ function generateStructDeclaration(
     `${indent}  ps2_struct_define(__ps2_obj, ${index}, ${context.getStructFieldId(att)}, ${JSON.stringify(context.getVarName(att))}, ps2_undefined());`
   );
   const defaultFieldFacts = attributes.map(att =>
-    `ps2_model_undefined(ps2_struct_field_lookup(${context.getStructFieldId(att)}, __ps2_factory_fields)) == true`
+    `ps2_model_undefined(ps2_struct_field_lookup(${context.getStructFieldId(att)}, __ps2_factory_fields)) == true &*& ps2_model_kind(ps2_struct_field_lookup(${context.getStructFieldId(att)}, __ps2_factory_fields)) == ps2_undefined_kind`
   );
   const factoryEnsures = [
     'result != 0',
@@ -1249,6 +1352,7 @@ function generateFunctionBody(
   const inner = `${indent}  `;
   const functionState = {
     ...state,
+    integerOverflowChecks: state.integerOverflowChecks === true || functionUsesCIntegerBounds(fn),
     ownedHeapLocals: collectOwnedHeapLocals(body, context),
     heapAliases: collectHeapAliases(fn, context)
   };
@@ -1268,6 +1372,27 @@ function generateFunctionBody(
     nested.join('\n'),
     `${indent}}`
   ].join('\n');
+}
+
+/**
+ * Erkennt, ob ein Funktionsvertrag seine Ganzzahlarithmetik explizit durch
+ * `INT_MAX` oder `INT_MIN` begrenzt.
+ *
+ * Ohne explizite Generatoroption werden nur in diesem Fall zusätzliche native
+ * C-Arithmetikprüfungen erzeugt. Die allgemeine Prüfeinstellung kann diese
+ * Beschränkung für eine bewusste Integer-Verifikation aufheben.
+ *
+ * @param fn Zu untersuchende Pseudo2-Funktion oder -Methode.
+ * @returns `true`, wenn mindestens eine Vertragsbedingung eine C-Ganzzahlgrenze enthält.
+ */
+function functionUsesCIntegerBounds(fn: FunctionDeclaration): boolean {
+  return (fn.annotations ?? []).some(annotation =>
+    annotation.condition !== undefined &&
+    (
+      isSpecConstantExpr(annotation.condition) ||
+      AstUtils.streamAllContents(annotation.condition).some(isSpecConstantExpr)
+    )
+  );
 }
 
 /**
@@ -1849,11 +1974,15 @@ function generateStatefulContractLine(
     heapState,
     !preserved.has(heapStateKey(heapState.kind, `${heapState.receiver}:${heapState.stateName}`))
   ));
+  const heapTypeConditions = uniqueHeapStates(heapStates).map(heapState => heapState.kind === 'array'
+      ? `((ps2_model_kind(${heapState.receiver}) == ps2_array_kind) && (ps2_model_array(${heapState.receiver}) == true))`
+      : `((ps2_model_kind(${heapState.receiver}) == ps2_struct_kind) && (ps2_model_struct(${heapState.receiver}) == true))`
+    );
   const conditions = annotations
     .map(annotation => annotation.condition)
     .filter((condition): condition is Expr => condition !== undefined)
     .map(condition => genSpecExpr(condition, context, specState));
-  const contract = [...chunks, ...conditions].join(' &*& ') || 'true';
+  const contract = [...chunks, ...heapTypeConditions, ...conditions].join(' &*& ') || 'true';
   const sourceNode = annotations[0] ?? fallbackNode;
   return sourceMapped(sourceNode, `${indent}//@ ${kind} ${contract};`, state);
 }
@@ -1892,7 +2021,7 @@ function collectContractHeapAliases(
       }
     }
     for (const node of [annotation.condition, ...AstUtils.streamAllContents(annotation.condition)].filter(isSpecPredicateExpr)) {
-      if (node.kind !== 'vf_same' || !node.args[0] || !node.args[1]) {
+      if (canonicalSpecPredicateKind(node.kind) !== 'vf_same' || !node.args[0] || !node.args[1]) {
         continue;
       }
       const left = directContractReceiver(node.args[0], context, state);
@@ -1980,6 +2109,22 @@ function collectExprHeapReceivers(
       continue;
     }
 
+    if (isAttSelection(node)) {
+      receivers.push({
+        kind: 'struct',
+        receiver: genSpecExpr(node.receiver, context, { ...state, specHeapStates: undefined }),
+        expression: node.receiver
+      });
+      if (node.attref.index) {
+        receivers.push({
+          kind: 'array',
+          receiver: genSpecStructAttribute(node, context, { ...state, specHeapStates: undefined }),
+          expression: node
+        });
+      }
+      continue;
+    }
+
     if (isSpecPredicateExpr(node) && node.args[0]) {
       const kind = heapKindForSpecPredicate(node.kind);
       if (kind) {
@@ -1996,6 +2141,7 @@ function collectExprHeapReceivers(
 
 /** @param kind Name eines `vf_*`-Prädikats. @returns Zugehörige Heapart oder `undefined`. */
 function heapKindForSpecPredicate(kind: string): HeapKind | undefined {
+  kind = canonicalSpecPredicateKind(kind);
   if (kind === 'vf_array' || kind === 'vf_len' || kind === 'vf_elem' || kind === 'vf_in_bounds') {
     return 'array';
   }
@@ -2059,7 +2205,9 @@ function createSpecHeapStates(
       return;
     }
     const resolvedReceiver = receiver.expression && context
-      ? genSpecExpr(receiver.expression, context, { ...generatorState, specHeapStates: states })
+      ? receiver.kind === 'array' && isAttSelection(receiver.expression) && receiver.expression.attref.index
+        ? genSpecStructAttribute(receiver.expression, context, { ...generatorState, specHeapStates: states })
+        : genSpecExpr(receiver.expression, context, { ...generatorState, specHeapStates: states })
       : fallbackReceiver;
     const heapState: SpecHeapState = {
       ...receiver,
@@ -2398,11 +2546,65 @@ function generateAssignment(assign: Assignment, context: Pseudo2GeneratorContext
   const target = materializeAssignmentTarget(assign.sel as Expr, materialized.value, context, indent, state);
   return [
     ...materialized.prelude,
+    ...generateIntegerOverflowChecks(assign.value, context, indent, state),
     ...replacement.prelude,
     ...target.prelude,
     `${indent}${target.statement};`,
     ...replacement.postlude
   ].join('\n');
+}
+
+/**
+ * Erzeugt bei aktivierter Integerprüfung native C-Ausdrücke, deren Überlauf
+ * VeriFast vor dem abstrakten Runtime-Aufruf beweisen muss.
+ *
+ * Die Pseudo2-Runtime modelliert `+`, `-` und `*` ansonsten als abstrakte
+ * `Ps2Value`-Operationen. Eine zusätzliche verworfene C-Berechnung macht deshalb
+ * genau die Maschineninteger-Grenze sichtbar, ohne das Laufzeitverhalten zu ändern.
+ * Die Zeile liegt innerhalb des Source-Map-Bereichs der ursprünglichen Zuweisung.
+ *
+ * @param expr Rechte Seite der Pseudo2-Zuweisung.
+ * @param context Generator-Kontext.
+ * @param indent Einrückung der erzeugten Prüfanweisung.
+ * @param state Generatorzustand mit Runtime- und Vertragsmodus.
+ * @returns Null oder mehrere native C-Overflowprüfungen.
+ */
+function generateIntegerOverflowChecks(
+  expr: Expr,
+  context: Pseudo2GeneratorContext,
+  indent: string,
+  state: CGeneratorState
+): string[] {
+  if (state.runtimeMode !== 'contracts' || state.integerOverflowChecks !== true) {
+    return [];
+  }
+
+  const unwrapped = unwrapSingletonSpecExpr(expr);
+  if (
+    (!isAddition(unwrapped) && !isMultiplication(unwrapped)) ||
+    (unwrapped.right?.length ?? 0) === 0
+  ) {
+    return [];
+  }
+
+  const expressionType = TYPES.typeFor(unwrapped);
+  if (expressionType.name === 'string' || expressionType.isArrayType() || expressionType.isStructType()) {
+    return [];
+  }
+
+  const checks: string[] = [];
+  let previous = unwrapped.left;
+  for (let index = 0; index < unwrapped.right.length; index++) {
+    const operator = unwrapped.op[index] ?? unwrapped.op[0];
+    const right = unwrapped.right[index];
+    if (operator === '+' || operator === '-' || operator === '*') {
+      checks.push(
+        `${indent}(void)(ps2_as_int(${genExpr(previous, context, state)}) ${operator} ps2_as_int(${genExpr(right, context, state)}));`
+      );
+    }
+    previous = right;
+  }
+  return checks;
 }
 
 /**
@@ -2828,6 +3030,7 @@ function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_S
   const materialized = state.expressionTemps?.get(expr);
   if (materialized) return materialized;
   if (isIntLiteral(expr)) return `ps2_int(${expr.value})`;
+  if (isSpecConstantExpr(expr)) return `ps2_int(${expr.value})`;
   if (isBoolLiteral(expr)) return `ps2_bool(${expr.value === 'true' ? 1 : 0})`;
   if (isStringLiteral(expr)) {
     const helperName = state.stringLiteralNames?.get(expr.value);
@@ -2904,8 +3107,10 @@ function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_S
 function genSpecExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_STATE): string {
   if (isStringLiteral(expr)) return expr.value;
   if (isIntLiteral(expr)) return String(expr.value);
+  if (isSpecConstantExpr(expr)) return expr.value;
   if (isBoolLiteral(expr)) return expr.value;
   if (isNullLiteral(expr)) return '0';
+  if (isUndefinedSpecExpr(expr)) return '0';
   if (isResultExpr(expr)) return 'result';
   if (isSpecPredicateExpr(expr)) return genSpecPredicate(expr, context, state);
   if (isThisExpr(expr)) return state.thisName;
@@ -2920,17 +3125,394 @@ function genSpecExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAU
     const receiver = genSpecExpr(expr.receiver, context, { ...state, specHeapStates: undefined });
     return genSpecArrayElementAccess(receiver, expr.index, context, state);
   }
+  if (isAttSelection(expr)) {
+    const value = genSpecStructAttribute(expr, context, state);
+    return expr.attref.index
+      ? genSpecArrayElementAccess(value, expr.attref.index, context, state)
+      : value;
+  }
   if (isGrouping(expr)) return `(${genSpecExpr(expr.value, context, state)})`;
-  if (isNot(expr)) return `(!${genSpecExpr(expr.value, context, state)})`;
+  if (isNot(expr)) {
+    const operand = unwrapSingletonSpecExpr(expr.value);
+    return isSpecRuntimeValue(operand)
+      ? `(!${genSpecTruthiness(genSpecExpr(operand, context, state))})`
+      : `(!${genSpecExpr(expr.value, context, state)})`;
+  }
   if (isNeg(expr)) return `(-${genSpecExpr(expr.value, context, state)})`;
 
   if (isOr(expr)) return genSpecRepeated(expr.left, ['||'], expr.right ?? [], context, state);
-  if (isAnd(expr)) return genSpecRepeated(expr.left, ['&&'], expr.right ?? [], context, state);
-  if (isEquality(expr) || isComparison(expr) || isAddition(expr) || isMultiplication(expr) || isExponentiation(expr)) {
+  if (isAnd(expr)) return genSpecRepeated(expr.left, expr.op ?? [], expr.right ?? [], context, state);
+  if (isEquality(expr)) return genSpecEquality(expr.left, expr.op ?? [], expr.right ?? [], context, state);
+  if (isComparison(expr)) return genSpecComparison(expr.left, expr.op ?? [], expr.right ?? [], context, state);
+  if (isAddition(expr) || isMultiplication(expr) || isExponentiation(expr)) {
     return genSpecRepeated(expr.left, expr.op ?? [], expr.right ?? [], context, state);
   }
 
   throw new Error(`Unsupported VeriFast annotation expression: ${expr.$type}. Use a string literal for raw C/VeriFast specs.`);
+}
+
+/** Skalare Literalkategorien, die natürliche Pseudo2-Verträge automatisch modellieren. */
+type NaturalSpecLiteral =
+  | { kind: 'number'; value: number }
+  | { kind: 'boolean'; value: boolean }
+  | { kind: 'string'; value: string }
+  | { kind: 'null' }
+  | { kind: 'undefined' };
+
+/**
+ * Übersetzt eine Gleichheitskette und vereinfacht einen einzelnen Vergleich zwischen
+ * einem Runtime-Wert und einem skalaren Pseudo2-Literal.
+ *
+ * Dadurch wird beispielsweise `result == 5` intern zu einer Prüfung von Zahlenart,
+ * Ganzzahligkeit und `ps2_model_int(result)`. Entsprechende Abbildungen existieren
+ * für Boolean-, String- und Null-Literale. Explizite `vf_*`-Ausdrücke und komplexe
+ * Vergleichsketten verwenden weiterhin die allgemeine Spezifikationsübersetzung.
+ *
+ * @param left Erster Gleichheitsoperand.
+ * @param ops Gleichheitsoperatoren.
+ * @param rights Nachfolgende Operanden.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns VeriFast-Ausdruck der Gleichheitsprüfung.
+ */
+function genSpecEquality(
+  left: Expr,
+  ops: string[],
+  rights: Expr[],
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): string {
+  if (rights.length === 1) {
+    const leftReceiver = genSpecExpr(left, context, { ...state, specHeapStates: undefined });
+    const rightReceiver = genSpecExpr(rights[0], context, { ...state, specHeapStates: undefined });
+    if (['array', 'struct'].some(kind =>
+      getBoundHeapStateForReceiver(kind as HeapKind, leftReceiver, state) &&
+      getBoundHeapStateForReceiver(kind as HeapKind, rightReceiver, state)
+    )) {
+      return `(${leftReceiver} ${specOperator(ops[0] ?? '==')} ${rightReceiver})`;
+    }
+    const rational = genNaturalRationalComparison(left, ops[0] ?? '==', rights[0], context, state);
+    if (rational) {
+      return rational;
+    }
+    const natural = genNaturalScalarComparison(left, ops[0] ?? '==', rights[0], context, state);
+    if (natural) {
+      return natural;
+    }
+    const integerComparison = genNaturalIntegerComparison(left, ops[0] ?? '==', rights[0], context, state);
+    if (integerComparison) {
+      return integerComparison;
+    }
+  }
+  return genSpecRepeated(left, ops, rights, context, state);
+}
+
+/**
+ * Übersetzt einen einzelnen numerischen Ordnungsvergleich mit natürlichem Literal.
+ *
+ * Ein Ausdruck wie `x < 10` projiziert `x` automatisch auf sein ganzzahliges
+ * Runtime-Modell. Andere Ausdrücke und Vergleichsketten fallen auf die allgemeine
+ * Übersetzung zurück.
+ *
+ * @param left Erster Vergleichsoperand.
+ * @param ops Vergleichsoperatoren.
+ * @param rights Nachfolgende Operanden.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns VeriFast-Ausdruck des Ordnungsvergleichs.
+ */
+function genSpecComparison(
+  left: Expr,
+  ops: string[],
+  rights: Expr[],
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): string {
+  if (rights.length === 1) {
+    const natural = genNaturalScalarComparison(left, ops[0] ?? '<', rights[0], context, state);
+    if (natural) {
+      return natural;
+    }
+    const integerComparison = genNaturalIntegerComparison(left, ops[0] ?? '<', rights[0], context, state);
+    if (integerComparison) {
+      return integerComparison;
+    }
+  }
+  return genSpecRepeated(left, ops, rights, context, state);
+}
+
+/** Ganzzahliges VeriFast-Modell eines natürlichen Pseudo2-Spezifikationsausdrucks. */
+type NaturalIntegerSpec = {
+  /** Reiner mathematischer Ganzzahlausdruck für den eigentlichen Vergleich. */
+  expression: string;
+  /** Typ- und Ganzzahligkeitsbedingungen aller enthaltenen Runtime-Werte. */
+  guards: string[];
+};
+
+/**
+ * Übersetzt einen direkten arithmetischen Vergleich in das abstrakte Zahlenmodell.
+ *
+ * Runtime-Werte wie Parameter und `result` werden automatisch über
+ * `ps2_model_int` projiziert. Damit kann Pseudo2 beispielsweise
+ * `@ensures result == a*b` statt der technischeren `vf_int`-Schreibweise verwenden.
+ * Die Projektion ergänzt für jeden dynamischen Operanden die notwendige Prüfung auf
+ * Zahlenart und Ganzzahligkeit.
+ *
+ * @param left Linker Vergleichsoperand.
+ * @param op Gleichheits- oder Ordnungsoperator.
+ * @param right Rechter Vergleichsoperand.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns Projizierter Vergleich oder `undefined` für nicht ganzzahlige Ausdrücke.
+ */
+function genNaturalIntegerComparison(
+  left: Expr,
+  op: string,
+  right: Expr,
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): string | undefined {
+  const leftInteger = genNaturalIntegerSpec(left, context, state);
+  const rightInteger = genNaturalIntegerSpec(right, context, state);
+  if (!leftInteger || !rightInteger) {
+    return undefined;
+  }
+
+  const guards = [...new Set([...leftInteger.guards, ...rightInteger.guards])];
+  if (guards.length === 0) {
+    return undefined;
+  }
+
+  const comparison = `(${leftInteger.expression} ${specOperator(op)} ${rightInteger.expression})`;
+  return `((${guards.join(' && ')}) && ${comparison})`;
+}
+
+/**
+ * Erzeugt rekursiv einen mathematischen Ganzzahlausdruck aus natürlicher Pseudo2-Syntax.
+ *
+ * Unterstützt werden Literale, `INT_MAX`/`INT_MIN`, dynamische skalare Werte,
+ * Gruppierungen, Negation sowie `+`, `-`, `*`, `%`, `mod` und `^`. Die allgemeine
+ * Division bleibt bewusst beim expliziten Real-/Rationalmodell, da Pseudo2-Division
+ * nicht grundsätzlich ganzzahlig ist.
+ *
+ * @param expr Zu projizierender Spezifikationsausdruck.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns Ganzzahlausdruck samt Schutzbedingungen oder `undefined`.
+ */
+function genNaturalIntegerSpec(
+  expr: Expr,
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): NaturalIntegerSpec | undefined {
+  const unwrapped = unwrapSingletonSpecExpr(expr);
+  if (isIntLiteral(unwrapped)) {
+    return { expression: String(unwrapped.value), guards: [] };
+  }
+  if (isSpecConstantExpr(unwrapped)) {
+    return { expression: unwrapped.value, guards: [] };
+  }
+  if (isNeg(unwrapped)) {
+    const value = genNaturalIntegerSpec(unwrapped.value, context, state);
+    return value
+      ? { expression: `(-${value.expression})`, guards: value.guards }
+      : undefined;
+  }
+  if (isSpecPredicateExpr(unwrapped) && (
+    canonicalSpecPredicateKind(unwrapped.kind) === 'vf_int' ||
+    canonicalSpecPredicateKind(unwrapped.kind) === 'vf_len'
+  )) {
+    return { expression: genSpecExpr(unwrapped, context, state), guards: [] };
+  }
+  if (isSpecRuntimeValue(unwrapped)) {
+    const runtimeValue = genSpecExpr(unwrapped, context, state);
+    return {
+      expression: `ps2_model_int(${runtimeValue})`,
+      guards: [
+        `ps2_model_kind(${runtimeValue}) == ps2_number_kind`,
+        `ps2_model_integral(${runtimeValue}) == true`
+      ]
+    };
+  }
+  if (isAddition(unwrapped) || isMultiplication(unwrapped) || isExponentiation(unwrapped)) {
+    const rights = unwrapped.right ?? [];
+    const ops = unwrapped.op ?? [];
+    let result = genNaturalIntegerSpec(unwrapped.left, context, state);
+    if (!result) {
+      return undefined;
+    }
+
+    for (let index = 0; index < rights.length; index++) {
+      const operator = ops[index] ?? ops[0];
+      if (!operator || operator === '/') {
+        return undefined;
+      }
+      const right = genNaturalIntegerSpec(rights[index], context, state);
+      if (!right) {
+        return undefined;
+      }
+      result = {
+        expression: operator === '^'
+          ? `ps2_model_power(${result.expression}, ${right.expression})`
+          : `(${result.expression} ${specOperator(operator)} ${right.expression})`,
+        guards: [...result.guards, ...right.guards]
+      };
+    }
+    return result;
+  }
+
+  return undefined;
+}
+
+/**
+ * Erzeugt die automatische Modellprojektion für einen Vergleich aus Runtime-Wert
+ * und Zahl-, Boolean-, String- oder Null-Literal.
+ *
+ * Die Reihenfolge der Operanden bleibt bei Ordnungsvergleichen erhalten. `!=`
+ * negiert die vollständige typgesicherte Gleichheit, sodass ein Wert eines anderen
+ * Pseudo2-Typs ebenfalls als ungleich gilt.
+ *
+ * @param left Linker Pseudo2-Ausdruck.
+ * @param op Vergleichsoperator.
+ * @param right Rechter Pseudo2-Ausdruck.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns Automatisch projizierter Vergleich oder `undefined`, wenn keine sichere Abbildung möglich ist.
+ */
+function genNaturalScalarComparison(
+  left: Expr,
+  op: string,
+  right: Expr,
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): string | undefined {
+  const leftLiteral = naturalSpecLiteral(left);
+  const rightLiteral = naturalSpecLiteral(right);
+
+  if (rightLiteral && isSpecRuntimeValue(left)) {
+    return genRuntimeValueLiteralComparison(left, op, rightLiteral, false, context, state);
+  }
+  if (leftLiteral && isSpecRuntimeValue(right)) {
+    return genRuntimeValueLiteralComparison(right, op, leftLiteral, true, context, state);
+  }
+  return undefined;
+}
+
+/**
+ * Übersetzt einen Runtime-Wertvergleich gegen ein erkanntes skalares Literal.
+ *
+ * @param runtimeExpr Ausdruck, der im C-Modell als `Ps2Value*` vorliegt.
+ * @param op Vergleichsoperator in ursprünglicher Schreibweise.
+ * @param literal Erkanntes Pseudo2-Literal.
+ * @param literalOnLeft Gibt an, ob das Literal im Quelltext links stand.
+ * @param context Generator-Kontext.
+ * @param state Generatorzustand.
+ * @returns Typgesicherter boolescher VeriFast-Ausdruck.
+ */
+function genRuntimeValueLiteralComparison(
+  runtimeExpr: Expr,
+  op: string,
+  literal: NaturalSpecLiteral,
+  literalOnLeft: boolean,
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): string | undefined {
+  const runtimeValue = genSpecExpr(runtimeExpr, context, state);
+  const equality = op === '==' || op === '!=';
+
+  let positive: string;
+  switch (literal.kind) {
+    case 'number': {
+      const projected = `ps2_model_int(${runtimeValue})`;
+      const positiveOperator = op === '!=' ? '==' : specOperator(op);
+      const comparison = literalOnLeft
+        ? `${literal.value} ${positiveOperator} ${projected}`
+        : `${projected} ${positiveOperator} ${literal.value}`;
+      positive = `((ps2_model_kind(${runtimeValue}) == ps2_number_kind) && (ps2_model_integral(${runtimeValue}) == true) && (${comparison}))`;
+      break;
+    }
+    case 'boolean': {
+      if (!equality) {
+        return undefined;
+      }
+      positive = `((ps2_model_kind(${runtimeValue}) == ps2_bool_kind) && (ps2_model_bool(${runtimeValue}) == ${literal.value ? 'true' : 'false'}))`;
+      break;
+    }
+    case 'string': {
+      if (!equality) {
+        return undefined;
+      }
+      positive = `((ps2_model_kind(${runtimeValue}) == ps2_string_kind) && (ps2_model_string_content(${runtimeValue}) == ${genVeriFastStringContent(literal.value)}))`;
+      break;
+    }
+    case 'null': {
+      if (!equality) {
+        return undefined;
+      }
+      positive = `(ps2_model_kind(${runtimeValue}) == ps2_null_kind)`;
+      break;
+    }
+    case 'undefined': {
+      if (!equality) {
+        return undefined;
+      }
+      positive = `(ps2_model_kind(${runtimeValue}) == ps2_undefined_kind)`;
+      break;
+    }
+  }
+
+  return op === '!=' ? `(!${positive})` : positive;
+}
+
+/**
+ * Erkennt ein gegebenenfalls gruppiertes oder negativ notiertes skalares Literal.
+ *
+ * @param expr Zu untersuchender Ausdruck.
+ * @returns Normalisierte Literalkategorie oder `undefined`.
+ */
+function naturalSpecLiteral(expr: Expr): NaturalSpecLiteral | undefined {
+  const unwrapped = unwrapSingletonSpecExpr(expr);
+  if (isIntLiteral(unwrapped)) {
+    return { kind: 'number', value: unwrapped.value };
+  }
+  if (isNeg(unwrapped)) {
+    const value = unwrapSingletonSpecExpr(unwrapped.value);
+    if (isIntLiteral(value)) {
+      return { kind: 'number', value: -value.value };
+    }
+  }
+  if (isBoolLiteral(unwrapped)) {
+    return { kind: 'boolean', value: unwrapped.value === 'true' };
+  }
+  if (isStringLiteral(unwrapped)) {
+    return { kind: 'string', value: unwrapped.value };
+  }
+  if (isNullLiteral(unwrapped)) {
+    return { kind: 'null' };
+  }
+  if (isUndefinedSpecExpr(unwrapped)) {
+    return { kind: 'undefined' };
+  }
+  return undefined;
+}
+
+/**
+ * Prüft, ob ein Spezifikationsausdruck einen dynamischen Pseudo2-Runtime-Wert liefert.
+ *
+ * Direkte Variablen, `result`, `this`, Arrayelemente sowie die kompatiblen
+ * `vf_elem`- und `vf_field`-Zugriffe werden in C als `Ps2Value*` modelliert.
+ *
+ * @param expr Zu klassifizierender Ausdruck.
+ * @returns `true`, wenn für Literale eine `ps2_model_*`-Projektion erforderlich ist.
+ */
+function isSpecRuntimeValue(expr: Expr): boolean {
+  const unwrapped = unwrapSingletonSpecExpr(expr);
+  return isResultExpr(unwrapped)
+    || isThisExpr(unwrapped)
+    || isVarRef(unwrapped)
+    || isIndexSelection(unwrapped)
+    || isAttSelection(unwrapped)
+    || (isSpecPredicateExpr(unwrapped) && (canonicalSpecPredicateKind(unwrapped.kind) === 'vf_elem' || canonicalSpecPredicateKind(unwrapped.kind) === 'vf_field'));
 }
 
 /**
@@ -2991,7 +3573,7 @@ function specOperator(op: string): string {
  * @throws Error bei einem unbekannten Prädikat.
  */
 function genSpecPredicate(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
-  switch (expr.kind) {
+  switch (canonicalSpecPredicateKind(expr.kind)) {
     case 'vf_value':
       return `(ps2_model_value(${genSingleSpecArg(expr, context, state)}) == true)`;
     case 'vf_number':
@@ -3098,6 +3680,47 @@ function genSpecRatio(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext,
  */
 function genSpecTruthy(expr: SpecPredicateExpr, context: Pseudo2GeneratorContext, state: CGeneratorState): string {
   const value = genSingleSpecArg(expr, context, state);
+  return genSpecTruthiness(value);
+}
+
+/** Erkennt einen konstanten Bruch als exakte VeriFast-Realzahl. */
+function naturalRationalLiteral(expr: Expr): string | undefined {
+  const value = unwrapSingletonSpecExpr(expr);
+  if (!isMultiplication(value) || value.op?.length !== 1 || value.op[0] !== '/' || value.right?.length !== 1) {
+    return undefined;
+  }
+  const numerator = unwrapSingletonSpecExpr(value.left);
+  const denominator = unwrapSingletonSpecExpr(value.right[0]);
+  return isIntLiteral(numerator) && isIntLiteral(denominator) && denominator.value !== 0
+    ? `(real_of_int(${numerator.value}) / ${denominator.value}r)`
+    : undefined;
+}
+
+/** Projiziert einen direkten Vergleich mit einem konstanten Bruch auf das Real-Modell. */
+function genNaturalRationalComparison(
+  left: Expr,
+  op: string,
+  right: Expr,
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): string | undefined {
+  const rightRatio = naturalRationalLiteral(right);
+  const leftRatio = naturalRationalLiteral(left);
+  const runtimeExpr = rightRatio && isSpecRuntimeValue(left) ? left : leftRatio && isSpecRuntimeValue(right) ? right : undefined;
+  const ratio = rightRatio ?? leftRatio;
+  if (!runtimeExpr || !ratio) {
+    return undefined;
+  }
+  const runtime = genSpecExpr(runtimeExpr, context, state);
+  const comparison = rightRatio
+    ? `ps2_model_real(${runtime}) ${specOperator(op === '!=' ? '==' : op)} ${ratio}`
+    : `${ratio} ${specOperator(op === '!=' ? '==' : op)} ps2_model_real(${runtime})`;
+  const positive = `((ps2_model_kind(${runtime}) == ps2_number_kind) && (${comparison}))`;
+  return op === '!=' ? `(!${positive})` : positive;
+}
+
+/** Interne Wahrheitswert-Projektion fuer ein direktes `!x` in Annotationen. */
+function genSpecTruthiness(value: string): string {
   return `(ps2_model_kind(${value}) == ps2_undefined_kind || ps2_model_kind(${value}) == ps2_null_kind ? false : ps2_model_kind(${value}) == ps2_bool_kind ? ps2_model_bool(${value}) : ps2_model_kind(${value}) == ps2_number_kind ? ps2_model_real(${value}) != 0 : ps2_model_kind(${value}) == ps2_string_kind ? ps2_model_string_content(${value}) != nil : true)`;
 }
 
@@ -3262,7 +3885,7 @@ function genSpecIndexExpr(expr: Expr, context: Pseudo2GeneratorContext, state: C
   if (isIntLiteral(unwrapped)) {
     return String(unwrapped.value);
   }
-  if (isSpecPredicateExpr(unwrapped) && unwrapped.kind === 'vf_int') {
+  if (isSpecPredicateExpr(unwrapped) && canonicalSpecPredicateKind(unwrapped.kind) === 'vf_int') {
     return genSpecExpr(unwrapped, context, state);
   }
 
@@ -3293,6 +3916,23 @@ function genSpecStructField(expr: SpecPredicateExpr, context: Pseudo2GeneratorCo
   return heapState
     ? `ps2_struct_field_lookup(${fieldId}, ${heapState.stateName})`
     : `ps2_model_struct_field(${genSpecExpr(args[0], context, state)}, ${fieldId})`;
+}
+
+/** Übersetzt einen direkten Pseudo2-Feldzugriff innerhalb einer Annotation. */
+function genSpecStructAttribute(
+  expr: AttSelection,
+  context: Pseudo2GeneratorContext,
+  state: CGeneratorState
+): string {
+  const field = expr.attref.ref?.ref;
+  if (!field) {
+    throw new Error('Unresolved struct attribute in VeriFast annotation.');
+  }
+  const fieldId = context.getStructFieldId(field);
+  const heapState = getBoundHeapState('struct', expr.receiver, context, state);
+  return heapState
+    ? `ps2_struct_field_lookup(${fieldId}, ${heapState.stateName})`
+    : `ps2_model_struct_field(${genSpecExpr(expr.receiver, context, state)}, ${fieldId})`;
 }
 
 /**
@@ -3549,6 +4189,9 @@ function generateLoopInvariants(
     : 'true';
   const invariants = [
     ...uniqueHeapStates(heapStates).map(heapState => heapStatePredicate(heapState)),
+    ...uniqueHeapStates(heapStates).map(heapState => heapState.kind === 'array'
+      ? `ps2_model_kind(${heapState.receiver}) == ps2_array_kind && ps2_model_array(${heapState.receiver}) == true`
+      : `ps2_model_kind(${heapState.receiver}) == ps2_struct_kind && ps2_model_struct(${heapState.receiver}) == true`),
     ...invariantAnnotations.map(annotation => genSpecExpr(annotation.condition, context, specState)),
     ...additionalInvariants,
     generatedInvariant

@@ -58,6 +58,7 @@ import type {
   Not,
   Neg,
   ResultExpr,
+  UndefinedSpecExpr,
   SpecPredicateExpr
 } from './generated/ast.js';
 import type { Pseudo2Services } from './pseudo2-module.js';
@@ -102,6 +103,7 @@ import {
 } from './generated/ast.js';
 
 import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
+import { canonicalSpecPredicateKind } from './spec-predicates.js';
 import { TYPE_NUM, TYPE_BOOL, TYPE_STRING, TYPE_ARRAY_UNKNOWN, TYPE_UNKNOWN, TYPE_STRUCT } from './typing/pseudo2-type.js';
 
 /** Diagnosecode für eine allgemeine Typinkompatibilität. */
@@ -240,6 +242,7 @@ export function registerValidationChecks(services: Pseudo2Services) {
     Not: validator.checkNot,
     Neg: validator.checkNeg,
     ResultExpr: validator.checkResultExpr,
+    UndefinedSpecExpr: validator.checkUndefinedSpecExpr,
     SpecPredicateExpr: validator.checkSpecPredicateExpr,
   };
 
@@ -1880,6 +1883,16 @@ export class Pseudo2Validator {
     }
   }
 
+  /** Beschränkt das Pseudo2-`undefined`-Literal auf VeriFast-Annotationen. */
+  checkUndefinedSpecExpr(node: UndefinedSpecExpr, accept: ValidationAcceptor): void {
+    if (!this.isInsideVeriFastAnnotation(node)) {
+      accept('error', "'undefined' darf nur in VeriFast-Annotationen verwendet werden.", {
+        node,
+        code: RESULT_ONLY_IN_VERIFAST_ANNOTATION
+      });
+    }
+  }
+
   /**
    * Validiert Kontext und argumentspezifische Syntax eines eingebauten `vf_*`-Prädikats.
    *
@@ -1898,13 +1911,14 @@ export class Pseudo2Validator {
       });
     }
 
+    const kind = canonicalSpecPredicateKind(node.kind);
     const actualArity = (node.args ?? []).length;
-    const expectedArity = node.kind === 'vf_elem' || node.kind === 'vf_field' || node.kind === 'vf_in_bounds' || node.kind === 'vf_ratio' || node.kind === 'vf_same' ? 2 : 1;
-    const validArity = node.kind === 'vf_string'
+    const expectedArity = kind === 'vf_elem' || kind === 'vf_field' || kind === 'vf_in_bounds' || kind === 'vf_ratio' || kind === 'vf_same' ? 2 : 1;
+    const validArity = kind === 'vf_string'
       ? actualArity === 1 || actualArity === 2
       : actualArity === expectedArity;
     if (!validArity) {
-      const expectation = node.kind === 'vf_string'
+      const expectation = kind === 'vf_string'
         ? 'ein oder zwei Argumente'
         : expectedArity === 1 ? 'ein Argument' : 'zwei Argumente';
       accept('error', `'${node.kind}' erwartet genau ${expectation}.`, {
@@ -1914,26 +1928,26 @@ export class Pseudo2Validator {
       });
     }
 
-    if (node.kind === 'vf_field' && node.args[1] && !isStringLiteral(this.unwrapSingletonExpr(node.args[1]))) {
-      accept('error', "'vf_field' erwartet als zweites Argument einen Feldnamen als Stringliteral.", {
+    if (kind === 'vf_field' && node.args[1] && !isStringLiteral(this.unwrapSingletonExpr(node.args[1]))) {
+      accept('error', `'${node.kind}' erwartet als zweites Argument einen Feldnamen als Stringliteral.`, {
         node,
         property: 'args',
         code: SPEC_PREDICATE_FIELD_NAME
       });
     }
 
-    if (node.kind === 'vf_string' && node.args[1] && !isStringLiteral(this.unwrapSingletonExpr(node.args[1]))) {
-      accept('error', "'vf_string' erwartet als zweites Argument einen konkreten String als Stringliteral.", {
+    if (kind === 'vf_string' && node.args[1] && !isStringLiteral(this.unwrapSingletonExpr(node.args[1]))) {
+      accept('error', `'${node.kind}' erwartet als zweites Argument einen konkreten String als Stringliteral.`, {
         node,
         property: 'args',
         code: SPEC_PREDICATE_STRING_VALUE
       });
     }
 
-    if (node.kind === 'vf_ratio' && node.args[1]) {
+    if (kind === 'vf_ratio' && node.args[1]) {
       const denominator = this.unwrapSingletonExpr(node.args[1]);
       if (!isIntLiteral(denominator) || denominator.value === 0) {
-        accept('error', "'vf_ratio' erwartet als zweites Argument ein von null verschiedenes Ganzzahlliteral.", {
+        accept('error', `'${node.kind}' erwartet als zweites Argument ein von null verschiedenes Ganzzahlliteral.`, {
           node,
           property: 'args',
           code: SPEC_PREDICATE_RATIO_DENOMINATOR
@@ -2000,8 +2014,11 @@ export class Pseudo2Validator {
         continue;
       }
 
-      // Arrays bleiben verboten
+      // In Spezifikationen ist == eine Heap-Identitaetspruefung; im Programm bleibt Arraygleichheit verboten.
       if (first.isArrayType() || current.isArrayType()) {
+        if (this.isInsideVeriFastAnnotation(node) && first.isArrayType() && current.isArrayType()) {
+          continue;
+        }
         accept(
           'error',
           `Vergleich nicht erlaubt: Arrays können nicht mit '==' oder '!=' verglichen werden.`,

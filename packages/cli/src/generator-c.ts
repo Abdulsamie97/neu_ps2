@@ -5,7 +5,7 @@
  */
 
 import type { Program } from 'pseudo2-language';
-import { generateCProgramWithSourceMap } from 'pseudo2-language';
+import { generateCProgramWithSourceMap, generateDirectCProgram } from 'pseudo2-language';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { extractDestinationAndName } from './util.js';
@@ -16,6 +16,10 @@ export type GenerateCOptions = {
   destination?: string;
   /** @brief Wählt abstrakte VeriFast-Verträge oder eine konkret ausführbare C-Runtime. */
   runtime?: 'contracts' | 'implementation';
+  /** @brief Erzeugt natives C ohne Pseudo2-Runtime und ohne VeriFast-Source-Map. */
+  direct?: boolean;
+  /** Aktiviert native Integer-Overflowprüfstellen im VeriFast-C-Code. */
+  checkIntegerOverflow?: boolean;
 };
 
 /**
@@ -39,9 +43,14 @@ export function generateC(program: Program, sourceFileName: string, options: Gen
   fs.mkdirSync(outDir, { recursive: true });
 
   const outFile = path.join(outDir, `${data.name}.c`);
+  if (options.direct) {
+    fs.writeFileSync(outFile, generateDirectCProgram(program), { encoding: 'utf8' });
+    return outFile;
+  }
   const generated = generateCProgramWithSourceMap(program, undefined, {
     moduleName: data.name,
-    runtime: options.runtime
+    runtime: options.runtime,
+    checkIntegerOverflow: options.checkIntegerOverflow
   });
   fs.writeFileSync(outFile, generated.code, { encoding: 'utf8' });
   fs.writeFileSync(`${outFile}.map.json`, JSON.stringify({

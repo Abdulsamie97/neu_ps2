@@ -1,19 +1,19 @@
 @requires true
-@ensures vf_bool(result)
+@ensures result == true
 func yes()
   return true
 
 @requires true
-@ensures !vf_bool(result)
+@ensures result == false
 func no()
   return false
 
 @requires true
-@ensures vf_string(result)
+@ensures result == "hi"
 func text()
   return "hi"
 
 @requires true
-@ensures vf_null(result)
+@ensures result == null
 func none()
   return null

@@ -1,4 +1,4 @@
 @requires true
-@ensures vf_null(result)
+@ensures result == null
 func number()
   return 7

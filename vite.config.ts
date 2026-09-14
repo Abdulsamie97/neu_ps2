@@ -134,6 +134,8 @@ export default definedViteConfig;
 type VeriFastApiRequest = {
     /** Zu verifizierender generierter C-Code. */
     code?: unknown;
+    /** Aktueller Pseudo2-Quelltext für den quellbezogenen Verifikationsbaum. */
+    sourceCode?: unknown;
     /** Gewünschter temporärer C-Dateiname. */
     fileName?: unknown;
     /** Anzeigename der ursprünglichen Pseudo2-Quelldatei. */
@@ -142,6 +144,8 @@ type VeriFastApiRequest = {
     sourceMap?: unknown;
     /** Zusätzliche VeriFast-Kommandozeilenargumente. */
     extraArgs?: unknown;
+    /** Schaltet VeriFasts Prüfung für C-Ganzzahlarithmetik ein oder aus. */
+    checkOverflow?: unknown;
     /** Gewünschtes Prozesszeitlimit. */
     timeoutMs?: unknown;
 };
@@ -318,6 +322,9 @@ async function handleVeriFastApi(req: IncomingMessage, res: ServerResponse): Pro
 
     const verifastExe = DEFAULT_VERIFAST_EXE;
     const extraArgs = Array.isArray(body.extraArgs) ? body.extraArgs.filter((arg): arg is string => typeof arg === 'string') : [];
+    if (body.checkOverflow === false && !extraArgs.includes('-disable_overflow_check')) {
+        extraArgs.push('-disable_overflow_check');
+    }
     const timeoutMs = normalizeVeriFastTimeout(body.timeoutMs);
     const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'pseudo2-verifast-'));
     const file = path.join(tempDir, sanitizeCFileName(typeof body.fileName === 'string' ? body.fileName : 'program.c'));
@@ -351,9 +358,25 @@ async function handleVeriFastApi(req: IncomingMessage, res: ServerResponse): Pro
         }
     }
 
+    const sourceMap = parseSourceMap(body.sourceMap);
     const result = mapVeriFastResultToSource(
-        await runVeriFastProcess(verifastExe, file, extraArgs, timeoutMs),
-        parseSourceMap(body.sourceMap),
+        await runVeriFastProcess(
+            verifastExe,
+            file,
+            extraArgs,
+            timeoutMs,
+            false,
+            typeof body.sourceCode === 'string'
+                ? {
+                    sourceCode: body.sourceCode,
+                    sourceMap: {
+                        sourceFile: typeof body.sourceFile === 'string' ? body.sourceFile : undefined,
+                        mappings: sourceMap
+                    }
+                }
+                : undefined
+        ),
+        sourceMap,
         typeof body.sourceFile === 'string' ? body.sourceFile : undefined
     );
     sendJson(res, 200, {
@@ -465,20 +488,32 @@ function destroyReadable(stream: IncomingMessage): void {
  * @param file Zu verifizierende C-Datei.
  * @param extraArgs Zusätzliche VeriFast-Argumente.
  * @param timeoutMs Prozesszeitlimit.
+ * @param captureExecutionForest Aktiviert für das eigentliche Programm die JSON-Baumaufnahme.
+ * @param pseudo2Trace Optionaler Pseudo2-Text samt Source Map für den gefilterten Quellbaum.
  * @returns Strukturiertes VeriFast-Ergebnis.
  */
 function runVeriFastProcess(
     verifastExe: string,
     file: string,
     extraArgs: string[],
-    timeoutMs: number
+    timeoutMs: number,
+    captureExecutionForest = false,
+    pseudo2Trace?: {
+        sourceCode: string;
+        sourceMap: {
+            sourceFile?: string;
+            mappings: CSourceMapEntry[];
+        };
+    }
 ): Promise<VeriFastProcessResult> {
     return runVeriFast({
         verifastExe,
         file,
         extraArgs,
         compileOnly: true,
-        timeoutMs
+        timeoutMs,
+        captureExecutionForest,
+        pseudo2Trace
     });
 }
 

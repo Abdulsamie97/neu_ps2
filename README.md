@@ -350,7 +350,10 @@ node .\packages\cli\bin\cli.js run-c .\examples\serverExamples\arithmetic\fibona
 ## Pseudo2-Annotationen fuer VeriFast
 
 Annotationen werden direkt in Pseudo2 geschrieben. Der C-Generator uebersetzt
-sie in VeriFast-Kommentare.
+sie in VeriFast-Kommentare. Sowohl die kompakte Pseudo2-Schreibweise `@...`
+als auch die kommentarartige Form `//@ ...` werden akzeptiert. Pseudo2-
+Annotationen besitzen kein abschliessendes Semikolon. Das Semikolon wird erst
+vom C-Generator in den erzeugten VeriFast-Kommentaren ergaenzt.
 
 Beispiel:
 
@@ -370,6 +373,51 @@ while false
 
 print verified()
 ```
+
+Dasselbe kann mit VeriFast-aehnlicher Syntax geschrieben werden:
+
+```pseudo2
+//@ requires 0 < a &*& 0 <= b &*& a*b <= INT_MAX
+//@ ensures result == a*b
+func multByAdd(a, b)
+  var xa = a
+  var res = 0
+  //@ invariant true
+  while xa > 0
+    res = res + b
+    xa = xa - 1
+  return res
+```
+
+`&*&`, `INT_MAX` und `INT_MIN` sind Teil der Pseudo2-Annotationssyntax.
+Natuerliche Integerausdruecke werden automatisch auf das abstrakte Wertmodell
+projiziert. Daher ist `result == a*b` ausreichend; interne
+`ps2_model_*`-Projektionen gehoeren nicht in die Pseudo2-Annotation.
+
+Enthaelt ein Integervertrag `INT_MAX` oder `INT_MIN`, erzeugt der C-Generator
+zusaetzliche native C-Arithmetikchecks. In der Weboberflaeche werden diese
+Pruefstellen im Verifikations-C auch ohne solche Vertragsgrenzen erzeugt. In der
+CLI aktiviert `generate-c <datei.pseudo2> --check-overflow` dieses Verhalten.
+Die Pruefstellen betreffen derzeit numerische Zuweisungen und den C-Integerwert
+der Operanden, nicht alle Pseudo2-Zahlenoperationen. VeriFast kann dadurch
+`Potential arithmetic overflow` direkt an der verursachenden Pseudo2-Zuweisung
+melden. Ohne eine ausreichende fachliche Schleifeninvariante scheitert der
+anschliessende Beweis weiterhin korrekt an `result == a*b`.
+
+In der Weboberflaeche ist **Check arithmetic overflow** standardmaessig aktiv.
+Die Option kann fuer einen zweiten Beweislauf ausgeschaltet werden; dann zeigt
+das obige Beispiel statt des Ueberlaufs den Fehler an der `@ensures`-Zeile.
+In der CLI entspricht dies `verifast <datei.c> --no-overflow-check`. Fuer das
+Beispiel ohne `INT_MAX` im Vertrag muss die C-Datei vorher mit
+`generate-c <datei.pseudo2> --check-overflow` erzeugt werden; der VeriFast-Schalter
+allein kann keine fehlenden Pruefstellen nachtraeglich einfuegen.
+Graue Endknoten im Pseudo2-Verifikationsbaum bezeichnen nach einem Fehler noch
+nicht abgeschlossene Alternativpfade und sind kein erfolgreicher Beweis.
+Das Beispiel `examples/verifast/valid_bounded_multiply.pseudo2` zeigt einen
+erfolgreichen Beweis mit eingeschalteter Overflow-Pruefung. Fuer die allgemeine
+Schleife `multByAdd` reicht `invariant true` nicht aus; auch die mathematische
+Produktinvariante braucht im aktuellen Modell noch Unterstuetzung fuer
+nichtlineare Multiplikation.
 
 Generierter C-Ausschnitt:
 
@@ -396,27 +444,16 @@ Unterstuetzte Pseudo2-Annotationen:
 - `@open <Expression>`, `@close <Expression>` und `@leak <Expression>` im Funktionsrumpf. Fuer komplexe Praedikate ist meistens ein roher String sinnvoll, z. B. `@open "P()"`.
 - `@invariant <Expression>` direkt vor `while`, `for` oder `do`.
 - `@decreases <Expression>` direkt vor `while`, `for` oder `do`.
-- strukturierte VeriFast-Modellhelfer in Annotationen:
-  - `vf_value(x)` bedeutet: `x` ist ein gueltiger abstrakter Pseudo2-Wert.
-  - `vf_number(x)` bedeutet: `x` besitzt im VeriFast-Modell die Pseudo2-Wertart Zahl. Das ist besonders fuer symbolische Funktionsparameter sinnvoll.
-  - `vf_integer(x)` bedeutet: `x` ist eine Pseudo2-Zahl mit exaktem ganzzahligen Modellwert. Ein zusaetzliches `vf_number(x)` ist deshalb nicht erforderlich.
-  - `vf_array(x)` bedeutet: `x` ist ein abstraktes Pseudo2-Array.
-  - `vf_struct(x)` bedeutet: `x` ist ein abstraktes Pseudo2-Struct.
-  - `vf_len(x)` liefert die abstrakte Array-Laenge von `x`.
-  - `vf_int(x)` liefert den abstrakten Integer-Wert eines mit `ps2_int` erzeugten Pseudo2-Werts.
-  - `vf_real(x)` liefert den mathematischen Real-/Rationalwert einer Pseudo2-Zahl.
-  - `vf_ratio(a, b)` erzeugt die rationale Spezifikationskonstante `a / b`. `b` muss ein von null verschiedenes Ganzzahlliteral sein; falsche Nenner werden bereits als Editor-Diagnose gemeldet. Damit koennen nicht ganzzahlige Divisionen eindeutig spezifiziert werden, z. B. `vf_real(result) == vf_ratio(5, 2)` fuer `return 5 / 2`.
-  - `vf_bool(x)` bedeutet: `x` ist der abstrakte Pseudo2-Wert `true`.
-  - `vf_truthy(x)` bildet die Wahrheitsauswertung der C-Runtime exakt ab: `false`, `0`, leere Strings, `null` und `undefined` sind falsch; Arrays, Structs und alle uebrigen Werte sind wahr.
-  - `vf_string(x)` bedeutet: `x` ist ein abstrakter Pseudo2-String-Wert.
-  - `vf_string(x, "abc")` bedeutet zusaetzlich, dass der String exakt den Inhalt `abc` besitzt. Der Inhalt wird kollisionsfrei als abstrakte Folge von Unicode-Codepoints modelliert und bleibt bei Wertkopien erhalten.
-  - `vf_null(x)` bedeutet: `x` ist der abstrakte Pseudo2-Wert `null`.
-  - `vf_undefined(x)` bedeutet: `x` ist der abstrakte Pseudo2-Wert `undefined`.
-  - `vf_elem(array, index)` liefert das abstrakte Pseudo2-Arrayelement an der 1-basierten Pseudo2-Position `index`. Das funktioniert fuer Array-Zuweisungen, fuer Array-Literale wie `[1, 2]` und fuer konstante Array-Deklarationen mit einfachen Literal-Initializern wie `var A[2] = 7`.
-  - Arrayelemente koennen bevorzugt direkt in Pseudo2-Syntax geschrieben werden: `A[i]` ist in Annotationen gleichbedeutend mit `vf_elem(A, i)`. Verschachtelte Arrays verwenden `matrix[i][j]`. `vf_elem` bleibt aus Kompatibilitaetsgruenden vollstaendig unterstuetzt.
-  - `vf_in_bounds(array, index)` bedeutet: `index` liegt innerhalb der 1-basierten Pseudo2-Arraygrenzen von `array`.
-  - `vf_field(struct, "fieldName")` liefert den abstrakten Pseudo2-Struct-Feldwert. Der Feldname ist der Pseudo2-Quellname; der C-Generator uebersetzt ihn intern auf den eindeutigen generierten Feldnamen.
-  - `vf_same(left, right)` bedeutet: Beide Ausdruecke bezeichnen dasselbe Array- oder Struct-Objekt. In `@requires` bindet dies mehrere formale Heap-Parameter an denselben Ownership-Zustand und ermoeglicht damit beispielsweise einen Aufruf `f(A, A)`.
+- direkte Werte und Operatoren, etwa `result == 5`, `result == "abc"`,
+  `result == null`, `result.value == undefined`, `result == a*b` und `!!x`.
+- Array- und Struct-Zugriffe wie `A[i]`, `matrix[i][j]`, `s.value` und
+  `result.values[2]`. Indizes bleiben in Pseudo2 einsbasiert.
+- `length(A)` fuer die Arraylaenge; eine Grenze schreibt man beispielsweise
+  `1 <= i && i <= length(A)`.
+- `A == B` bzw. `left == right` in Vertraegen fuer Heap-Identitaet.
+  Der normale Pseudo2-Programmcode erlaubt weiterhin keinen Arrayvergleich.
+- konstante rationale Bedingungen wie `result == 5 / 2`. Der C-Generator
+  projiziert sie auf exakte VeriFast-Realzahlen.
 
 Einfache Pseudo2-Ausdruecke wie `true`, `false`, Zahlen, Variablen und einfache
 Operatoren werden direkt in VeriFast-Spec-Ausdruecke uebersetzt.
@@ -434,8 +471,8 @@ sodass beispielsweise `2 ^ 3 == 8` bewiesen wird.
 
 `for`-Schleifen verwenden dieselben modellierten Vergleichs- und
 Arithmetikoperationen. Der Generator konserviert Endwert und Schrittweite in
-internen Invarianten, sodass `vf_integer`, `vf_int` und `vf_real` ueber die
-Iteration erhalten bleiben. Der Schleifeniterator ist sowohl in
+internen Invarianten, sodass ganzzahlige Eigenschaften ueber die Iteration
+erhalten bleiben. Der Schleifeniterator ist sowohl in
 `@invariant` als auch in Beweisanweisungen im Schleifenrumpf sichtbar.
 
 Arrays und Structs besitzen im generierten VeriFast-Modell jetzt explizite
@@ -445,10 +482,10 @@ erzeugen jeweils den Folgezustand; Lesezugriffe, Funktionsvertraege,
 `@assert` und Schleifeninvarianten verwenden denselben Zustand. Dadurch lassen
 sich wiederholte Mutationen in Schleifen sowie lokale Aliase beweisen. Wenn
 beispielsweise `B = A` gilt und `B[1]` veraendert wird, beschreibt eine
-anschliessende Aussage ueber `vf_elem(A, 1)` denselben Arrayzustand.
+anschliessende Aussage ueber `A[1]` denselben Arrayzustand.
 
 Direkt besessene Arrays und Structs werden auch in verschachtelten `if`-,
-Schleifen- und Block-Sichtbarkeiten verfolgt. Lokale Aliase und mit `vf_same`
+Schleifen- und Block-Sichtbarkeiten verfolgt. Lokale Aliase und mit `==`
 deklarierte Parameter-Aliase teilen denselben Zustand. Die konkrete
 Heap-Realisierung unter `runtime/c/pseudo2_heap_runtime.c` verifiziert reale
 C-Felder, Pointer-Arrays, Arrayzugriffe, Struct-Aufbau und Feldmutationen gegen
@@ -460,12 +497,9 @@ Struct-Feldern und Arrays in Arrays inklusive tiefer Lese- und Schreibzugriffe
 verifizierbar. Die Typisierung erhaelt jede Arraydimension; Quellcode kann
 `matrix[i][j]` und Struct-Felder beispielsweise `num[][] matrix` verwenden.
 Verschachtelte Vertraege verwenden dieselbe Pseudo2-Syntax, zum Beispiel
-`matrix[2][1]`,
-`vf_elem(vf_field(buffer, "values"), 2)` oder
-`vf_field(vf_elem(cells, 1), "value")`. Da die Chunks flach gekoppelt werden,
-bleiben auch erlaubte zyklische Struct-Referenzen endlich modellierbar.
-`vf_elem(vf_elem(matrix, 2), 1)` ist weiterhin die gleichwertige,
-rueckwaertskompatible Helferschreibweise.
+`matrix[2][1]`, `buffer.values[2]` oder `cells[1].value`.
+Da die Chunks flach gekoppelt werden, bleiben auch erlaubte zyklische
+Struct-Referenzen endlich modellierbar.
 
 Beim Ersetzen eines bereits besetzten Child-Slots verfolgt der C-Generator die
 vorherige Belegung. Sobald das alte Child keinen weiteren bekannten
@@ -513,116 +547,58 @@ for i = 1 to 2
   @assert true
 ```
 
-Beispiele fuer die strukturierte Modellsyntax:
+Beispiele fuer direkte Pseudo2-Vertraege:
 
 ```pseudo2
 @requires true
-@ensures vf_array(result) && vf_len(result) == 2 && vf_int(vf_elem(result, 2)) == 2
+@ensures length(result) == 2 && result[2] == 2
 func makeArray()
   return [1, 2]
-
-@requires true
-@ensures vf_array(result) && vf_int(vf_elem(result, 1)) == 7
-func makeArrayWithElement()
-  var A[2] = 0
-  A[1] = 7
-  return A
-
-@requires true
-@ensures vf_array(result) && vf_int(vf_elem(result, 1)) == 7 && vf_int(vf_elem(result, 2)) == 7
-func makeFilledArray()
-  var A[2] = 7
-  return A
 
 struct S
   num value
 
 @requires true
-@ensures vf_struct(result) && vf_undefined(vf_field(result, "value"))
-func makeStruct()
-  return new S
-
-@requires true
-@ensures vf_struct(result) && vf_int(vf_field(result, "value")) == 7
+@ensures result.value == 7
 func makeStructWithField()
   var s = new S
   s.value = 7
   return s
 
-@requires true
-@ensures vf_value(result) && vf_int(result) == 7
-func seven()
-  return 7
-
-@requires true
-@ensures vf_bool(result)
-func yes()
-  return true
-
-@requires true
-@ensures vf_string(result, "hello")
-func greeting()
-  return "hello"
-
-@requires vf_integer(a) && vf_integer(b)
-@ensures vf_int(result) == vf_int(a) + vf_int(b)
+@requires a >= INT_MIN && b >= INT_MIN
+@ensures result == a + b
 func add(a, b)
   return a + b
 
 @requires true
-@ensures vf_real(result) == vf_ratio(5, 2)
+@ensures result == 5 / 2
 func halfFive()
   return 5 / 2
 
-@requires vf_integer(a) && vf_integer(b)
-@ensures vf_bool(result) == (vf_int(a) < vf_int(b))
-func less(a, b)
-  return a < b
-
-@requires vf_number(x)
-@ensures vf_bool(result) == vf_truthy(x)
-func normalizeTruthiness(x)
-  return !(!x)
-
-@requires vf_array(A) && vf_in_bounds(A, i) && vf_int(vf_elem(A, i)) == 7
-@ensures vf_int(result) == 7
+@requires 1 <= i && i <= length(A) && A[i] == 7
+@ensures result == 7
 func getAt(A[1..n], i)
   return A[i]
 
-@requires vf_struct(s) && vf_int(vf_field(s, "value")) == 7
-@ensures vf_int(result) == 7
-func readValue(s)
-  return s.value
-
-@requires vf_same(A, B) && vf_array(A) && vf_array(B) && vf_in_bounds(A, 1)
-@ensures vf_int(vf_elem(A, 1)) == 7 && vf_int(vf_elem(B, 1)) == 7
+@requires A == B && 1 <= length(A)
+@ensures A[1] == 7 && B[1] == 7
 func writeAlias(A[1..n], B[1..m])
   B[1] = 7
   return A[1]
 
-struct Buffer
-  num[] values
-
-@requires vf_struct(buffer) && vf_array(vf_field(buffer, "values")) && vf_in_bounds(vf_field(buffer, "values"), 2)
-@ensures vf_struct(result) && vf_array(vf_field(result, "values")) && vf_int(vf_elem(vf_field(result, "values"), 2)) == 8
-func updateBuffer(buffer)
-  buffer.values[2] = 8
-  return buffer
-
 @requires true
-@ensures vf_array(result) && vf_int(vf_elem(result, 1)) == 3
+@ensures result[1] == 3
 func countArray()
   var A[1] = 0
   var i = 0
-  @invariant vf_array(A) && vf_integer(vf_elem(A, 1)) && vf_int(vf_elem(A, 1)) == vf_int(i) && vf_integer(i) && vf_int(i) >= 0 && vf_int(i) <= 3
+  @invariant length(A) == 1 && A[1] == i && i >= 0 && i <= 3
   while i < 3
     A[1] = A[1] + 1
     i = i + 1
   return A
 ```
 
-Diese `vf_*`-Helfer sind absichtlich nur in VeriFast-Annotationen erlaubt.
-Ausserhalb davon meldet der Validator einen Fehler. Intern bildet der C-Generator
+Intern bildet der C-Generator
 Wertarten und Skalare auf abstrakte VeriFast-Fixpoints wie
 `ps2_model_array(...)`, `ps2_model_int(...)` und
 `ps2_model_string_content(...)` ab. Veraenderliche Arrayelemente und
@@ -692,14 +668,26 @@ Der Server nutzt den repo-lokalen Standardpfad:
 7. `Save VeriFast C` speichert den zuletzt erzeugten Vertrags-C-Code.
 8. `Verify C` sendet den zuletzt erzeugten Vertrags-C-Code erneut an
    `/api/verifast`.
-9. `Summary` erzeugt eine kurze Strukturuebersicht; `Show Source` zeigt den
+9. Unter `VeriFast Execution Tree` wird ein kompakter Pseudo2-Verifikationsbaum
+   dargestellt. Der lokale Node-Endpunkt filtert den VeriFast-JSON-Pfad ueber
+   die Generator-Source-Map: Runtime-Helfer, Wrapperfunktionen, generierte
+   Namensindizes und der technische C-`main`-Vertrag erscheinen nicht.
+10. Der reduzierte Baum rekonstruiert Verzweigungen aus dem sichtbaren
+    Pseudo2-Kontrollfluss. `if`, `while`, `for` und `do` erzeugen alternative
+    Pfade wie im VeriFast-Ausfuehrungsbaum, waehrend technische Einzelschritte
+    zusammengefasst werden. Dadurch bleiben auch Schleifen mit sehr grossen
+    rohen VeriFast-Waeldern im Browser klein. Schwarze Knoten sind
+    Pseudo2-Schritte, gruene Blaetter abgeschlossene Alternativpfade und rote
+    Blaetter Fehler. Jeder Knoten mit Quellposition springt beim Anklicken direkt
+    zur zugehoerigen Pseudo2-Editorzeile.
+11. `Summary` erzeugt eine kurze Strukturuebersicht; `Show Source` zeigt den
    aktuellen Pseudo2-Quelltext. Beide wechseln in das JavaScript-Register.
-10. Das Register `Graphen` rendert AST, Dependency-Graph und CFGs.
-11. Beim ersten Oeffnen von `Graphen` oder mit `Refresh` werden alle
+12. Das Register `Graphen` rendert AST, Dependency-Graph und CFGs.
+13. Beim ersten Oeffnen von `Graphen` oder mit `Refresh` werden alle
     Graphviz-Artefakte aus dem aktuellen, validierten Editor-AST erzeugt.
-12. Das Auswahlmenue enthaelt den Abstract Syntax Tree, den Dependency-Graph
+14. Das Auswahlmenue enthaelt den Abstract Syntax Tree, den Dependency-Graph
     und fuer jede Pseudo2-Funktion einen eigenen Control Flow Graph.
-13. Der vertikale Splitter zwischen Editor und Ergebnisbereich kann horizontal
+15. Der vertikale Splitter zwischen Editor und Ergebnisbereich kann horizontal
     gezogen werden. Mit `Pfeil links/rechts` wird die Breite per Tastatur
     veraendert; ein Doppelklick setzt sie auf den Standardwert zurueck.
 
@@ -764,21 +752,35 @@ Die aktuelle VeriFast-Beispielgruppe deckt u. a. ab:
 - Funktions-Terminierung mit `@terminates`.
 - `result` in `@ensures`.
 - Ghost-/Proof-Statements wie `@assume`, `@open`, `@close` und `@leak`.
-- strukturierte Modellhelfer `vf_value`, `vf_number`, `vf_integer`, `vf_array`, `vf_struct`, `vf_len`, `vf_int`, `vf_real`, `vf_ratio`, `vf_bool`, `vf_truthy`, `vf_string`, `vf_null`, `vf_undefined`, `vf_elem`, `vf_in_bounds`, `vf_field` und `vf_same`.
-- rationale Zahlenbeziehungen und nicht ganzzahlige Division ueber `vf_real`.
+- direkte Vertraege ohne Modellhelfer: Vergleiche wie `result == 5`,
+  `result == true`, `result == "text"`, `result == null`, `x != null` oder
+  `x >= 5` werden automatisch auf das passende VeriFast-Wertmodell abgebildet.
+  Das gilt auch fuer `result == a*b`, `a*b <= INT_MAX`, `A[i]`, `s.value`
+  und `length(A)`.
+
+Für einfache skalare Verträge ist damit normale Pseudo2-Syntax ausreichend:
+
+```pseudo2
+@requires x == 5
+@ensures result == 5
+func identityFive(x)
+  @assert x == 5
+  return x
+```
+- rationale Zahlenbeziehungen wie `result == 5 / 2`.
 - praezise Arithmetik fuer `+`, `-`, `*`, `/`, `mod` und `^`, auch mit symbolischen Funktionsparametern.
 - praezise Vergleiche und Gleichheit fuer Zahlen, Booleans, Strings, Null-/Undefined-Werte sowie Identitaetsgleichheit im Runtime-Modell.
-- Runtime-konforme Wahrheitsauswertung fuer `&&`, `||` und `!` ueber `vf_truthy`.
-- konkrete String-Inhalte mit `vf_string(value, "text")`, einschliesslich positiver und absichtlich falscher Inhaltsvertraege.
+- Runtime-konforme Wahrheitsauswertung fuer `&&`, `||` und `!`, auch `!!x`.
+- konkrete String-Inhalte mit `result == "text"`, einschliesslich positiver und absichtlich falscher Inhaltsvertraege.
 - Stringverkettung mit `+`, einschliesslich eines exakten Inhaltsbeweises fuer das Ergebnis.
 - direkte 1-basierte Arrayzugriffe in Annotationen mit `A[i]` sowie verschachtelte Zugriffe mit `matrix[i][j]`, jeweils mit positiven und absichtlich falschen Beispielen.
-- Array-Literal-Elemente, z. B. `vf_elem(result, 2)` nach `return [1, 2]`.
-- konstante Array-Initialisierung mit Literal-Werten, z. B. `vf_elem(result, 1)` nach `var A[2] = 7`.
-- Struct-Defaultfelder, z. B. `vf_undefined(vf_field(result, "value"))` nach `return new S`.
-- Array- und Struct-Parameter in Funktionsvertraegen, z. B. `vf_elem(A, i)` und `vf_field(s, "value")`.
+- Array-Literal-Elemente, z. B. `result[2]` nach `return [1, 2]`.
+- konstante Array-Initialisierung mit Literal-Werten, z. B. `result[1]` nach `var A[2] = 7`.
+- Struct-Defaultfelder, z. B. `result.value == undefined` nach `return new S`.
+- Array- und Struct-Parameter in Funktionsvertraegen, z. B. `A[i]` und `s.value`.
 - automatische Ownership-Aufgabe beim Ersetzen besessener Array-/Struct-Childs.
 - konkrete Heap-Freigabe sowie konkrete skalare String-, Gleitkomma-, I/O- und Freigabe-Runtime.
-- bounds-gesicherte Arrayparameter mit `vf_in_bounds(A, i)`.
+- bounds-gesicherte Arrayparameter mit `1 <= i && i <= length(A)`.
 - rohe VeriFast-Strings wie `@assert "true"` und `@assert "false"`.
 - Top-Level-Assertions.
 - Array-Parameter inklusive automatisch uebergebener Laenge.

@@ -33,6 +33,12 @@ import {
     type Program
 } from 'pseudo2-language'; //TBC
 import { instance, type Viz } from '@viz-js/viz';
+import {
+    buildVeriFastExecutionTreeDot,
+    decodeVeriFastExecutionForest,
+    type VeriFastExecutionNode,
+    type VeriFastExecutionTree
+} from './verifast-execution-tree.js';
 
 
 /** @brief Aktive Editor-Anwendung; vor dem Start und nach dem Dispose ist sie nicht gesetzt. */
@@ -53,6 +59,10 @@ let lastGeneratedCSourceMap: CSourceMapEntry[] = [];
 let graphArtifacts: GeneratedArtifact[] = [];
 /** @brief Zwischengespeicherte asynchrone Initialisierung der Viz.js-Instanz. */
 let vizPromise: Promise<Viz> | undefined;
+/** @brief Aus der letzten VeriFast-Antwort dekodierte, einzeln auswählbare Ausführungsbäume. */
+let lastVeriFastExecutionTrees: VeriFastExecutionTree[] = [];
+/** @brief Letztes VeriFast-Ergebnis für Diagnosesprünge aus fehlgeschlagenen Baumknoten. */
+let lastVeriFastResult: VeriFastApiResult | undefined;
 /** @brief Gemeinsamer Dispose-Handler der zusätzlich installierten Monaco-Dekorationen. */
 let keywordDecorationDisposable: monaco.IDisposable | undefined;
 /** @brief Local-Storage-Schlüssel für das Größenverhältnis des Ergebnisbereichs. */
@@ -129,6 +139,15 @@ type VeriFastApiResult = {
     command?: string;
     /** @brief Optionaler serverseitig verwendeter VeriFast-Pfad. */
     verifastExe?: string;
+    /** @brief Kompakte echte Baumstruktur aus VeriFasts JSON-Protokoll. */
+    executionForest?: {
+        /** @brief Von den Baumknoten referenzierte deduplizierte Schritttexte. */
+        messages: string[];
+        /** @brief VeriFast-Kodierung von Wurzeln, Verzweigungen und Endzuständen. */
+        forest: string;
+    };
+    /** @brief Bereits serverseitig auf Pseudo2-Zeilen reduzierte Bäume ohne Runtime-Wrapper. */
+    verificationTrees?: VeriFastExecutionTree[];
 };
 
 /** @brief Beschreibt die JSON-Antwort des lokalen `/api/run-c`-Endpunkts. */
@@ -573,6 +592,7 @@ const generateCCodeFromEditor = async (): Promise<boolean> => {
     setTextContent('#c-runtimespan', 'Generating runnable C...');
     setTextContent('#verifastspan', '');
     clearVeriFastEditorDiagnostics();
+    clearVeriFastExecutionTree('Verify the generated C code to display its execution tree.');
     lastGeneratedCCode = '';
     lastGeneratedCExecutableCode = '';
     lastGeneratedCSourceMap = [];
@@ -596,7 +616,10 @@ const generateCCodeFromEditor = async (): Promise<boolean> => {
         }
 
         const moduleName = getSuggestedCFileName();
-        const generated = generateCProgramWithSourceMap(program, undefined, { moduleName });
+        const generated = generateCProgramWithSourceMap(program, undefined, {
+            moduleName,
+            checkIntegerOverflow: true
+        });
         lastGeneratedCCode = generated.code;
         lastGeneratedCExecutableCode = generateCProgram(program, undefined, {
             moduleName,
@@ -697,6 +720,7 @@ const runVeriFastFromWeb = async () => {
 const verifyLastGeneratedCCode = async () => {
     await showResultView('c');
     setTextContent('#verifastspan', 'Running VeriFast...');
+    clearVeriFastExecutionTree('Running VeriFast...');
 
     try {
         const response = await fetch('/api/verifast', {
@@ -706,6 +730,8 @@ const verifyLastGeneratedCCode = async () => {
             },
             body: JSON.stringify({
                 code: lastGeneratedCCode,
+                sourceCode: getCurrentCode(),
+                checkOverflow: document.querySelector<HTMLInputElement>('#verifast-check-overflow')?.checked !== false,
                 fileName: getSuggestedCFileName(),
                 sourceFile: getSuggestedFileName(),
                 sourceMap: lastGeneratedCSourceMap
@@ -716,18 +742,21 @@ const verifyLastGeneratedCCode = async () => {
 
         if (!response.ok) {
             setTextContent('#verifastspan', `VeriFast request failed (${response.status}):\n${formatValue(result)}`);
+            clearVeriFastExecutionTree('VeriFast did not return an execution tree.', true);
             return;
         }
 
         updateVeriFastEditorDiagnostics(result);
         focusFirstVeriFastDiagnostic(result);
         setTextContent('#verifastspan', formatVeriFastResult(result));
+        await updateVeriFastExecutionTree(result);
     } catch (error) {
         setTextContent(
             '#verifastspan',
             `VeriFast request failed: ${formatError(error)}\n` +
             'Open the app through the local Vite server so /api/verifast is available.'
         );
+        clearVeriFastExecutionTree(`Execution tree unavailable: ${formatError(error)}`, true);
     }
 };
 
@@ -838,6 +867,188 @@ function formatVeriFastResult(result: VeriFastApiResult): string {
         'Diagnostics:',
         diagnostics
     ].filter((line): line is string => line !== undefined).join('\n');
+}
+
+/**
+ * @brief Rendert bevorzugt den serverseitig auf Pseudo2 reduzierten Verifikationsbaum.
+ *
+ * Der lokale Node-Endpunkt projiziert VeriFasts Fehlertrace über die Source Map
+ * auf Pseudo2-Kontrollschritte. Ältere Antworten mit rohem
+ * `executionForest` bleiben als Kompatibilitätsfallback dekodierbar.
+ *
+ * @param result Strukturierte VeriFast-Antwort mit optionalem `executionForest`.
+ */
+async function updateVeriFastExecutionTree(result: VeriFastApiResult): Promise<void> {
+    lastVeriFastResult = result;
+    const sourceTrees = result.verificationTrees;
+    const payload = result.executionForest;
+    if ((!sourceTrees || sourceTrees.length === 0) && !payload) {
+        clearVeriFastExecutionTree('VeriFast returned no execution tree.');
+        return;
+    }
+
+    try {
+        lastVeriFastExecutionTrees = sourceTrees && sourceTrees.length > 0
+            ? sourceTrees
+            : decodeVeriFastExecutionForest(payload?.messages ?? [], payload?.forest ?? '');
+        if (lastVeriFastExecutionTrees.length === 0) {
+            clearVeriFastExecutionTree('VeriFast returned an empty execution tree.');
+            return;
+        }
+
+        const select = document.querySelector<HTMLSelectElement>('#verifast-tree-select');
+        if (select) {
+            select.replaceChildren(...lastVeriFastExecutionTrees.map((tree, index) => {
+                const option = document.createElement('option');
+                option.value = String(index);
+                option.textContent = tree.label;
+                return option;
+            }));
+            select.disabled = false;
+        }
+
+        await renderSelectedVeriFastExecutionTree();
+    } catch (error) {
+        clearVeriFastExecutionTree(`Execution tree could not be decoded: ${formatError(error)}`, true);
+    }
+}
+
+/**
+ * @brief Rendert den im Auswahlmenü aktiven VeriFast-Baum als interaktives SVG.
+ *
+ * Viz.js übernimmt das hierarchische Layout. Erfolgsblätter sind grün, Fehlerblätter
+ * rot, Einstiegsschritte schwarz und interne Schritte grau. Nach dem Rendern werden
+ * die SVG-Knotengruppen mit Maus- und Tastaturereignissen ergänzt; quellbezogene
+ * Knoten springen beim Aktivieren direkt in die zugehörige Pseudo2-Editorzeile.
+ */
+async function renderSelectedVeriFastExecutionTree(): Promise<void> {
+    const select = document.querySelector<HTMLSelectElement>('#verifast-tree-select');
+    const selectedIndex = Number(select?.value ?? 0);
+    const tree = lastVeriFastExecutionTrees[
+        Number.isInteger(selectedIndex) ? selectedIndex : 0
+    ] ?? lastVeriFastExecutionTrees[0];
+    if (!tree) {
+        clearVeriFastExecutionTree('No execution tree selected.');
+        return;
+    }
+
+    const { dot, nodesByGraphId, nodeCount, successCount, failureCount, pendingCount } =
+        buildVeriFastExecutionTreeDot(tree.root);
+    setVeriFastTreeStatus(`Rendering ${tree.label}...`);
+
+    try {
+        vizPromise ??= instance();
+        const viz = await vizPromise;
+        const svg = viz.renderSVGElement(dot, { engine: 'dot' });
+        svg.classList.add('verifast-execution-svg');
+
+        const canvas = document.querySelector<HTMLElement>('#verifast-tree-canvas');
+        canvas?.replaceChildren(svg);
+        installVeriFastTreeInteraction(svg, nodesByGraphId);
+        setTextContent('#verifast-tree-detail', tree.root.message);
+        const successfulPaths = `${successCount} successful ${successCount === 1 ? 'path' : 'paths'}`;
+        const failedPaths = `${failureCount} failed ${failureCount === 1 ? 'path' : 'paths'}`;
+        const openPaths = `${pendingCount} open ${pendingCount === 1 ? 'path' : 'paths'}`;
+        setVeriFastTreeStatus(
+            `${tree.label}: ${nodeCount} nodes, ${successfulPaths}, ${failedPaths}, ${openPaths}.`
+        );
+    } catch (error) {
+        document.querySelector('#verifast-tree-canvas')?.replaceChildren();
+        setVeriFastTreeStatus(`Execution tree rendering failed: ${formatError(error)}`, true);
+    }
+}
+
+/**
+ * @brief Ergänzt die gerenderten Graphviz-Knoten um Auswahl, Detailanzeige und Diagnosesprung.
+ * @param svg Von Viz.js erzeugtes SVG-Element.
+ * @param nodesByGraphId Zuordnung zwischen SVG-Titeln und VeriFast-Knoten.
+ */
+function installVeriFastTreeInteraction(
+    svg: SVGSVGElement,
+    nodesByGraphId: Map<string, VeriFastExecutionNode>
+): void {
+    const groups = Array.from(svg.querySelectorAll<SVGGElement>('g.node'));
+
+    /**
+     * @brief Aktiviert einen Baumknoten und zeigt dessen vollständigen VeriFast-Schritt.
+     * @param group Angeklickte oder per Tastatur aktivierte SVG-Knotengruppe.
+     * @param node Zugehöriger dekodierter VeriFast-Knoten.
+     */
+    const activate = (group: SVGGElement, node: VeriFastExecutionNode): void => {
+        for (const candidate of groups) {
+            candidate.classList.toggle('is-selected', candidate === group);
+        }
+        setTextContent('#verifast-tree-detail', node.message);
+        if (typeof node.sourceLine === 'number') {
+            focusPseudo2SourceLine(node.sourceLine);
+        } else if (node.kind === 'failure' && lastVeriFastResult) {
+            focusFirstVeriFastDiagnostic(lastVeriFastResult);
+        }
+    };
+
+    for (const group of groups) {
+        const graphId = group.querySelector(':scope > title')?.textContent;
+        const node = graphId ? nodesByGraphId.get(graphId) : undefined;
+        if (!node) continue;
+
+        group.setAttribute('role', 'button');
+        group.setAttribute('tabindex', '0');
+        group.setAttribute('aria-label', node.message);
+        group.addEventListener('click', () => activate(group, node));
+        group.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                activate(group, node);
+            }
+        });
+    }
+}
+
+/**
+ * @brief Springt zu einer aus dem Verifikationsbaum ausgewählten Pseudo2-Zeile.
+ * @param sourceLine Einsbasierte Zeile des aktiven Monaco-Modells.
+ */
+function focusPseudo2SourceLine(sourceLine: number): void {
+    const editor = editorApp?.getEditor();
+    const model = editor?.getModel();
+    if (!editor || !model || sourceLine < 1 || sourceLine > model.getLineCount()) {
+        return;
+    }
+    editor.setPosition({ lineNumber: sourceLine, column: 1 });
+    editor.revealLineInCenter(sourceLine);
+    editor.focus();
+}
+
+/**
+ * @brief Setzt Auswahl, SVG, Details und gespeicherte Baumdaten auf einen definierten Leerzustand.
+ * @param message Im Statusbereich anzuzeigender Grund.
+ * @param error Aktiviert die Fehlerfarbe des Statusbereichs.
+ */
+function clearVeriFastExecutionTree(message: string, error = false): void {
+    lastVeriFastExecutionTrees = [];
+    lastVeriFastResult = undefined;
+    const select = document.querySelector<HTMLSelectElement>('#verifast-tree-select');
+    if (select) {
+        const option = document.createElement('option');
+        option.textContent = 'No execution tree';
+        select.replaceChildren(option);
+        select.disabled = true;
+    }
+    document.querySelector('#verifast-tree-canvas')?.replaceChildren();
+    setTextContent('#verifast-tree-detail', '');
+    setVeriFastTreeStatus(message, error);
+}
+
+/**
+ * @brief Aktualisiert Text und Fehlerklasse des VeriFast-Baumstatus.
+ * @param message Anzuzeigender Lade-, Erfolgs- oder Fehlertext.
+ * @param error Aktiviert die visuelle Fehlerkennzeichnung.
+ */
+function setVeriFastTreeStatus(message: string, error = false): void {
+    const status = document.querySelector<HTMLElement>('#verifast-tree-status');
+    if (!status) return;
+    status.textContent = message;
+    status.classList.toggle('is-error', error);
 }
 
 /**
@@ -1033,6 +1244,7 @@ function installPseudo2KeywordDecorations(editor: monaco.editor.IStandaloneCodeE
         'to',
         'true',
         'var',
+        'length',
         'vf_array',
         'vf_bool',
         'vf_elem',
@@ -1521,8 +1733,13 @@ export const runDsl = async () => {
         document.querySelector('#button-view-graphs')?.addEventListener('click', () => void showResultView('graphs'));
         document.querySelector('#button-generate-graphs')?.addEventListener('click', () => void updateGraphvizArtifacts());
         document.querySelector('#graph-select')?.addEventListener('change', () => void renderSelectedGraph());
+        document.querySelector('#verifast-tree-select')?.addEventListener(
+            'change',
+            () => void renderSelectedVeriFastExecutionTree()
+        );
         setTextContent('#verifastspan', '');
         setTextContent('#c-outputspan', '');
+        clearVeriFastExecutionTree('Verify the generated C code to display its execution tree.');
 
     } catch (e) {
         console.error(e);

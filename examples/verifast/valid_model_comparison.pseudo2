@@ -1,29 +1,29 @@
 @requires true
-@ensures vf_bool(result)
+@ensures result == true
 func less()
   return 2 < 3
 
 @requires true
-@ensures vf_bool(result)
+@ensures result == true
 func lessEqual()
   return 3 <= 3
 
 @requires true
-@ensures vf_bool(result)
+@ensures result == true
 func greater()
   return 4 > 3
 
 @requires true
-@ensures vf_bool(result)
+@ensures result == true
 func greaterEqual()
   return 4 >= 4
 
 @requires true
-@ensures !vf_bool(result)
+@ensures result == false
 func falseComparison()
   return 4 < 3
 
-@requires vf_number(a) && vf_number(b) && vf_integer(a) && vf_integer(b)
-@ensures vf_bool(result) == (vf_int(a) < vf_int(b))
+@requires a >= INT_MIN && b >= INT_MIN
+@ensures (result == true) == (a < b)
 func compareParameters(a, b)
   return a < b

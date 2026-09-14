@@ -5,7 +5,7 @@
  */
 
 import type { Program } from 'pseudo2-language';
-import { createPseudo2Services, generateCProgram, Pseudo2LanguageMetaData } from 'pseudo2-language';
+import { createPseudo2Services, generateCProgram, generateDirectCProgram, Pseudo2LanguageMetaData } from 'pseudo2-language';
 import chalk from 'chalk';
 import { Command } from 'commander';
 import { extractAstNode } from './util.js';
@@ -86,6 +86,10 @@ export type GenerateCActionOptions = {
     destination?: string;
     /** @brief Enthält den ungeprüften CLI-Wert `contracts` oder `implementation`. */
     runtime?: string;
+    /** Erzeugt native C-Typen ohne Runtime- und VeriFast-Vertraege. */
+    direct?: boolean;
+    /** Aktiviert C-Integer-Overflowprüfstellen unabhängig von Vertragsgrenzen. */
+    checkOverflow?: boolean;
 };
 
 /** @brief Beschreibt Compiler und Zeitlimit des Befehls `run-c`. */
@@ -94,6 +98,8 @@ export type RunCOptions = {
     cc?: string;
     /** @brief Enthält das noch als positive Millisekundenzahl zu prüfende Zeitlimit. */
     timeout?: string;
+    /** Verwendet fuer Pseudo2 den direkten C-Generator. */
+    direct?: boolean;
 };
 
 /**
@@ -111,7 +117,9 @@ export const generateCAction = async (fileName: string, opts: GenerateCActionOpt
     const programAst = await extractAstNode<Program>(fileName, services);
     const generatedFilePath = generateC(programAst, fileName, {
         destination: opts.destination,
-        runtime: parseCRuntime(opts.runtime)
+        runtime: opts.direct ? undefined : parseCRuntime(opts.runtime),
+        direct: opts.direct,
+        checkIntegerOverflow: opts.checkOverflow === true
     });
     console.log(chalk.green(`C code generated successfully: ${generatedFilePath}`));
 };
@@ -139,7 +147,7 @@ export const runCAction = async (fileName: string, opts: RunCOptions): Promise<C
         const services = createPseudo2Services(NodeFileSystem).Pseudo2;
         const programAst = await extractAstNode<Program>(fileName, services);
         const moduleName = path.basename(fileName, extension);
-        const cCode = generateCProgram(programAst, undefined, {
+        const cCode = opts.direct ? generateDirectCProgram(programAst) : generateCProgram(programAst, undefined, {
             moduleName,
             runtime: 'implementation'
         });
@@ -209,6 +217,7 @@ export default function(): void {
         .option('--vf <path>', 'path to verifast.exe; defaults to repo-local verifast-26.01')
         .option('--extra <args...>', 'extra args passed to verifast (optional)')
         .option('--timeout <ms>', 'maximum VeriFast runtime in milliseconds', '60000')
+        .option('--no-overflow-check', 'disable VeriFast arithmetic overflow checking')
         .option('--link', 'enable VeriFast link checking; default verifies generated C only with -c')
         .option('--no-runtime', 'skip verification of the repo-local concrete runtime kernels')
         .description('runs VeriFast on a C file and prints JSON result')
@@ -226,6 +235,8 @@ export default function(): void {
             extra?: string[];
             /** @brief Maximale VeriFast-Laufzeit als CLI-Textwert. */
             timeout?: string;
+            /** @brief Deaktiviert bei `false` VeriFasts Ganzzahl-Overflowprüfung. */
+            overflowCheck?: boolean;
             /** @brief Aktiviert die Linkprüfung, indem der Compile-only-Modus deaktiviert wird. */
             link?: boolean;
             /** @brief Deaktiviert bei `false` die separate Prüfung der konkreten Runtime-Kerne. */
@@ -249,19 +260,23 @@ export default function(): void {
             const runtimeFiles = opts.runtime === false || VERIFIED_RUNTIME_FILES.some(runtime => path.resolve(runtime) === path.resolve(file))
                 ? []
                 : VERIFIED_RUNTIME_FILES;
+            const extraArgs = [
+                ...(opts.extra ?? []),
+                ...(opts.overflowCheck === false ? ['-disable_overflow_check'] : [])
+            ];
             const result = runtimeFiles.length > 0
                 ? await runVeriFastBundle({
                     verifastExe,
                     file,
                     runtimeFiles,
-                    extraArgs: opts.extra ?? [],
+                    extraArgs,
                     compileOnly: opts.link !== true,
                     timeoutMs,
                 })
                 : await runVeriFast({
                     verifastExe,
                     file,
-                    extraArgs: opts.extra ?? [],
+                    extraArgs,
                     compileOnly: opts.link !== true,
                     timeoutMs,
             });
@@ -281,6 +296,8 @@ export default function(): void {
             .argument('<file>', `source file (possible file extensions: ${fileExtensions})`)
             .option('-d, --destination <dir>', 'destination directory of generating')
             .option('--runtime <mode>', 'runtime mode: contracts for VeriFast or implementation for execution', 'contracts')
+            .option('--direct', 'generate readable native C without the Pseudo2 runtime (not VeriFast mode)')
+            .option('--check-overflow', 'emit C integer overflow checks for numeric assignments')
             .description('generates VeriFast-ready C code from a Pseudo2 source file')
             .action(generateCAction);
 
@@ -288,6 +305,7 @@ export default function(): void {
             .command('run-c')
             .argument('<file>', 'Pseudo2 source or runnable C implementation file')
             .option('--cc <path>', 'C compiler command or path; otherwise auto-detect GCC, Clang, or MSVC')
+            .option('--direct', 'generate and run native C without the Pseudo2 runtime')
             .option('--timeout <ms>', 'program timeout in milliseconds', '10000')
             .description('generates implementation C when needed, compiles it, and runs the executable')
             /** @brief Führt `runCAction` aus und überträgt dessen Erfolgsstatus auf den Prozess-Exitcode. */

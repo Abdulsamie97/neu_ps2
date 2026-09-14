@@ -1,0 +1,14 @@
+@requires true
+@ensures result == 1
+func first()
+  return 1
+
+@requires true
+@ensures result == 3
+func second()
+  return 2
+
+@requires true
+@ensures result == 3
+func third()
+  return 3

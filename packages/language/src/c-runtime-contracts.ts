@@ -26,7 +26,8 @@ function withTerminatingVeriFastContracts(source: string): string {
  * Fixpunkte und Heap-Prädikate. Sie enthalten keine ausführbare
  * Implementierung und werden im Runtime-Modus `contracts` eingebettet.
  */
-export const C_RUNTIME_CONTRACTS = withTerminatingVeriFastContracts(String.raw`#include <math.h>
+export const C_RUNTIME_CONTRACTS = withTerminatingVeriFastContracts(String.raw`#include <limits.h>
+#include <math.h>
 //@ #include "nat.gh"
 //@ #include "list.gh"
 #include "vf__floating_point.h"
@@ -249,4 +250,3 @@ int ps2_greater_equal(Ps2Value* left, Ps2Value* right);
 int ps2_equals(Ps2Value* left, Ps2Value* right);
     //@ requires true;
     //@ ensures result == (ps2_model_kind(left) != ps2_model_kind(right) ? 0 : ps2_model_kind(left) == ps2_number_kind ? (ps2_model_integral(left) && ps2_model_integral(right) ? (ps2_model_int(left) == ps2_model_int(right) ? 1 : 0) : (ps2_model_real(left) == ps2_model_real(right) ? 1 : 0)) : ps2_model_kind(left) == ps2_bool_kind ? (ps2_model_bool(left) == ps2_model_bool(right) ? 1 : 0) : ps2_model_kind(left) == ps2_string_kind ? (ps2_model_string_content(left) == ps2_model_string_content(right) ? 1 : 0) : ps2_model_kind(left) == ps2_array_kind || ps2_model_kind(left) == ps2_struct_kind ? (left == right ? 1 : 0) : 1);`);
-

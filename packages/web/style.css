@@ -352,6 +352,107 @@ body.is-resizing-workspace {
 }
 
 /**
+ * @brief Gestaltet Auswahl, Status, SVG-Fläche und Knotendetails des VeriFast-Ausführungsbaums.
+ */
+.verifast-tree-toolbar {
+    align-items: center;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: auto minmax(0, 1fr);
+    margin-top: 10px;
+}
+
+.verifast-tree-toolbar label {
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.verifast-tree-toolbar select {
+    background-color: #252526;
+    border: 1px solid #4b4b52;
+    border-radius: 4px;
+    color: #f2f2f2;
+    font: inherit;
+    min-height: 32px;
+    min-width: 0;
+    padding: 5px 8px;
+}
+
+.verifast-tree-status {
+    color: #b8b8b8;
+    font-size: 12px;
+    min-height: 30px;
+    padding: 9px 0 6px;
+}
+
+.verifast-tree-status.is-error {
+    color: #f48771;
+}
+
+.verifast-option {
+    align-items: center;
+    color: #eeeeee;
+    display: inline-flex;
+    gap: 7px;
+    margin-top: 10px;
+    font-size: 12px;
+}
+
+.verifast-option input {
+    margin: 0;
+}
+
+.verifast-tree-canvas {
+    align-items: flex-start;
+    background-color: #f7f7f7;
+    border: 1px solid #45454b;
+    border-radius: 6px;
+    display: flex;
+    justify-content: center;
+    min-height: 220px;
+    overflow: auto;
+    padding: 16px;
+}
+
+.verifast-tree-canvas:empty::before {
+    align-self: center;
+    color: #666666;
+    content: "No execution tree available.";
+    font-size: 13px;
+}
+
+.verifast-tree-canvas svg {
+    display: block;
+    flex: 0 0 auto;
+    height: auto;
+}
+
+.verifast-tree-canvas g.node {
+    cursor: pointer;
+    outline: none;
+}
+
+.verifast-tree-canvas g.node:hover ellipse,
+.verifast-tree-canvas g.node:focus-visible ellipse,
+.verifast-tree-canvas g.node.is-selected ellipse {
+    stroke: #0e639c;
+    stroke-width: 3px;
+}
+
+.verifast-tree-detail {
+    border-color: #45454b;
+    margin-top: 8px;
+    max-height: 110px;
+    min-height: 0;
+}
+
+.verifast-tree-detail:empty {
+    display: none;
+}
+
+/**
  * @brief Vereinheitlicht Überschriften der Editor- und Ausgabebereiche.
  */
 .pane-header {

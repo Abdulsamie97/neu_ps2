@@ -51,6 +51,7 @@ import {
   isPrintCommand,
   isThrowCommand,
   isCallCommand,
+  isVerificationAnnotation,
   isVerificationStatement,
   isLoopAnnotation
   
@@ -178,6 +179,20 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
 
       if (!parentType.isStruct || parentType.name === '' || parentType.isUnknown()) {
       //  console.log('[ATT SCOPE] receiver type unknown');
+        if (
+          AstUtils.getContainerOfType(c, isVerificationAnnotation) ||
+          AstUtils.getContainerOfType(c, isVerificationStatement) ||
+          AstUtils.getContainerOfType(c, isLoopAnnotation)
+        ) {
+          const name = c.ref?.$refText;
+          const matching = this.collectStructs(c).flatMap(struct =>
+            (struct.children ?? []).filter(isStructAttDeclaration)
+              .filter(attribute => attribute.name === name)
+          );
+          if (matching.length === 1) {
+            return this.scopeFromNodes(matching, attribute => attribute.name);
+          }
+        }
         return EMPTY_SCOPE;
       }
 

@@ -157,6 +157,87 @@ describe('CGenerator', () => {
     expect(c).toContain('//@ assert true;');
   });
 
+  test('supports VeriFast-style comment annotations without semicolons and natural integer contracts', async () => {
+    const source = [
+      '//@ requires 0 < a &*& 0 <= b &*& a*b <= INT_MAX',
+      '//@ ensures result == a*b',
+      'func multByAdd(a, b)',
+      '  var xa = a',
+      '  var res = 0',
+      '  //@ invariant true',
+      '  while (xa > 0)',
+      '    res = res + b',
+      '    xa = xa - 1',
+      '  return res'
+    ].join('\n');
+    const { model, document } = await parseRuntimeProgram(source);
+    const errors = (document.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1);
+    expect(errors.map(error => error.message).join('\n')).toBe('');
+
+    const generated = generateCProgramWithSourceMap(model);
+    expect(generated.code).toMatch(
+      /ps2_model_int\(a_\d+\) \* ps2_model_int\(b_\d+\)\) <= INT_MAX/
+    );
+    expect(generated.code).toMatch(
+      /ps2_model_int\(result\) == \(ps2_model_int\(a_\d+\) \* ps2_model_int\(b_\d+\)\)/
+    );
+    expect(generated.code).toMatch(
+      /\(void\)\(ps2_as_int\(res_\d+\) \+ ps2_as_int\(b_\d+\)\);/
+    );
+    expect(generated.code).toMatch(
+      /ps2_model_kind\(res_\d+\) == ps2_number_kind/
+    );
+    expect(generated.code).toMatch(
+      /ps2_model_integral\(res_\d+\) == true/
+    );
+
+    const overflowLine = generated.code
+      .split(/\r?\n/)
+      .findIndex(line => line.includes('(void)(ps2_as_int')) + 1;
+    expect(generated.sourceMap.find(entry => entry.generatedLine === overflowLine)?.sourceLine).toBe(8);
+  });
+
+  test('emits mapped integer overflow probes on request without INT_MAX contracts', async () => {
+    const source = [
+      '//@ requires 0 < a &*& 0 <= b',
+      '//@ ensures result == a*b',
+      'func multByAdd(a, b)',
+      '  var xa = a',
+      '  var res = 0',
+      '  //@ invariant true',
+      '  while (xa > 0)',
+      '    res = res + b',
+      '    xa = xa - 1',
+      '  return res'
+    ].join('\n');
+    const { model, document } = await parseRuntimeProgram(source);
+    expect((document.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1)).toEqual([]);
+
+    const probe = /\(void\)\(ps2_as_int\(res_\d+\) \+ ps2_as_int\(b_\d+\)\);/;
+    expect(generateCProgram(model)).not.toMatch(probe);
+
+    const generated = generateCProgramWithSourceMap(model, undefined, { checkIntegerOverflow: true });
+    expect(generated.code).toMatch(probe);
+    const probeLine = generated.code.split(/\r?\n/).findIndex(line => probe.test(line)) + 1;
+    expect(generated.sourceMap.find(entry => entry.generatedLine === probeLine)?.sourceLine).toBe(8);
+
+    expect(generateCProgram(model, undefined, {
+      runtime: 'implementation',
+      checkIntegerOverflow: true
+    })).not.toMatch(probe);
+  });
+
+  test('rejects semicolons after Pseudo2 verification annotations', async () => {
+    const { document } = await parseRuntimeProgram(`
+      //@ requires true;
+      func invalid()
+        return 1
+    `);
+    const errors = (document.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1);
+
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
   test('creates a C-to-Pseudo2 source map for verification statements', async () => {
     const source = [
       '@requires true',
@@ -250,12 +331,51 @@ describe('CGenerator', () => {
         return 1
     `);
 
-    expect(c).toContain('//@ ensures (result != 0);');
+    expect(c).toContain('//@ ensures (!(ps2_model_kind(result) == ps2_null_kind));');
     expect(c).toContain('//@ terminates;');
     expect(c).toContain('//@ assume(true);');
     expect(c).toContain('//@ open P();');
     expect(c).toContain('//@ close P();');
     expect(c).toContain('//@ leak P();');
+  });
+
+  test('projects natural scalar annotation comparisons onto the VeriFast value model', async () => {
+    const c = await generateC(`
+      @ensures result == 5
+      func five()
+        return 5
+
+      @ensures result == true
+      func yes()
+        return true
+
+      @ensures result == "hello"
+      func greeting()
+        return "hello"
+
+      @ensures result == null
+      func nothing()
+        return null
+
+      @ensures result >= 5
+      func atLeastFive()
+        return 6
+
+      @requires x == 5
+      @ensures result == 5
+      func identityFive(x)
+        @assert x == 5
+        return x
+    `);
+
+    expect(c).toContain('(ps2_model_kind(result) == ps2_number_kind) && (ps2_model_integral(result) == true) && (ps2_model_int(result) == 5)');
+    expect(c).toContain('(ps2_model_kind(x_0) == ps2_number_kind) && (ps2_model_integral(x_0) == true) && (ps2_model_int(x_0) == 5)');
+    expect(c).toContain('(ps2_model_kind(result) == ps2_bool_kind) && (ps2_model_bool(result) == true)');
+    expect(c).toContain('(ps2_model_kind(result) == ps2_string_kind) && (ps2_model_string_content(result) == cons(104, cons(101, cons(108, cons(108, cons(111, nil))))))');
+    expect(c).toContain('(ps2_model_kind(result) == ps2_null_kind)');
+    expect(c).toContain('(ps2_model_kind(result) == ps2_number_kind) && (ps2_model_integral(result) == true) && (ps2_model_int(result) >= 5)');
+    expect(c).toContain('//@ assert ((ps2_model_kind(x_0) == ps2_number_kind) && (ps2_model_integral(x_0) == true) && (ps2_model_int(x_0) == 5));');
+    expect(c).not.toContain('//@ ensures (result == 5);');
   });
 
   test('emits structured VeriFast model helpers', async () => {

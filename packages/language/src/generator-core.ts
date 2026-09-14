@@ -65,6 +65,8 @@ import {
   isParameterDecl,
   isPrintCommand,
   isResultExpr,
+  isUndefinedSpecExpr,
+  isSpecConstantExpr,
   isSpecPredicateExpr,
   isReturnStmt,
   isStringLiteral,
@@ -696,10 +698,12 @@ function generateAssignment(
  */
 function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_STATE): string {
   if (isIntLiteral(expr)) return String(expr.value);
+  if (isSpecConstantExpr(expr)) return expr.value === 'INT_MAX' ? '2147483647' : '(-2147483648)';
   if (isBoolLiteral(expr)) return String(expr.value);
   if (isStringLiteral(expr)) return JSON.stringify(expr.value);
   if (isNullLiteral(expr)) return 'null';
   if (isResultExpr(expr)) throw new Error('result is only supported inside VeriFast annotations.');
+  if (isUndefinedSpecExpr(expr)) throw new Error('undefined is only supported inside VeriFast annotations.');
   if (isSpecPredicateExpr(expr)) throw new Error(`${expr.kind} is only supported inside VeriFast annotations.`);
   if (isArrayLiteral(expr)) return genArrayLiteral(expr, context, state);
 

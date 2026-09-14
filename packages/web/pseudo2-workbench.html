@@ -38,7 +38,7 @@
           <button type="button" id="button-execute">Run JavaScript</button>
           <button type="button" id="button-generate-c">Generate &amp; Verify C</button>
           <button type="button" id="button-run-c">Run C</button>
-          <button type="button" id="button-save-c">Save VeriFast C</button>
+          <button type="button" id="button-save-c">Save C</button>
           <button type="button" id="button-run-verifast">Verify C</button>
           <button type="button" id="button-summary">Summary</button>
           <button type="button" id="button-code">Show Source</button>
@@ -121,6 +121,13 @@
             @brief Zeigt native C-Ausgabe, VeriFast-C, ausführbaren C-Code und Verifikationsergebnis getrennt an.
           -->
           <div id="c-view" class="output-pane c-pane result-view" role="tabpanel" aria-labelledby="button-view-c" hidden>
+            <div class="c-mode-toolbar">
+              <label for="c-mode-select">C generator</label>
+              <select id="c-mode-select">
+                <option value="verifast">VeriFast C (runtime)</option>
+                <option value="direct">Direct C (no runtime)</option>
+              </select>
+            </div>
             <section class="output-section output-primary">
               <div class="pane-header">C Program Output</div>
               <pre id="c-outputspan"></pre>
@@ -128,22 +135,52 @@
 
             <section class="output-section">
               <details open>
-                <summary>Generated C for VeriFast</summary>
+                <summary id="c-source-title">Generated C for VeriFast</summary>
                 <pre id="cspan"></pre>
               </details>
             </section>
 
-            <section class="output-section">
+            <section class="output-section" id="c-runtime-section">
               <details>
                 <summary>Runnable C Implementation</summary>
                 <pre id="c-runtimespan"></pre>
               </details>
             </section>
 
-            <section class="output-section">
+              <section class="output-section" id="c-verifast-section">
+                <details open>
+                  <summary>VeriFast Verification</summary>
+                  <label class="verifast-option" for="verifast-check-overflow">
+                    <input type="checkbox" id="verifast-check-overflow" checked>
+                    Check arithmetic overflow
+                  </label>
+                  <pre id="verifastspan"></pre>
+                </details>
+            </section>
+
+            <!--!
+              @brief Zeigt den auf Pseudo2-Quellschritte projizierten VeriFast-Ausführungsbaum.
+
+              Die Auswahlliste trennt die verifizierten Funktionen. Die projizierten
+              Schritte behalten Kontrollflussverzweigungen, lassen aber technische
+              Runtime- und Wrapperknoten aus. Ein Klick zeigt den Quellschritt.
+            -->
+            <section class="output-section" id="c-verifast-tree-section">
               <details open>
-                <summary>VeriFast Verification</summary>
-                <pre id="verifastspan"></pre>
+                <summary>Pseudo2 Verification Tree</summary>
+                <div class="verifast-tree-toolbar">
+                  <label for="verifast-tree-select">Verification</label>
+                  <select id="verifast-tree-select" disabled>
+                    <option>No execution tree</option>
+                  </select>
+                </div>
+                <div id="verifast-tree-status" class="verifast-tree-status" aria-live="polite"></div>
+                <div
+                  id="verifast-tree-canvas"
+                  class="verifast-tree-canvas"
+                  aria-label="VeriFast execution tree projected onto Pseudo2"
+                ></div>
+                <pre id="verifast-tree-detail" class="verifast-tree-detail"></pre>
               </details>
             </section>
           </div>

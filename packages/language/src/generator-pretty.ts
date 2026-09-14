@@ -49,7 +49,9 @@ import {
   isOr,
   isPrintCommand,
   isResultExpr,
+  isUndefinedSpecExpr,
   isReturnStmt,
+  isSpecConstantExpr,
   isSpecPredicateExpr,
   isStringLiteral,
   isStringType,
@@ -370,7 +372,7 @@ function printExpr(expr: Expr): string {
   }
 
   if (isAnd(expr)) {
-    return printBinaryChain(expr.left, expr.right, expr.right.map(() => '&&'));
+    return printBinaryChain(expr.left, expr.right, expr.op);
   }
 
   if (isEquality(expr) || isComparison(expr) || isAddition(expr) || isMultiplication(expr) || isExponentiation(expr)) {
@@ -393,6 +395,10 @@ function printExpr(expr: Expr): string {
     return String(expr.value);
   }
 
+  if (isSpecConstantExpr(expr)) {
+    return expr.value;
+  }
+
   if (isStringLiteral(expr)) {
     return JSON.stringify(expr.value);
   }
@@ -407,6 +413,9 @@ function printExpr(expr: Expr): string {
 
   if (isResultExpr(expr)) {
     return 'result';
+  }
+  if (isUndefinedSpecExpr(expr)) {
+    return 'undefined';
   }
 
   if (isSpecPredicateExpr(expr)) {

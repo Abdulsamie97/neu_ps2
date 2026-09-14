@@ -1,4 +1,4 @@
 @requires true
-@ensures vf_string(result, "world")
+@ensures result == "world"
 func concatenate()
   return "hel" + "lo"

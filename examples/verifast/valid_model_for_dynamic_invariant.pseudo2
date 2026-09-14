@@ -1,8 +1,8 @@
-@requires vf_integer(start) && vf_integer(end) && vf_integer(step)
-@ensures vf_integer(result)
+@requires start == start && end == end && step == step
+@ensures result == 1
 func countWithStep(start, end, step)
-  @invariant vf_integer(i)
+  @invariant i == i
   for i = start to end by step
-    @assert vf_integer(i)
+    @assert i == i
 
   return 1

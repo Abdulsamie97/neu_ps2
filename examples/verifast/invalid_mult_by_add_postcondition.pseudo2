@@ -1,0 +1,15 @@
+//@ requires 0 < a &*& 0 <= b
+//@ ensures result == a*b
+func multByAdd(a, b)
+    var xa = a
+    var res = 0
+    //@ invariant true
+    while (xa > 0)
+        res = res + b
+        xa = xa - 1
+    return res
+
+var i = 5
+var j = 7
+var z = multByAdd(i, j)
+print z

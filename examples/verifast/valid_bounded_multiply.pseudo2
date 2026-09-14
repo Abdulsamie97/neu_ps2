@@ -1,0 +1,9 @@
+//@ requires 0 <= a &*& 0 <= b &*& INT_MIN <= a*b &*& a*b <= INT_MAX
+//@ ensures result == a*b
+func boundedMultiply(a, b)
+    var res = 0
+    res = a*b
+    return res
+
+var z = boundedMultiply(5, 7)
+print z

@@ -27,7 +27,8 @@ function withTrivialVeriFastContracts(source: string): string {
  * Sie implementiert Werte, Arrays, Structs, Operatoren, Ausgabe und
  * Fehlerbehandlung und wird im Runtime-Modus `implementation` eingebettet.
  */
-export const C_RUNTIME_IMPLEMENTATION = withTrivialVeriFastContracts(String.raw`#include <math.h>
+export const C_RUNTIME_IMPLEMENTATION = withTrivialVeriFastContracts(String.raw`#include <limits.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -503,4 +504,3 @@ static void ps2_preserve_array_ownership(Ps2Value* value) {
 static void ps2_preserve_struct_ownership(Ps2Value* value) {
   (void)value;
 }`);
-

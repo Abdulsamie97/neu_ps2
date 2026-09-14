@@ -1,24 +1,24 @@
 @requires true
-@ensures vf_bool(result)
+@ensures result == true
 func andTrue()
   return true && true
 
 @requires true
-@ensures !vf_bool(result)
+@ensures result == false
 func andFalse()
   return true && false
 
 @requires true
-@ensures vf_bool(result)
+@ensures result == true
 func orTrue()
   return false || true
 
 @requires true
-@ensures !vf_bool(result)
+@ensures result == false
 func notTrue()
   return !true
 
-@requires vf_number(x)
-@ensures vf_bool(result) == vf_truthy(x)
+@requires x >= INT_MIN
+@ensures (result == true) == !!x
 func normalizeTruthiness(x)
   return !(!x)

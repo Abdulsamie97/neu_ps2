@@ -1,0 +1,37 @@
+@requires true
+@ensures result == 5
+func five()
+  return 5
+
+@requires true
+@ensures result == true
+func yes()
+  return true
+
+@requires true
+@ensures result == "hello"
+func greeting()
+  return "hello"
+
+@requires true
+@ensures result == null
+func nothing()
+  return null
+
+@requires true
+@ensures result != null
+func something()
+  return 1
+
+@requires true
+@ensures result >= 5
+func atLeastFive()
+  return 6
+
+@requires x == 5
+@ensures result == 5
+func identityFive(x)
+  @assert x == 5
+  return x
+
+print identityFive(5)

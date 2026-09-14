@@ -1,5 +1,5 @@
-@invariant vf_integer(i)
+@invariant i >= 1
 for i = 1 to 3
-  @assert vf_integer(i)
+  @assert i >= 1
 
 print "done"

@@ -31,6 +31,7 @@ import type {
   SpecPredicateExpr,
   //Exponentiation
 } from '../generated/ast.js';
+import { canonicalSpecPredicateKind } from '../spec-predicates.js';
 
 import {
   isOr,
@@ -64,6 +65,7 @@ import {
   isStructType,
   isStructAttDeclaration,
   isArrayLiteral,
+  isSpecConstantExpr,
   isSpecPredicateExpr
 } from '../generated/ast.js';
 
@@ -190,6 +192,7 @@ export class Pseudo2TypeComputer {
     // ---- literals / grouping ----
     if (isGrouping(e)) return this.typeFor(e.value, ctx);
     if (isIntLiteral(e)) return TYPE_NUM;
+    if (isSpecConstantExpr(e)) return TYPE_NUM;
     if (isBoolLiteral(e)) return TYPE_BOOL;
     if (isStringLiteral(e)) return TYPE_STRING;
     if (isNullLiteral(e)) return TYPE_STRUCT_UNKNOWN;
@@ -265,10 +268,11 @@ export class Pseudo2TypeComputer {
    * @return `num` für Längen-/Zahlprädikate, unbekannt für Element-/Feldzugriff, sonst `bool`.
    */
   private handleSpecPredicate(e: SpecPredicateExpr): Pseudo2Type {
-    if (e.kind === 'vf_len' || e.kind === 'vf_int' || e.kind === 'vf_real' || e.kind === 'vf_ratio') {
+    const kind = canonicalSpecPredicateKind(e.kind);
+    if (kind === 'vf_len' || kind === 'vf_int' || kind === 'vf_real' || kind === 'vf_ratio') {
       return TYPE_NUM;
     }
-    if (e.kind === 'vf_elem' || e.kind === 'vf_field') {
+    if (kind === 'vf_elem' || kind === 'vf_field') {
       return TYPE_UNKNOWN;
     }
     return TYPE_BOOL;

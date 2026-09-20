@@ -1,0 +1,9 @@
+struct Box
+  num value
+
+var values = [2, 4]
+//@ assert values[1] == 2
+var item = new Box
+item.value = 5
+//@ assert item.value == 5
+print item.value

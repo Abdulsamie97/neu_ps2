@@ -25,6 +25,8 @@ import {
     createPseudo2Services,
     generateCProgram,
     generateCProgramWithSourceMap,
+    generateDirectCProgram,
+    generateDirectCProgramWithSourceMap,
     generateGraphvizArtifacts,
     generateProgram,
     getSummaryFromCode,
@@ -55,6 +57,10 @@ let lastGeneratedCCode = '';
 let lastGeneratedCExecutableCode = '';
 /** @brief Zeilenabbildung des zuletzt erzeugten VeriFast-C-Codes auf den Pseudo2-Editor. */
 let lastGeneratedCSourceMap: CSourceMapEntry[] = [];
+/** @brief Editorstand, aus dem der zuletzt gespeicherte C-Code generiert wurde. */
+let lastGeneratedCSourceText = '';
+/** @brief Ausgewaehlte C-Ausgabeform; beide Varianten koennen mit VeriFast geprueft werden. */
+let cGeneratorMode: 'verifast' | 'direct' = 'verifast';
 /** @brief Aktuell verfügbare AST-, Abhängigkeits- und Kontrollflussgraphen. */
 let graphArtifacts: GeneratedArtifact[] = [];
 /** @brief Zwischengespeicherte asynchrone Initialisierung der Viz.js-Instanz. */
@@ -394,7 +400,7 @@ const updateExecution = async () => {
  * @brief Erzeugt C-Code aus dem aktuellen Editorinhalt und startet danach VeriFast.
  *
  * Die C-/VeriFast-Ansicht wird zuerst aktiviert. Eine Verifikation erfolgt nur,
- * wenn Parsing, Validierung und beide C-Generatorvarianten erfolgreich waren.
+ * wenn Parsing, Validierung und die aktuell ausgewaehlte C-Generierung erfolgreich waren.
  */
 const updateCGeneration = async () => {
     await showResultView('c');
@@ -402,6 +408,24 @@ const updateCGeneration = async () => {
     if (generated) {
         await verifyLastGeneratedCCode();
     }
+};
+
+/** Schaltet C-Ausgabe und den nur im Runtime-Modus benoetigten Implementierungsbereich um. */
+const changeCGeneratorMode = async () => {
+    cGeneratorMode = document.querySelector<HTMLSelectElement>('#c-mode-select')?.value === 'direct'
+        ? 'direct' : 'verifast';
+    const direct = cGeneratorMode === 'direct';
+    const runtimeSection = document.getElementById('c-runtime-section');
+    if (runtimeSection) runtimeSection.hidden = direct;
+    const generateButton = document.querySelector<HTMLButtonElement>('#button-generate-c');
+    if (generateButton) generateButton.textContent = 'Generate & Verify C';
+    setTextContent('#c-source-title', direct ? 'Generated Direct C' : 'Generated C for VeriFast');
+    lastGeneratedCCode = '';
+    lastGeneratedCExecutableCode = '';
+    lastGeneratedCSourceMap = [];
+    lastGeneratedCSourceText = '';
+    setTextContent('#c-outputspan', '');
+    await updateCGeneration();
 };
 
 /**
@@ -580,22 +604,34 @@ function setGraphStatus(message: string, error = false): void {
  * @brief Erzeugt aus dem Editorinhalt getrennten VeriFast- und ausführbaren C-Code.
  *
  * Löscht zuerst alle vorherigen C-Ergebnisse und VeriFast-Marker. Nach erfolgreicher
- * Pseudo2-Validierung erzeugt der Generator eine Vertragsvariante samt Source-Map
- * sowie eine zweite Variante mit konkreter Runtime. Beide Texte und die Map werden
- * für Speichern, native Ausführung und Verifikation zwischengespeichert.
+ * Pseudo2-Validierung erzeugt der Runtime-Modus eine Vertragsvariante samt Source-Map
+ * sowie eine zweite Variante mit konkreter Runtime. Direct C verwendet ebenfalls
+ * getrennte Texte: abstrakte Hilfsvertraege fuer VeriFast und konkrete native
+ * Hilfsimplementierungen fuer die Ausfuehrung. Texte und Map werden fuer Speichern,
+ * native Ausfuehrung und Verifikation zwischengespeichert.
  *
- * @return `true`, wenn beide C-Varianten vollständig erzeugt wurden, sonst `false`.
+ * Mit `verification` wird nur die abstrakte VeriFast-Variante, mit `execution` nur
+ * die konkret kompilierbare Runtime erzeugt. Dadurch bleibt der ausfuehrbare Direct-C-
+ * Modus auch fuer Gleitkommaausdruecke nutzbar, deren Vertragsmodell noch nicht existiert.
+ *
+ * @param target Gewuenschte Kombination aus Verifikations- und Ausfuehrungscode.
+ * @return `true`, wenn alle fuer den ausgewaehlten Modus benoetigten Varianten erzeugt wurden, sonst `false`.
  */
-const generateCCodeFromEditor = async (): Promise<boolean> => {
+const generateCCodeFromEditor = async (
+    target: 'both' | 'verification' | 'execution' = 'both'
+): Promise<boolean> => {
+    const needsVerificationCode = target !== 'execution';
+    const needsExecutableCode = target !== 'verification';
     setTextContent('#c-outputspan', '');
-    setTextContent('#cspan', 'Generating C...');
-    setTextContent('#c-runtimespan', 'Generating runnable C...');
+    setTextContent('#cspan', needsVerificationCode ? 'Generating C...' : 'Generating runnable C...');
+    setTextContent('#c-runtimespan', needsExecutableCode ? 'Generating runnable C...' : '');
     setTextContent('#verifastspan', '');
     clearVeriFastEditorDiagnostics();
     clearVeriFastExecutionTree('Verify the generated C code to display its execution tree.');
     lastGeneratedCCode = '';
     lastGeneratedCExecutableCode = '';
     lastGeneratedCSourceMap = [];
+    lastGeneratedCSourceText = '';
 
     if (!editorApp?.getEditor()) {
         setTextContent('#cspan', 'Editor is not started yet.');
@@ -616,17 +652,36 @@ const generateCCodeFromEditor = async (): Promise<boolean> => {
         }
 
         const moduleName = getSuggestedCFileName();
-        const generated = generateCProgramWithSourceMap(program, undefined, {
-            moduleName,
-            checkIntegerOverflow: true
-        });
-        lastGeneratedCCode = generated.code;
-        lastGeneratedCExecutableCode = generateCProgram(program, undefined, {
-            moduleName,
-            runtime: 'implementation'
-        });
-        lastGeneratedCSourceMap = generated.sourceMap;
-        setTextContent('#cspan', lastGeneratedCCode);
+        if (cGeneratorMode === 'direct') {
+            if (needsVerificationCode) {
+                const generated = generateDirectCProgramWithSourceMap(program, { runtime: 'contracts' });
+                lastGeneratedCCode = generated.code;
+                lastGeneratedCSourceMap = generated.sourceMap;
+            }
+            if (needsExecutableCode) {
+                lastGeneratedCExecutableCode = generateDirectCProgram(program, { runtime: 'implementation' });
+            }
+            lastGeneratedCSourceText = currentCode;
+            setTextContent('#cspan', lastGeneratedCCode || lastGeneratedCExecutableCode);
+            setTextContent('#c-runtimespan', lastGeneratedCExecutableCode);
+            return true;
+        }
+        if (needsVerificationCode) {
+            const generated = generateCProgramWithSourceMap(program, undefined, {
+                moduleName,
+                checkIntegerOverflow: true
+            });
+            lastGeneratedCCode = generated.code;
+            lastGeneratedCSourceMap = generated.sourceMap;
+        }
+        if (needsExecutableCode) {
+            lastGeneratedCExecutableCode = generateCProgram(program, undefined, {
+                moduleName,
+                runtime: 'implementation'
+            });
+        }
+        lastGeneratedCSourceText = currentCode;
+        setTextContent('#cspan', lastGeneratedCCode || lastGeneratedCExecutableCode);
         setTextContent('#c-runtimespan', lastGeneratedCExecutableCode);
         return true;
     } catch (error) {
@@ -639,7 +694,7 @@ const generateCCodeFromEditor = async (): Promise<boolean> => {
 /**
  * @brief Kompiliert und startet die ausführbare C-Variante über den lokalen Vite-Endpunkt.
  *
- * Erzeugt den C-Code immer frisch aus dem Editor, deaktiviert während der Anfrage
+ * Erzeugt ausschliesslich die ausfuehrbare C-Variante frisch aus dem Editor, deaktiviert waehrend der Anfrage
  * den Run-Button und sendet Code, Dateiname und Zeitlimit als JSON an `/api/run-c`.
  * HTTP-Fehler, ungültige Antworten und nicht verfügbare lokale Endpunkte werden im
  * C-Ausgabebereich angezeigt. Der Button wird in einem `finally`-Block stets reaktiviert.
@@ -650,9 +705,9 @@ const runCFromWeb = async () => {
     disableElement('button-run-c', true);
 
     try {
-        const generated = await generateCCodeFromEditor();
+        const generated = await generateCCodeFromEditor('execution');
         if (!generated || !lastGeneratedCExecutableCode) {
-            setTextContent('#c-outputspan', 'No runnable C code generated.');
+            setTextContent('#c-outputspan', document.querySelector('#cspan')?.textContent || 'No runnable C code generated.');
             return;
         }
 
@@ -664,7 +719,8 @@ const runCFromWeb = async () => {
             },
             body: JSON.stringify({
                 code: lastGeneratedCExecutableCode,
-                fileName: getSuggestedCFileName(),
+                fileName: cGeneratorMode === 'direct'
+                    ? getSuggestedCFileName().replace(/\.c$/, '.direct.c') : getSuggestedCFileName(),
                 timeoutMs: 10_000
             })
         });
@@ -690,12 +746,12 @@ const runCFromWeb = async () => {
  * @brief Stellt VeriFast-C-Code sicher und delegiert dessen Prüfung an die zentrale Verifikationsfunktion.
  *
  * Bereits erzeugter Vertragscode wird wiederverwendet. Fehlt er, versucht die
- * Funktion zuerst eine vollständige C-Generierung und beendet sich bei deren Fehler.
+ * Funktion zuerst gezielt die Vertragsvariante und beendet sich bei deren Fehler.
  */
 const runVeriFastFromWeb = async () => {
     await showResultView('c');
-    if (!lastGeneratedCCode) {
-        const generated = await generateCCodeFromEditor();
+    if (!lastGeneratedCCode || lastGeneratedCSourceText !== getCurrentCode()) {
+        const generated = await generateCCodeFromEditor('verification');
         if (!generated) {
             return;
         }
@@ -719,6 +775,8 @@ const runVeriFastFromWeb = async () => {
  */
 const verifyLastGeneratedCCode = async () => {
     await showResultView('c');
+    const requestedCode = lastGeneratedCCode;
+    const requestedMode = cGeneratorMode;
     setTextContent('#verifastspan', 'Running VeriFast...');
     clearVeriFastExecutionTree('Running VeriFast...');
 
@@ -730,6 +788,7 @@ const verifyLastGeneratedCCode = async () => {
             },
             body: JSON.stringify({
                 code: lastGeneratedCCode,
+                direct: cGeneratorMode === 'direct',
                 sourceCode: getCurrentCode(),
                 checkOverflow: document.querySelector<HTMLInputElement>('#verifast-check-overflow')?.checked !== false,
                 fileName: getSuggestedCFileName(),
@@ -739,6 +798,7 @@ const verifyLastGeneratedCCode = async () => {
         });
         const text = await response.text();
         const result = JSON.parse(text) as VeriFastApiResult;
+        if (cGeneratorMode !== requestedMode || lastGeneratedCCode !== requestedCode) return;
 
         if (!response.ok) {
             setTextContent('#verifastspan', `VeriFast request failed (${response.status}):\n${formatValue(result)}`);
@@ -761,24 +821,30 @@ const verifyLastGeneratedCCode = async () => {
 };
 
 /**
- * @brief Speichert den zuletzt erzeugten VeriFast-C-Code über Dateidialog oder Download.
+ * @brief Speichert den zum ausgewaehlten Generator passenden C-Code ueber Dateidialog oder Download.
  *
- * Falls noch kein C-Code existiert, wird er zuerst aus dem aktuellen Editorinhalt
- * erzeugt. Die File-System-Access-API erhält einen `.c`-Filter; als Fallback dient
+ * Direct C speichert die konkret kompilierbare Implementierungsvariante, waehrend
+ * der Runtime-Generator seinen VeriFast-Vertragscode speichert. Falls die passende
+ * Variante fehlt, wird nur diese aus dem aktuellen Editorinhalt erzeugt. Die
+ * File-System-Access-API erhaelt einen `.c`-Filter; als Fallback dient
  * ein Blob-Download. Abbruch, Erfolg und Fehler erscheinen im gemeinsamen Speicherstatus.
  */
 const saveCurrentCCode = async () => {
     await showResultView('c');
-    if (!lastGeneratedCCode) {
-        await generateCCodeFromEditor();
+    const direct = cGeneratorMode === 'direct';
+    let codeToSave = direct ? lastGeneratedCExecutableCode : lastGeneratedCCode;
+    if (!codeToSave || lastGeneratedCSourceText !== getCurrentCode()) {
+        await generateCCodeFromEditor(direct ? 'execution' : 'verification');
+        codeToSave = direct ? lastGeneratedCExecutableCode : lastGeneratedCCode;
     }
 
-    if (!lastGeneratedCCode) {
+    if (!codeToSave) {
         setSaveStatus('No C code generated.');
         return;
     }
 
-    const suggestedName = getSuggestedCFileName();
+    const suggestedName = direct
+        ? getSuggestedCFileName().replace(/\.c$/, '.direct.c') : getSuggestedCFileName();
 
     try {
         const saveFilePicker = (window as Window & {
@@ -798,13 +864,13 @@ const saveCurrentCCode = async () => {
                 ]
             });
             const writable = await fileHandle.createWritable();
-            await writable.write(lastGeneratedCCode);
+            await writable.write(codeToSave);
             await writable.close();
             setSaveStatus(`Saved: ${fileHandle.name}`);
             return;
         }
 
-        downloadCode(lastGeneratedCCode, suggestedName);
+        downloadCode(codeToSave, suggestedName);
         setSaveStatus(`Downloaded: ${suggestedName}`);
     } catch (error) {
         if (isAbortError(error)) {
@@ -1725,6 +1791,7 @@ export const runDsl = async () => {
         document.querySelector('#button-save')?.addEventListener('click', saveCurrentCode);
         document.querySelector('#button-execute')?.addEventListener('click', updateExecution);
         document.querySelector('#button-generate-c')?.addEventListener('click', updateCGeneration);
+        document.querySelector('#c-mode-select')?.addEventListener('change', () => void changeCGeneratorMode());
         document.querySelector('#button-run-c')?.addEventListener('click', runCFromWeb);
         document.querySelector('#button-save-c')?.addEventListener('click', saveCurrentCCode);
         document.querySelector('#button-run-verifast')?.addEventListener('click', runVeriFastFromWeb);

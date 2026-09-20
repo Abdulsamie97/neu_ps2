@@ -1,0 +1,9 @@
+//@ requires n > 0
+//@ ensures A[1] == 7
+func setFirst(A[1..n])
+  A[1] = 7
+
+var values = [2, 4]
+call setFirst(values)
+//@ assert values[1] == 7
+print values[1]

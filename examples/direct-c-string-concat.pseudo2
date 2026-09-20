@@ -1,0 +1,7 @@
+//@ ensures result == "hello world"
+func message()
+  return "hello" + " " + "world"
+
+var text = message()
+//@ assert text == "hello world"
+print text

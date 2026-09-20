@@ -1313,19 +1313,17 @@ export class Pseudo2Validator {
   }
 
   /**
-   * Beschränkt die Ausgabe von `print` auf skalare Pseudo2-Basistypen.
-   * @param node Zu prüfendes print-Kommando.
-   * @param accept Empfänger für nicht druckbare Typen.
+   * Akzeptiert jeden Pseudo2-Wert fuer `print`.
+   *
+   * Skalare, Arrays und Struct-Referenzen besitzen sowohl im JavaScript- als auch
+   * im Direct-C-Generator eine definierte Ausgabe. Unbekannte Typen werden bereits
+   * durch die jeweils ursächliche Typ- oder Referenzdiagnose gemeldet.
+   *
+   * @param _node Zu pruefendes print-Kommando.
+   * @param _accept Empfaenger; fuer gueltige Ausdruckstypen wird keine Diagnose erzeugt.
    */
-  checkPrintCommand(node: PrintCommand, accept: ValidationAcceptor): void {
-    const t = this.types.typeFor(node.param);
-    if (!t.isUnknown() && !t.isBaseType()) {
-      accept('error', `print erwartet einen Basistyp, ist aber '${t.asString()}'.`, {
-        node,
-        property: 'param',
-        code: PRINT_EXPECTS_BASE_TYPE
-      });
-    }
+  checkPrintCommand(_node: PrintCommand, _accept: ValidationAcceptor): void {
+    // Alle durch den Typcomputer darstellbaren Werte sind ausgebbar.
   }
 
   /**

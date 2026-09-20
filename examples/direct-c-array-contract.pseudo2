@@ -1,0 +1,7 @@
+//@ requires n > 0 &*& A[1] == 2
+//@ ensures result == A[1]
+func first(A[1..n])
+  return A[1]
+
+var values = [2, 4]
+print first(values)

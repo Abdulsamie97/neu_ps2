@@ -5,7 +5,7 @@
  */
 
 import type { Program } from 'pseudo2-language';
-import { createPseudo2Services, generateCProgram, generateDirectCProgram, Pseudo2LanguageMetaData } from 'pseudo2-language';
+import { createPseudo2Services, DirectCGenerationError, generateCProgram, generateDirectCProgram, Pseudo2LanguageMetaData } from 'pseudo2-language';
 import chalk from 'chalk';
 import { Command } from 'commander';
 import { extractAstNode } from './util.js';
@@ -86,7 +86,7 @@ export type GenerateCActionOptions = {
     destination?: string;
     /** @brief Enthält den ungeprüften CLI-Wert `contracts` oder `implementation`. */
     runtime?: string;
-    /** Erzeugt native C-Typen ohne Runtime- und VeriFast-Vertraege. */
+    /** @brief Erzeugt native C-Typen ohne Pseudo2-Runtime, aber mit nativen VeriFast-Vertraegen. */
     direct?: boolean;
     /** Aktiviert C-Integer-Overflowprüfstellen unabhängig von Vertragsgrenzen. */
     checkOverflow?: boolean;
@@ -117,7 +117,7 @@ export const generateCAction = async (fileName: string, opts: GenerateCActionOpt
     const programAst = await extractAstNode<Program>(fileName, services);
     const generatedFilePath = generateC(programAst, fileName, {
         destination: opts.destination,
-        runtime: opts.direct ? undefined : parseCRuntime(opts.runtime),
+        runtime: parseCRuntime(opts.runtime),
         direct: opts.direct,
         checkIntegerOverflow: opts.checkOverflow === true
     });
@@ -128,8 +128,9 @@ export const generateCAction = async (fileName: string, opts: GenerateCActionOpt
  * @brief Führt entweder vorhandenen C-Code oder eine Pseudo2-Datei über die C-Runtime aus.
  *
  * Eine `.c`-Datei wird direkt kompiliert. Für eine Pseudo2-Datei wird zunächst
- * ausführbarer C-Code mit der Runtime-Variante `implementation` im Speicher erzeugt.
- * Nicht unterstützte Dateiendungen liefern ein strukturiertes Fehlerergebnis.
+ * ausführbarer C-Code mit der Runtime-Variante `implementation` oder bei `--direct`
+ * natives C ohne Pseudo2-Runtime im Speicher erzeugt. Nicht unterstützte
+ * Dateiendungen liefern ein strukturiertes Fehlerergebnis.
  * Das Ergebnis wird in allen Fällen als JSON ausgegeben.
  *
  * @param fileName Pfad zu einer Pseudo2- oder C-Datei.
@@ -147,7 +148,7 @@ export const runCAction = async (fileName: string, opts: RunCOptions): Promise<C
         const services = createPseudo2Services(NodeFileSystem).Pseudo2;
         const programAst = await extractAstNode<Program>(fileName, services);
         const moduleName = path.basename(fileName, extension);
-        const cCode = opts.direct ? generateDirectCProgram(programAst) : generateCProgram(programAst, undefined, {
+        const cCode = opts.direct ? generateDirectCProgram(programAst, { runtime: 'implementation' }) : generateCProgram(programAst, undefined, {
             moduleName,
             runtime: 'implementation'
         });
@@ -257,7 +258,7 @@ export default function(): void {
                 process.exit(2);
             }
 
-            const runtimeFiles = opts.runtime === false || VERIFIED_RUNTIME_FILES.some(runtime => path.resolve(runtime) === path.resolve(file))
+            const runtimeFiles = opts.runtime === false || file.toLowerCase().endsWith('.direct.c') || VERIFIED_RUNTIME_FILES.some(runtime => path.resolve(runtime) === path.resolve(file))
                 ? []
                 : VERIFIED_RUNTIME_FILES;
             const extraArgs = [
@@ -296,10 +297,18 @@ export default function(): void {
             .argument('<file>', `source file (possible file extensions: ${fileExtensions})`)
             .option('-d, --destination <dir>', 'destination directory of generating')
             .option('--runtime <mode>', 'runtime mode: contracts for VeriFast or implementation for execution', 'contracts')
-            .option('--direct', 'generate readable native C without the Pseudo2 runtime (not VeriFast mode)')
+            .option('--direct', 'generate readable native C with native VeriFast contracts and no Pseudo2 runtime')
             .option('--check-overflow', 'emit C integer overflow checks for numeric assignments')
             .description('generates VeriFast-ready C code from a Pseudo2 source file')
-            .action(generateCAction);
+            .action(async (file: string, opts: GenerateCActionOptions) => {
+                try {
+                    await generateCAction(file, opts);
+                } catch (error) {
+                    if (!(error instanceof DirectCGenerationError)) throw error;
+                    console.error(error.message);
+                    process.exitCode = 1;
+                }
+            });
 
         program
             .command('run-c')
@@ -310,8 +319,14 @@ export default function(): void {
             .description('generates implementation C when needed, compiles it, and runs the executable')
             /** @brief Führt `runCAction` aus und überträgt dessen Erfolgsstatus auf den Prozess-Exitcode. */
             .action(async (file: string, opts: RunCOptions) => {
-                const result = await runCAction(file, opts);
-                process.exitCode = result.ok ? 0 : 1;
+                try {
+                    const result = await runCAction(file, opts);
+                    process.exitCode = result.ok ? 0 : 1;
+                } catch (error) {
+                    if (!(error instanceof DirectCGenerationError)) throw error;
+                    console.error(error.message);
+                    process.exitCode = 1;
+                }
             });
 
         program

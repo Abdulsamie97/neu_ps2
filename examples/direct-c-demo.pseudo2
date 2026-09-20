@@ -1,0 +1,18 @@
+struct Counter
+    num value
+    //@ requires value == 0 &*& n == 6
+    //@ ensures value == 6
+    inc(n)
+        value = value + n
+
+//@ requires n == 3 &*& A[1] == 1 &*& A[2] == 2 &*& A[3] == 3
+//@ ensures result == 6
+func sum(A[1..n])
+    return A[1] + A[2] + A[3]
+
+var A = [1, 2, 3]
+var counter = new Counter
+counter.value = 0
+call counter.inc(sum(A))
+print counter.value
+print "done"

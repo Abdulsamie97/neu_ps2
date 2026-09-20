@@ -9,8 +9,9 @@
  *
  * Neben Monaco-/VS-Code-Bundling stellt die Datei Routen für Workbench, C-Ausführung
  * und VeriFast bereit. Eingaben werden begrenzt und validiert, lokale Origins geprüft,
- * konkrete Runtime-Komponenten vor jedem Programmbeweis verifiziert und C-Diagnosen
- * über die mitgesendete Source Map auf Pseudo2-Zeilen zurückgeführt.
+ * konkrete Runtime-Komponenten vor Runtime-Programmbeweisen verifiziert und C-Diagnosen
+ * über die mitgesendete Source Map auf Pseudo2-Zeilen zurückgeführt. Direct C wird
+ * ohne die dort nicht verwendeten Runtime-Kerne geprüft.
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -27,7 +28,7 @@ import { runVeriFast, type VeriFastResult } from './packages/cli/src/verifast.js
 
 /** Repositorylokaler VeriFast-Pfad, der unabhängig von externen Umgebungsvariablen verwendet wird. */
 const DEFAULT_VERIFAST_EXE = path.resolve(__dirname, 'verifast-26.01', 'bin', 'verifast.exe');
-/** Konkrete C-Runtimes, die vor jedem über die Weboberfläche gestarteten Beweis geprüft werden. */
+/** Konkrete C-Runtimes, die vor jedem Runtime-C-Beweis aus der Weboberfläche geprüft werden. */
 const VERIFIED_RUNTIME_FILES = [
     path.resolve(__dirname, 'runtime', 'c', 'pseudo2_heap_runtime.c'),
     path.resolve(__dirname, 'runtime', 'c', 'pseudo2_scalar_runtime.c')
@@ -146,6 +147,8 @@ type VeriFastApiRequest = {
     extraArgs?: unknown;
     /** Schaltet VeriFasts Prüfung für C-Ganzzahlarithmetik ein oder aus. */
     checkOverflow?: unknown;
+    /** Ueberspringt die nicht verwendete Pseudo2-Runtime im nativen C-Modus. */
+    direct?: unknown;
     /** Gewünschtes Prozesszeitlimit. */
     timeoutMs?: unknown;
 };
@@ -345,7 +348,7 @@ async function handleVeriFastApi(req: IncomingMessage, res: ServerResponse): Pro
     }
 
     const runtimeChecks: Array<{ component: string; ok: boolean; exitCode: number }> = [];
-    for (const runtimeFile of VERIFIED_RUNTIME_FILES) {
+    for (const runtimeFile of body.direct === true ? [] : VERIFIED_RUNTIME_FILES) {
         const runtimeResult = await runVeriFastProcess(verifastExe, runtimeFile, [], timeoutMs);
         runtimeChecks.push({
             component: path.basename(runtimeFile),

@@ -1,0 +1,7 @@
+var value = 0
+//@ invariant 0 <= value &*& value < 3
+do
+  value = value + 1
+while value < 3
+//@ assert value == 3
+print value

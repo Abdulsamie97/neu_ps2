@@ -296,7 +296,8 @@ body.is-resizing-workspace {
     text-transform: uppercase;
 }
 
-.graph-toolbar select {
+.graph-toolbar select,
+.c-mode-toolbar select {
     background-color: #252526;
     border: 1px solid #4b4b52;
     border-radius: 4px;
@@ -378,6 +379,24 @@ body.is-resizing-workspace {
     min-height: 32px;
     min-width: 0;
     padding: 5px 8px;
+}
+
+.c-mode-toolbar {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 0;
+}
+
+.c-mode-toolbar label {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.c-pane .output-section[hidden] {
+    display: none;
 }
 
 .verifast-tree-status {

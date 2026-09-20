@@ -1,0 +1,5 @@
+//@ ensures result == "abc"
+func text()
+  return "abc"
+
+print text()

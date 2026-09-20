@@ -1,0 +1,12 @@
+struct Counter
+  num value
+  //@ requires value == 0
+  //@ ensures value == n
+  set(n)
+    value = n
+
+var counter = new Counter
+counter.value = 0
+call counter.set(2)
+//@ assert counter.value == 2
+print counter.value

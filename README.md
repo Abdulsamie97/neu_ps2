@@ -197,6 +197,62 @@ kompilierbare Runtime-Implementierung wird `--runtime implementation` benutzt:
 node .\packages\cli\bin\cli.js generate-c .\examples\test1.pseudo2 -d .\out\runnable --runtime implementation
 ```
 
+Fuer gut lesbares, natives C ohne Pseudo2-Runtime gibt es einen zweiten Modus:
+
+```powershell
+node .\packages\cli\bin\cli.js generate-c .\examples\direct-c-demo.pseudo2 -d .\out --direct
+node .\packages\cli\bin\cli.js run-c .\examples\direct-c-demo.pseudo2 --direct
+node .\packages\cli\bin\cli.js verifast .\out\directcdemo.direct.c
+```
+
+`--direct` schreibt `<name>.direct.c` und `<name>.direct.c.map.json`. Die Source Map
+ordnet VeriFast-Diagnosen und den Verifikationsbaum wieder den Pseudo2-Zeilen zu.
+Die CLI erkennt die Endung `.direct.c` und ueberspringt automatisch die beiden
+Pseudo2-Runtime-Kerne, weil der native Code sie nicht verwendet. Native C-Typen (`int`,
+`double`, `bool`,
+`const char *`, `struct` und C-Arrays/Pointer) machen den Code naeher am
+Pseudo2-Quelltext. Funktionen und Methoden werden als freie Funktionen mit
+explizitem Empfaenger erzeugt. Pseudo2-Arrayindizes werden durch den verifizierten
+Helfer `ps2_checked_index` einsbasiert geprueft und danach in C-Indizes umgerechnet.
+Lokale dynamische Arrays verwenden `calloc`; konstante Fuellwerte erhalten eine
+Slice-Invariante. Eindeutig besessene lokale Arrays und Structs werden freigegeben.
+
+Auch dieser Modus uebersetzt `@requires`, `@ensures`, `@terminates`, `@invariant`,
+`@decreases`, `@assert`, `@assume`, `@open`, `@close` und `@leak`. Anders als der
+Runtime-Generator beziehen sich die Formeln direkt auf native C-Werte. Daher kann
+beispielsweise `@ensures result == 5` unveraendert als nativer Vertrag erscheinen.
+Fuer Arrayparameter erzeugt der Generator automatisch Slice-/Laengenvertraege;
+fuer Stringparameter Inhaltspraedikate und fuer Structparameter beziehungsweise
+Methodenempfaenger Feld- und `malloc_block`-Besitz. Explizite Feld- und Arrayformeln
+werden mit den zugehoerigen Ghostwerten verbunden.
+
+Rein ganzzahlige Direct-C-Programme verwenden C-`int`, damit VeriFast echte
+arithmetische Ueberlaeufe pruefen kann. Der ausfuehrbare Modus verwendet fuer
+Programme mit Division oder Potenz `double`; beispielsweise liefert `3 / 2` dort
+`1.5`. Die Direct-C-Vertragsvariante weist solche Programme mit Pseudo2-Zeile ab,
+weil VeriFast native Gleitkommaausdruecke nicht wie mathematische reelle Zahlen in
+Vertraegen behandelt. `Run C` bleibt davon unabhaengig und erzeugt nur die
+kompilierbare Implementierungsvariante.
+
+Unterstuetzt und real mit VeriFast getestet sind skalare Vertraege, Schleifen,
+Arrayparameter und lokale Arrays, Arrayupdates, Structs und Methoden sowie
+Stringliterale, Inhaltsvergleich, Stringparameter, Stringrueckgaben und
+Stringverkettung. Arrayrueckgaben, Arrayfelder in Structs, verschachtelte Arrays,
+Structs als Arrayelemente, Aliasparameter und das Ersetzen besessener Child-Objekte
+werden ueber typisierte native Deskriptoren und praezise Ownership-Vertraege
+abgebildet. `print` akzeptiert neben Skalaren auch Arrays, verschachtelte Arrays und
+Struct-Referenzen. Die Arrayausgabe folgt der JavaScript-Stringkonvertierung mit
+Kommatrennung; eine vorhandene Struct-Referenz erscheint als `[object Object]`,
+`null` und noch nicht initialisierte Felder bleiben unterscheidbar.
+
+Die vollstaendige dynamische JavaScript-Semantik ist ohne Tagged Values trotzdem
+nicht in statisch typisiertes natives C uebertragbar. Laufzeitliche Typwechsel sowie
+VeriFast-Vertraege fuer funktionsuebergreifende globale Heapwerte werden im
+Direct-C-Modus deshalb weiterhin mit einer Pseudo2-Zeile abgewiesen; dafuer bleibt
+der Runtime-C-Generator vorgesehen. Nicht-ganzzahlige Direct-C-Programme sind
+ausfuehrbar, fuer formale Vertrage mit Division oder Potenzen ist jedoch ein eigenes
+Gleitkomma-/Rationalmodell erforderlich.
+
 Ergebnis:
 
 ```powershell
@@ -659,14 +715,16 @@ Der Server nutzt den repo-lokalen Standardpfad:
 2. `Save Pseudo2` speichert oder laedt den aktuellen Pseudo2-Code herunter.
 3. Das Register `JavaScript` enthaelt Programmausgabe, generiertes JavaScript,
    Summary und Source Echo. `Run JavaScript` wechselt automatisch dorthin.
-4. Das Register `C & VeriFast` enthaelt C-Programmausgabe, VeriFast-C,
-   ausfuehrbares Implementierungs-C und das Verifikationsergebnis.
+4. Das Register `C` enthaelt C-Programmausgabe und die Auswahl
+   `VeriFast C (runtime)` / `Direct C (native, VeriFast)`. Beide Modi zeigen
+   Verifikation und Pseudo2-Verifikationsbaum. Nur der Runtime-Modus besitzt den
+   zusaetzlichen Bereich mit der getrennten ausfuehrbaren Runtime-Implementierung.
 5. `Run C` generiert Implementierungs-C, kompiliert es mit dem lokal erkannten
    Compiler und zeigt nur die relevante Programmausgabe bzw. Compilerdiagnose.
-6. `Generate & Verify C` erzeugt beide C-Varianten und startet VeriFast auf der
-   Vertragsvariante.
-7. `Save VeriFast C` speichert den zuletzt erzeugten Vertrags-C-Code.
-8. `Verify C` sendet den zuletzt erzeugten Vertrags-C-Code erneut an
+6. `Generate & Verify C` erzeugt die gewaehlte C-Variante und startet VeriFast.
+   Im Direct-Modus werden dabei keine Runtime-Kerne vorab geprueft.
+7. `Save C` speichert den Code des gerade gewaehlten Generators.
+8. `Verify C` sendet den zuletzt erzeugten C-Code erneut an
    `/api/verifast`.
 9. Unter `VeriFast Execution Tree` wird ein kompakter Pseudo2-Verifikationsbaum
    dargestellt. Der lokale Node-Endpunkt filtert den VeriFast-JSON-Pfad ueber
@@ -720,6 +778,8 @@ Die wichtigsten Generatorfunktionen werden aus `pseudo2-language` exportiert:
 import {
   generateProgram,
   generateCProgram,
+  generateDirectCProgram,
+  generateDirectCProgramWithSourceMap,
   generatePrettyPseudo2,
   generateGraphvizArtifacts
 } from 'pseudo2-language';
@@ -727,6 +787,8 @@ import {
 
 - `generateProgram(program)` erzeugt JavaScript.
 - `generateCProgram(program)` erzeugt C-Code mit VeriFast-Kommentaren.
+- `generateDirectCProgram(program)` erzeugt natives, runtimefreies C mit nativen VeriFast-Vertraegen.
+- `generateDirectCProgramWithSourceMap(program)` liefert dazu die C-zu-Pseudo2-Zeilenabbildung.
 - `generatePrettyPseudo2(program)` erzeugt Pseudo2-Code mit geschweiften Klammern.
 - `generateGraphvizArtifacts(program)` erzeugt AST-, Dependency- und CFG-DOT-Artefakte.
 
@@ -741,6 +803,7 @@ Nuetzliche Beispiele:
 - `examples/verifast_annotations.pseudo2`: kleines Beispiel fuer Pseudo2-VeriFast-Annotationen.
 - `examples/verifast/valid_*.pseudo2`: positive VeriFast-Beispiele, die mit dem repo-lokalen VeriFast erfolgreich verifiziert werden.
 - `examples/verifast/invalid_*.pseudo2`: negative VeriFast-Beispiele, die absichtlich scheitern und Pseudo2-Zeilen in den Diagnosen liefern.
+- `examples/direct-c-*.pseudo2`: native Direct-C-Beispiele fuer Skalare, Overflow, Schleifen, Arrays, Structs und Strings.
 - `examples/serverExamples`: groessere Beispielprogramme fuer Sprache, Arrays, Structs, Funktionen, Listen, Queues, Stacks, Suche und Sortierung.
 
 Die aktuelle VeriFast-Beispielgruppe deckt u. a. ab:
@@ -800,6 +863,46 @@ Die echten VeriFast-Beispiele werden im CLI-Test ausgefuehrt, wenn
 ```powershell
 npm run --workspace packages/cli test -- test/verifast/VeriFastSourceMap.test.ts
 ```
+
+### Vollstaendiger Direct-C-Beispielkorpus
+
+Der eigene Corpus-Test prueft alle aus Xtext portierten Dateibeispiele sowie
+alle neueren Direct-C- und VeriFast-Beispiele mit den realen Werkzeugen:
+
+```powershell
+npm run test:direct-c-corpus
+```
+
+Der Test fuehrt derzeit folgende Kontrollen durch:
+
+- Alle 202 `.pseudo2`-Beispiele werden als Direct-C-Implementierung erzeugt und
+  mit dem lokal gefundenen C-Compiler kompiliert.
+- 28 terminierende und nicht interaktive Xtext-Beispiele werden nativ
+  ausgefuehrt; ihre Ausgabe muss exakt der Ausgabe des JavaScript-Generators
+  entsprechen.
+- Der regulaere Altbestand umfasst alle 87 Dateien aus dem urspruenglichen
+  Xtext-Beispielprojekt sowie vier aktuelle Basisbeispiele. Seine 76 ganzzahlig
+  modellierbaren Programme werden dem repo-lokalen VeriFast uebergeben. Davon
+  sind 12 bereits beweisbar; die uebrigen 64 muessen einen konkreten
+  Beweisfehler liefern. Das dokumentiert insbesondere die in alten Beispielen
+  noch fehlenden Ownership-Vertraege und Schleifeninvarianten.
+- Die 15 weiteren regulaeren Beispiele mit Division, Potenz oder
+  nicht-ganzzahligen Zahlen werden exakt als bekannte Grenze des noch fehlenden
+  Rationalmodells erkannt.
+- 44 positive VeriFast-Beispiele werden strikt bewiesen, zwei dokumentierte
+  Beispiele mit deaktivierter Ueberlaufpruefung bewiesen und zwei
+  Rationalmodell-Beispiele gezielt abgewiesen.
+- Alle 49 absichtlich falschen VeriFast-Beispiele muessen bei Generierung oder
+  Verifikation scheitern.
+- Alle 14 dedizierten `direct-c-*`-Beispiele werden strikt mit VeriFast bewiesen.
+
+Damit wird jede Beispiel-Datei durch Direct C und einen echten C-Compiler
+geprueft. Ein erfolgreicher C-Lauf ist dabei nicht mit einem formalen Beweis zu
+verwechseln: Unannotierte Altbeispiele bleiben bewusst als erwartete
+VeriFast-Fehler klassifiziert, bis ihre fehlenden Vertraege ergaenzt werden.
+Inline-Fragmente aus den portierten Parser- und Validator-Tests werden weiterhin
+von ihren jeweiligen Sprachtests geprueft; absichtlich unvollstaendige oder
+ungueltige Fragmente sind keine ausfuehrbaren C-Programme.
 
 ## Typische Arbeitsablaeufe
 

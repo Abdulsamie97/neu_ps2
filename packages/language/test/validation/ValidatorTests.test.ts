@@ -18,7 +18,6 @@ import {
   INCOMPATIBLE_TYPES_EQ,
   DIFFERENT_TYPES_OF_RETURNS,
   DIFFERENT_KINDS_OF_RETURNS,
-  PRINT_EXPECTS_BASE_TYPE,
   DUPLICATE_ELEMENT,
   FUNC_DECL_ONLY_GLOBAL,
   METH_DECL_ONLY_IN_STRUCT,
@@ -933,7 +932,7 @@ describe('ValidatorTests', () => {
   });
 
   test('printStructArray', async () => {
-    // Zusätzlicher Langium-Test: print erwartet Basistypen.
+    // Arrays und Structwerte besitzen in allen Generatoren eine definierte Ausgabe.
     const { document } = await parseModel(`
       struct S
         num[] arr
@@ -942,6 +941,6 @@ describe('ValidatorTests', () => {
       print x.arr
     `);
 
-    assertHasErrorCode(document, PRINT_EXPECTS_BASE_TYPE);
+    assertNoErrors(document);
   });
 });

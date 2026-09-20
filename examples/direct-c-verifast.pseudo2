@@ -1,0 +1,12 @@
+//@ requires a > 0 &*& b >= 0 &*& a + b <= INT_MAX
+//@ ensures result == a + b
+func add(a, b)
+  return a + b
+
+var x = add(2, 3)
+//@ assert x == 5
+print x
+print "checked"
+var text = "abc"
+//@ assert text == "abc"
+print text

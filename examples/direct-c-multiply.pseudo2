@@ -1,0 +1,12 @@
+//@ requires a == 5 &*& b == 7
+//@ ensures result == 35
+func multByAdd(a, b)
+  var xa = a
+  var res = 0
+  //@ invariant 0 <= xa &*& xa <= 5 &*& res == (5 - xa) * 7
+  while xa > 0
+    res = res + b
+    xa = xa - 1
+  return res
+
+print multByAdd(5, 7)

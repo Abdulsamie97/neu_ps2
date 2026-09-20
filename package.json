@@ -13,7 +13,8 @@
     "dev": "vite",
     "langium:generate": "npm run --workspace packages/language langium:generate",
     "langium:watch": "npm run --workspace packages/language langium:watch",
-    "test": "npm run --workspace packages/language test && npm run --workspace packages/cli test"
+    "test": "npm run --workspace packages/language test && npm run --workspace packages/cli test",
+    "test:direct-c-corpus": "npm run build --workspace pseudo2-language && vitest run packages/language/test/integration/DirectCXtextExamples.test.ts packages/cli/test/generator/DirectCXtextCorpus.test.ts"
   },
   "devDependencies": {
     "@types/node": "~20.17.48",

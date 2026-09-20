@@ -1,0 +1,9 @@
+//@ requires text == "abc"
+//@ ensures result == true
+func isExpected(text)
+  return text == "abc"
+
+print isExpected("abc")
+var value = "abc"
+//@ assert value != "xyz"
+print value

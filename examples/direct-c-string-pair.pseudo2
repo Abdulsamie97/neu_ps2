@@ -1,0 +1,6 @@
+//@ requires left == "same" &*& right == "same"
+//@ ensures result == true
+func sameText(left, right)
+  return left == right
+
+print sameText("same", "same")

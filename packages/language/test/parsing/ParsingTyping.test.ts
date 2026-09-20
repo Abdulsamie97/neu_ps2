@@ -20,7 +20,6 @@ import type {
 } from '../../src/generated/ast.js';
 
 import {
-  isPrintCommand,
   isReturnStmt,
   isFunctionDeclaration,
   isIntLiteral,
@@ -48,8 +47,7 @@ import {
   INCOMPATIBLE_TYPES,
   INCOMPATIBLE_TYPES_EQ,
   INCOMPATIBLE_TYPES_PLUS,
-  DIFFERENT_TYPES_OF_RETURNS,
-  PRINT_EXPECTS_BASE_TYPE
+  DIFFERENT_TYPES_OF_RETURNS
 } from '../../src/pseudo2-validator.js';
 
 /** Umfassende Parsing- und Typing-Regressionssuite. */
@@ -704,14 +702,15 @@ test('varNumAndStringPlus2', async () => {
   });
 
   test('printStructArray', async () => {
-    await assertErrorOnNode(`
+    const { document } = await parseModel(`
       struct S {
         num[] arr
       }
 
       var x = new S
       print x.arr
-    `, isPrintCommand, PRINT_EXPECTS_BASE_TYPE);
+    `);
+    assertNoErrors(document);
   });
 
   test('assignStructArray', async () => {

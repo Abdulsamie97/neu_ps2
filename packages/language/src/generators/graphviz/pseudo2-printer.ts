@@ -25,7 +25,7 @@ import type {
   VarDecl,
   VarRef,
   WhileLoop
-} from '../generated/ast.js';
+} from '../../generated/ast.js';
 import {
   isAddition,
   isAnd,
@@ -64,7 +64,7 @@ import {
   isVarRef,
   isVerificationStatement,
   isWhileLoop
-} from '../generated/ast.js';
+} from '../../generated/ast.js';
 
 /**
  * Druckt einen Pseudo2-Ausdruck in einer kompakten, menschenlesbaren Form.

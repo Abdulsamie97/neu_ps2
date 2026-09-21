@@ -40,7 +40,7 @@ import {
     decodeVeriFastExecutionForest,
     type VeriFastExecutionNode,
     type VeriFastExecutionTree
-} from './verifast-execution-tree.js';
+} from './verification/verifast-execution-tree.js';
 
 
 /** @brief Aktive Editor-Anwendung; vor dem Start und nach dem Dispose ist sie nicht gesetzt. */

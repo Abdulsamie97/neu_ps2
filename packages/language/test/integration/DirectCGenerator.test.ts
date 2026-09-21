@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { generateDirectCProgram, generateDirectCProgramWithSourceMap } from '../../src/c-generator-direct.js';
+import { generateDirectCProgram, generateDirectCProgramWithSourceMap } from '../../src/generators/c/c-generator-direct.js';
 import { parseRuntimeProgram } from '../helpers/runtime-test-utils.js';
 
 async function directC(source: string): Promise<string> {

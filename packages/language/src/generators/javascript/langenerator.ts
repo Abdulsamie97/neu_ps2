@@ -4,7 +4,7 @@
  * @author Abdul
  */
 
-import type { Program } from './generated/ast.js';
+import type { Program } from '../../generated/ast.js';
 import { generateProgram as generateProgramCore } from './generator-core.js';
 
 /**

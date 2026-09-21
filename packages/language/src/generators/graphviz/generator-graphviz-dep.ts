@@ -12,7 +12,7 @@ import type {
   StructAttDeclaration,
   StructDeclaration,
   VarDecl
-} from '../generated/ast.js';
+} from '../../generated/ast.js';
 import {
   isAssignment,
   isAttSelection,
@@ -23,7 +23,7 @@ import {
   isStructDeclaration,
   isVarDecl,
   isVarRef
-} from '../generated/ast.js';
+} from '../../generated/ast.js';
 import { dotAttributes, dotId, graphName } from './dot-utils.js';
 
 /** Unterstützte fachliche Kategorien eines Dependency-Knotens. */

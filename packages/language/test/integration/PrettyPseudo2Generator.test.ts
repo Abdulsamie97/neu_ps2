@@ -10,8 +10,8 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { generateAllArtifacts } from '../../src/generator-artifacts.js';
-import { generatePrettyPseudo2 } from '../../src/generator-pretty.js';
+import { generateAllArtifacts } from '../../src/generators/generator-artifacts.js';
+import { generatePrettyPseudo2 } from '../../src/generators/pretty/generator-pretty.js';
 import { parseRuntimeProgram } from '../helpers/runtime-test-utils.js';
 
 /** Integrationssuite für Pretty-Pseudo2-Ausgabe und kombinierten Artefaktgenerator. */

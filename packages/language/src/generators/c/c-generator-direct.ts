@@ -14,7 +14,7 @@ import { AstUtils, type AstNode } from 'langium';
 import type {
   ArrayLiteral, Assignment, Block, Expr, FunctionDeclaration, Instruction, LoopAnnotation, VerificationAnnotation,
   ParameterDecl, Program, StructDeclaration, VarDecl, Variable
-} from './generated/ast.js';
+} from '../../generated/ast.js';
 import {
   isAddition, isAnd, isArrayLiteral, isAssignment, isAttSelection, isBoolLiteral,
   isBracedBlock, isCallCommand, isComparison, isDoWhileLoop, isEquality,
@@ -26,24 +26,24 @@ import {
   isStringLiteral, isStructAttDeclaration, isStructDeclaration, isThisExpr,
   isThrowCommand, isUndefinedSpecExpr, isVarDecl, isVarRef,
   isVerificationStatement, isWhileLoop
-} from './generated/ast.js';
-import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
-import type { Pseudo2Type } from './typing/pseudo2-type.js';
+} from '../../generated/ast.js';
+import { Pseudo2TypeComputer } from '../../typing/pseudo2-type-computer.js';
+import type { Pseudo2Type } from '../../typing/pseudo2-type.js';
 import type { CSourceMapEntry } from './c-generator-core.js';
-import { directCStringRuntime, type DirectCStringRuntimeMode } from './c-direct-string-runtime.js';
-import { directCArrayRuntime, type DirectCArrayRuntimeType } from './c-direct-array-runtime.js';
+import { directCStringRuntime, type DirectCStringRuntimeMode } from './direct-runtime/c-direct-string-runtime.js';
+import { directCArrayRuntime, type DirectCArrayRuntimeType } from './direct-runtime/c-direct-array-runtime.js';
 import {
   directCOptionalPrintFunction,
   directCOptionalPrintRuntime,
   type DirectCOptionalPrintKind
-} from './c-direct-optional-runtime.js';
+} from './direct-runtime/c-direct-optional-runtime.js';
 import {
   DIRECT_C_STRUCT_PRINT_FUNCTION,
   DIRECT_C_STRUCT_THROW_FUNCTION,
   directCArrayPrintFunction,
   directCArrayThrowFunction,
   directCPrintRuntime
-} from './c-direct-print-runtime.js';
+} from './direct-runtime/c-direct-print-runtime.js';
 
 type CType = { base: string; depth: number };
 type SpecAliases = {

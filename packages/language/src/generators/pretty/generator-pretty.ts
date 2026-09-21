@@ -16,7 +16,7 @@ import type {
   StructDeclaration,
   StructDeclarationChild,
   TypeRef
-} from './generated/ast.js';
+} from '../../generated/ast.js';
 import {
   isAddition,
   isAnd,
@@ -64,7 +64,7 @@ import {
   isVarRef,
   isVerificationStatement,
   isWhileLoop
-} from './generated/ast.js';
+} from '../../generated/ast.js';
 
 /**
  * Konfiguration der formatierten Pseudo2-Ausgabe.

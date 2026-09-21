@@ -12,7 +12,7 @@ import type {
   FunctionDeclaration,
   Instruction,
   Program
-} from '../generated/ast.js';
+} from '../../generated/ast.js';
 import {
   isAssignment,
   isBlock,
@@ -29,7 +29,7 @@ import {
   isVarDecl,
   isVerificationStatement,
   isWhileLoop
-} from '../generated/ast.js';
+} from '../../generated/ast.js';
 import { dotAttributes, dotId } from './dot-utils.js';
 import { printExpr, printInstruction } from './pseudo2-printer.js';
 

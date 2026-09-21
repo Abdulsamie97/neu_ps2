@@ -4,9 +4,9 @@
  * @author Abdul
  */
 
-import type { Program } from './generated/ast.js';
-import { generatePrettyPseudo2 } from './generator-pretty.js';
-import { generateProgram } from './langenerator.js';
+import type { Program } from '../generated/ast.js';
+import { generatePrettyPseudo2 } from './pretty/generator-pretty.js';
+import { generateProgram } from './javascript/langenerator.js';
 import { generateGraphvizAst } from './graphviz/generator-graphviz-ast.js';
 import { generateGraphvizCfgArtifacts } from './graphviz/generator-graphviz-cfg.js';
 import { generateGraphvizDep } from './graphviz/generator-graphviz-dep.js';

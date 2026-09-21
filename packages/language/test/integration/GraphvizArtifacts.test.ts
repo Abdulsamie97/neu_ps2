@@ -10,8 +10,8 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { generateGraphvizArtifacts } from '../../src/generator-artifacts.js';
-import { generateGraphvizDep } from '../../src/graphviz/generator-graphviz-dep.js';
+import { generateGraphvizArtifacts } from '../../src/generators/generator-artifacts.js';
+import { generateGraphvizDep } from '../../src/generators/graphviz/generator-graphviz-dep.js';
 import { parseRuntimeProgram } from '../helpers/runtime-test-utils.js';
 
 /** Integrationssuite für alle Graphviz-Generatoren und ihre gemeinsame Artefakt-API. */

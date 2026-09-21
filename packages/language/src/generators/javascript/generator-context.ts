@@ -5,13 +5,13 @@
  */
 
 import { AstUtils } from 'langium';
-import type { FunctionDeclaration, Program, StructAttDeclaration, StructDeclaration, Variable } from './generated/ast.js';
+import type { FunctionDeclaration, Program, StructAttDeclaration, StructDeclaration, Variable } from '../../generated/ast.js';
 import {
   isFunctionDeclaration,
   isStructAttDeclaration,
   isStructDeclaration,
   isVariable
-} from './generated/ast.js';
+} from '../../generated/ast.js';
 
 /**
  * Normalisiert einen Pseudo2-Namen zu einem gültigen JavaScript-/C-Bezeichner.

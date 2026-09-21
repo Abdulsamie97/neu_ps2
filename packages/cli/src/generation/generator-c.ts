@@ -8,7 +8,7 @@ import type { Program } from 'pseudo2-language';
 import { generateCProgramWithSourceMap, generateDirectCProgramWithSourceMap } from 'pseudo2-language';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { extractDestinationAndName } from './util.js';
+import { extractDestinationAndName } from '../common/util.js';
 
 /** @brief Legt Zielverzeichnis und Runtime-Variante der C-Generierung fest. */
 export type GenerateCOptions = {

@@ -16,15 +16,15 @@ import {
 
 export * from './pseudo2-module.js';
 export * from './pseudo2-validator.js';
-export * from './langenerator.js';
-export * from './c-generator-core.js';
-export * from './c-generator-direct.js';
-export * from './generator-pretty.js';
-export * from './generator-context.js';
-export * from './generator-artifacts.js';
-export * from './graphviz/generator-graphviz-ast.js';
-export * from './graphviz/generator-graphviz-dep.js';
-export * from './graphviz/generator-graphviz-cfg.js';
+export * from './generators/javascript/langenerator.js';
+export * from './generators/c/c-generator-core.js';
+export * from './generators/c/c-generator-direct.js';
+export * from './generators/pretty/generator-pretty.js';
+export * from './generators/javascript/generator-context.js';
+export * from './generators/generator-artifacts.js';
+export * from './generators/graphviz/generator-graphviz-ast.js';
+export * from './generators/graphviz/generator-graphviz-dep.js';
+export * from './generators/graphviz/generator-graphviz-cfg.js';
 export * from './generated/ast.js';
 export * from './generated/grammar.js';
 export * from './generated/module.js';

@@ -21,8 +21,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import importMetaUrlPlugin from '@codingame/esbuild-import-meta-url-plugin';
 import vsixPlugin from '@codingame/monaco-vscode-rollup-vsix-plugin';
-import { runCSource } from './packages/cli/src/c-runner.js';
-import { runVeriFast, type VeriFastResult } from './packages/cli/src/verifast.js';
+import { runCSource } from './packages/cli/src/execution/c-runner.js';
+import { runVeriFast, type VeriFastResult } from './packages/cli/src/execution/verifast.js';
 
 /// <reference lib="rolldown-vite/config" />
 

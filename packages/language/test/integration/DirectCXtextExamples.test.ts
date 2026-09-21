@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { EmptyFileSystem, URI } from 'langium';
 import { describe, expect, test } from 'vitest';
 
-import { generateDirectCProgram } from '../../src/c-generator-direct.js';
+import { generateDirectCProgram } from '../../src/generators/c/c-generator-direct.js';
 import type { Program } from '../../src/generated/ast.js';
 import { createPseudo2Services } from '../../src/pseudo2-module.js';
 

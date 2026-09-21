@@ -40,7 +40,7 @@ import type {
   VerificationStatement,
   VarDecl,
   VarRef
-} from './generated/ast.js';
+} from '../../generated/ast.js';
 import {
   isAddition,
   isAnd,
@@ -85,12 +85,12 @@ import {
   isVarRef,
   isVerificationStatement,
   isWhileLoop
-} from './generated/ast.js';
-import { C_RUNTIME_CONTRACTS } from './c-runtime-contracts.js';
-import { C_RUNTIME_IMPLEMENTATION } from './c-runtime-implementation.js';
-import { Pseudo2GeneratorContext } from './generator-context.js';
-import { canonicalSpecPredicateKind } from './spec-predicates.js';
-import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
+} from '../../generated/ast.js';
+import { C_RUNTIME_CONTRACTS } from './runtime/c-runtime-contracts.js';
+import { C_RUNTIME_IMPLEMENTATION } from './runtime/c-runtime-implementation.js';
+import { Pseudo2GeneratorContext } from '../javascript/generator-context.js';
+import { canonicalSpecPredicateKind } from '../../spec-predicates.js';
+import { Pseudo2TypeComputer } from '../../typing/pseudo2-type-computer.js';
 
 /** Kontextzustand, der während der rekursiven C-Erzeugung weitergereicht wird. */
 type CGeneratorState = {

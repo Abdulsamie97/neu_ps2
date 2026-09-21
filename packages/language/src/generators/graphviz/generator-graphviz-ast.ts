@@ -6,7 +6,7 @@
 
 import { AstUtils } from 'langium';
 import type { AstNode } from 'langium';
-import type { Program } from '../generated/ast.js';
+import type { Program } from '../../generated/ast.js';
 import {
   isAttSelection,
   isBoolLiteral,
@@ -19,7 +19,7 @@ import {
   isStructDeclaration,
   isVarDecl,
   isVarRef
-} from '../generated/ast.js';
+} from '../../generated/ast.js';
 import { dotAttributes, dotId } from './dot-utils.js';
 
 /**

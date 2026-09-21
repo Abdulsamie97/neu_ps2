@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { generateCProgram, generateCProgramWithSourceMap } from '../../src/c-generator-core.js';
+import { generateCProgram, generateCProgramWithSourceMap } from '../../src/generators/c/c-generator-core.js';
 import { parseRuntimeProgram } from '../helpers/runtime-test-utils.js';
 
 /** Integrationssuite für den gemeinsamen C-Generator-Core. */

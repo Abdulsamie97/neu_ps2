@@ -23,7 +23,7 @@ import {
   runVeriFastBundle,
   type CSourceMapFile,
   type VeriFastResult
-} from '../../src/verifast.js';
+} from '../../src/execution/verifast.js';
 
 /** Absoluter Wurzelpfad des Repositories ausgehend vom Testmodul. */
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url));
@@ -506,7 +506,7 @@ describe('VeriFast source maps', () => {
 
 /** Zählt einen kompakten Pseudo2-Verifikationsbaum rekursiv für Größenregressionen. */
 function countVerificationNodes(
-  node: import('../../src/verifast.js').Pseudo2VerificationNode | undefined
+  node: import('../../src/execution/verifast.js').Pseudo2VerificationNode | undefined
 ): number {
   return node ? 1 + node.children.reduce((sum, child) => sum + countVerificationNodes(child), 0) : 0;
 }

@@ -8,15 +8,15 @@ import type { Program } from 'pseudo2-language';
 import { createPseudo2Services, DirectCGenerationError, generateCProgram, generateDirectCProgram, Pseudo2LanguageMetaData } from 'pseudo2-language';
 import chalk from 'chalk';
 import { Command } from 'commander';
-import { extractAstNode } from './util.js';
-import { generate, generatePretty } from './generator.js';
+import { extractAstNode } from './common/util.js';
+import { generate, generatePretty } from './generation/generator.js';
 import { NodeFileSystem } from 'langium/node';
 import * as url from 'node:url';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { applyCSourceMapToVeriFastResult, runVeriFast, runVeriFastBundle, type CSourceMapFile } from './verifast.js';
-import { generateC } from './generator-c.js';
-import { compileAndRunCFile, runCSource, type CExecutionResult } from './c-runner.js';
+import { applyCSourceMapToVeriFastResult, runVeriFast, runVeriFastBundle, type CSourceMapFile } from './execution/verifast.js';
+import { generateC } from './generation/generator-c.js';
+import { compileAndRunCFile, runCSource, type CExecutionResult } from './execution/c-runner.js';
 
 /** @brief Verzeichnis der kompilierten CLI-Datei, unabhängig vom aktuellen Arbeitsverzeichnis. */
 const __dirname = url.fileURLToPath(new URL('.', import.meta.url));

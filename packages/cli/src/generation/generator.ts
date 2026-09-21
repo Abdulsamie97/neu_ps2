@@ -9,7 +9,7 @@ import type { GraphvizArtifactKind } from 'pseudo2-language';
 import { generateGraphvizArtifacts, generatePrettyPseudo2, generateProgram } from 'pseudo2-language';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { extractDestinationAndName } from './util.js';
+import { extractDestinationAndName } from '../common/util.js';
 
 /** @brief Steuert, welche Generatorartefakte in welches Verzeichnis geschrieben werden. */
 export type GenerateCliArtifactsOptions = {

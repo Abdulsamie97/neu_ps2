@@ -15,8 +15,8 @@ import * as vm from 'node:vm';
 import { describe, expect, test } from 'vitest';
 
 import { generateAction, generateCAction, generatePrettyAction } from '../../src/main.js';
-import { resolveCCompiler, runCSource } from '../../src/c-runner.js';
-import { applyCSourceMapToVeriFastResult, runVeriFast, type CSourceMapFile } from '../../src/verifast.js';
+import { resolveCCompiler, runCSource } from '../../src/execution/c-runner.js';
+import { applyCSourceMapToVeriFastResult, runVeriFast, type CSourceMapFile } from '../../src/execution/verifast.js';
 
 /** Integrationssuite der programmatisch aufgerufenen CLI-Generatoraktionen. */
 describe('CLI generator', () => {

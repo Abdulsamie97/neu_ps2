@@ -13,7 +13,7 @@ import { EmptyFileSystem, URI, type LangiumDocument } from 'langium';
 import { expect } from 'vitest';
 
 import type { Program } from '../../src/generated/ast.js';
-import { generateProgram } from '../../src/generator-core.js';
+import { generateProgram } from '../../src/generators/javascript/generator-core.js';
 import { createPseudo2Services } from '../../src/pseudo2-module.js';
 
 /** Fortlaufende Nummer für eindeutige In-Memory-Dokument-URIs. */

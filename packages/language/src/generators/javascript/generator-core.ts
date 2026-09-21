@@ -32,7 +32,7 @@ import type {
   VarRef,
   Variable,
   WhileLoop
-} from './generated/ast.js';
+} from '../../generated/ast.js';
 import {
   isAddition,
   isAnd,
@@ -78,11 +78,11 @@ import {
   isVarRef,
   isVerificationStatement,
   isWhileLoop
-} from './generated/ast.js';
+} from '../../generated/ast.js';
 import { Pseudo2GeneratorContext } from './generator-context.js';
-import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
-import type { Pseudo2Type } from './typing/pseudo2-type.js';
-import { PSEUDO2_RUNTIME_PRELUDE } from './runtime/runtime-prelude.js';
+import { Pseudo2TypeComputer } from '../../typing/pseudo2-type-computer.js';
+import type { Pseudo2Type } from '../../typing/pseudo2-type.js';
+import { PSEUDO2_RUNTIME_PRELUDE } from '../../runtime/runtime-prelude.js';
 
 /**
  * Kontextabhängiger Zustand während der rekursiven JavaScript-Erzeugung.

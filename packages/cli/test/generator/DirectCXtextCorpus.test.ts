@@ -25,8 +25,8 @@ import {
   generateProgram,
   type Program
 } from 'pseudo2-language';
-import { resolveCCompiler, type CCompiler } from '../../src/c-runner.js';
-import { runVeriFast } from '../../src/verifast.js';
+import { resolveCCompiler, type CCompiler } from '../../src/execution/c-runner.js';
+import { runVeriFast } from '../../src/execution/verifast.js';
 
 /** Wurzel aller in das Langium-Repository portierten Beispiele. */
 const EXAMPLES_ROOT = fileURLToPath(new URL('../../../../examples', import.meta.url));

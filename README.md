@@ -39,14 +39,30 @@ normalen `PATH` steht. Ein abweichender Compiler kann mit
 
 Wichtige Generator-Dateien:
 
-- `packages/language/src/generator-core.ts`: JavaScript-Generator.
-- `packages/language/src/c-generator-core.ts`: C-/VeriFast-Generator.
-- `packages/language/src/c-runtime-contracts.ts`: abstrakte C-Runtime mit praezisen VeriFast-Vertraegen.
-- `packages/language/src/c-runtime-implementation.ts`: ausfuehrbare C-Runtime fuer `run-c`.
-- `packages/language/src/generator-pretty.ts`: Pretty-Printer, der Pseudo2 mit geschweiften Klammern ausgibt.
-- `packages/language/src/generator-context.ts`: eindeutige Zielnamen fuer Variablen, Funktionen und Structs.
-- `packages/language/src/generator-artifacts.ts`: gemeinsamer Einstieg fuer JS-, Pretty-Pseudo2- und Graphviz-Artefakte.
-- `packages/language/src/graphviz/*`: AST-, Dependency- und CFG-Graphviz-Generatoren.
+- `packages/language/src/generators/javascript`: JavaScript-Generator und gemeinsamer Namenskontext.
+- `packages/language/src/generators/c`: Runtime-basierter und direkter C-/VeriFast-Generator.
+- `packages/language/src/generators/c/runtime`: abstrakte C-Vertraege und ausfuehrbare Runtime-Implementierung.
+- `packages/language/src/generators/c/direct-runtime`: kleine Runtime-Bausteine des direkten C-Generators.
+- `packages/language/src/generators/pretty`: Pretty-Printer fuer Pseudo2 mit geschweiften Klammern.
+- `packages/language/src/generators/graphviz`: AST-, Dependency- und CFG-Graphviz-Generatoren.
+- `packages/language/src/generators/generator-artifacts.ts`: gemeinsamer Einstieg fuer JS-, Pretty-Pseudo2- und Graphviz-Artefakte.
+
+Weitere Quellcodegliederung:
+
+- `packages/language/src/runtime`: JavaScript-Runtime fuer Skalare, Arrays und Structs.
+- `packages/language/src/scoping`: Pseudo2-Namensaufloesung und Sichtbarkeitsregeln.
+- `packages/language/src/typing`: Typmodell und Typberechnung.
+- `packages/language/src/generated`: von Langium erzeugter Code; nicht manuell bearbeiten.
+- `packages/cli/src/main.ts`: stabiler Einstiegspunkt der Kommandozeilenanwendung.
+- `packages/cli/src/generation`: dateibasierte JS-, Pretty-Pseudo2- und C-Generatoradapter.
+- `packages/cli/src/execution`: C-Compiler-/Programmausfuehrung und VeriFast-Anbindung.
+- `packages/cli/src/common`: gemeinsam genutzte CLI-Hilfsfunktionen.
+- `packages/web/src/main.ts`, `index.ts` und `node.ts`: Browser-, Bibliotheks- und Node-Einstiege.
+- `packages/web/src/verification`: Aufbereitung und Darstellung des Pseudo2-Verifikationsbaums.
+- `packages/web/src/worker`: Language Server im Web Worker.
+- `packages/web/src/common`: zwischen Browser- und Node-Seite getrennte Web-Hilfsfunktionen.
+- `packages/standalone-web/src`: Einstieg, Vorlage und Styles des eigenstaendigen Ein-Datei-JS-Runners.
+- `packages/extension/src/extension` und `packages/extension/src/language`: VS-Code- und Language-Server-Einstiege.
 
 ## Installation
 

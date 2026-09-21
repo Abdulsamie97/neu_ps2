@@ -32,6 +32,7 @@ normalen `PATH` steht. Ein abweichender Compiler kann mit
 - `packages/language`: Grammatik, AST, Scoping, Validator, Typing und alle Generator-Kernfunktionen.
 - `packages/cli`: Kommandozeilenwerkzeug fuer JS-, Pretty-Pseudo2-, Graphviz-, C-Generierung und VeriFast.
 - `packages/web`: Monaco/Langium-Weboberflaeche mit JS- und C-Ausfuehrung, VeriFast und gerenderten Graphviz-Graphen.
+- `packages/standalone-web`: Leichter Pseudo2-JavaScript-Runner, der als einzelne HTML-Datei gebaut wird.
 - `packages/extension`: VS-Code-Erweiterung.
 - `examples`: Pseudo2-Beispielprogramme.
 - `out`: uebliches Zielverzeichnis fuer generierte Ausgaben.
@@ -682,17 +683,70 @@ npm run dev
 Danach im Browser oeffnen:
 
 ```text
-http://localhost:20002/pseudo2-workbench
+http://localhost:21002/pseudo2-workbench
 ```
 
 Falls der Port bereits belegt ist, meldet Vite den tatsaechlichen Port in der
 Konsole.
 
-Hinweis: `http://localhost:20002` oeffnet die Root-`index.html`, die als
+Hinweis: `http://localhost:21002` oeffnet die Root-`index.html`, die als
 einfacherer Runner ohne alle C-/VeriFast-Controls aufgebaut ist. Fuer den
 vollstaendigen Workflow mit `Run C`, `Generate & Verify C` und `Verify C` die
 `/pseudo2-workbench`-Adresse verwenden. Die eigentliche HTML-Datei liegt unter
 `packages/web/pseudo2-workbench.html`.
+
+### Statisches JavaScript-Bundle
+
+Die reduzierte Root-Seite kann als eigenstaendiges Browser-Bundle gebaut werden.
+Editor, Validierung, JavaScript-Generierung und JavaScript-Ausfuehrung benoetigen
+dabei kein Node-Backend auf dem Zielserver:
+
+```powershell
+npm run build:web
+```
+
+Das vollstaendige Upload-Verzeichnis ist danach `dist`. Die JavaScript-Seite
+liegt dort als `index.html` und wird am Server-Root `/` ausgeliefert. Eine lokale
+Vorschau des tatsaechlich gebauten Bundles startet mit:
+
+```powershell
+npm run preview:web
+```
+
+Danach ist die statische Vorschau unter `http://127.0.0.1:4173` erreichbar. Der
+Produktions-Webserver muss fuer diese Dateien ebenfalls die Header
+`Cross-Origin-Opener-Policy: same-origin` und
+`Cross-Origin-Embedder-Policy: require-corp` setzen. Die statische Root-Seite
+enthaelt bewusst keine serverseitige C-Ausfuehrung und keine VeriFast-Anbindung.
+
+### Einzeldatei-JavaScript-Runner
+
+Zusaetzlich zur Monaco-basierten Weboberflaeche gibt es einen leichten Runner,
+der Parser, Validator, JavaScript-Generator, Pretty Printer, Oberflaeche, CSS und
+JavaScript in genau eine HTML-Datei einbettet:
+
+```powershell
+npm run build:standalone
+```
+
+Der normale Gesamtbuild `npm run build` erzeugt diese Datei ebenfalls neu. Der
+separate Befehl ist fuer einen gezielten Standalone-Neubau ohne Vite-Bundle gedacht.
+
+Die fertige Datei liegt danach hier:
+
+```text
+packages/standalone-web/dist/pseudo2-js-runner.html
+```
+
+Sie kann direkt per Doppelklick im Browser geoeffnet oder als einzelne Datei auf
+einen statischen Webserver kopiert werden. Sie laedt keine externen Assets und
+benoetigt weder Vite noch einen laufenden Node-Prozess. Die Programmausfuehrung
+erfolgt in einem Web Worker mit Zeitlimit, damit eine Pseudo2-Endlosschleife die
+Oberflaeche nicht dauerhaft blockiert.
+
+Der Einzeldatei-Runner enthaelt bewusst nur browserfaehige Funktionen. C-Ausfuehrung
+und VeriFast bleiben in der vollstaendigen Workbench, weil dafuer native Prozesse
+auf dem Server gestartet werden muessen.
 
 ### VeriFast-Pfad fuer die Weboberflaeche
 
@@ -930,7 +984,7 @@ npm run build --workspace packages/web
 npm run dev
 ```
 
-Dann im Browser `http://localhost:20002/pseudo2-workbench` oeffnen
+Dann im Browser `http://localhost:21002/pseudo2-workbench` oeffnen
 und die Buttons `Run JavaScript`, `Run C`, `Generate & Verify C` und `Verify C`
 pruefen. Zusaetzlich im Register `Graphen` AST, Dependency-Graph und mindestens
 einen CFG auswaehlen.

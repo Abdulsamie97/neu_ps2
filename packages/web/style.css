@@ -154,6 +154,21 @@ button:disabled {
     overflow: hidden;
 }
 
+/**
+ * @brief Verwendet auf der reduzierten JavaScript-Seite zwei echte Inhaltsbereiche.
+ *
+ * Die vollständige Workbench besitzt zwischen Editor und Ergebnisbereich einen
+ * separaten Splitter. Auf der Root-Seite fehlt dieser absichtlich; deshalb darf
+ * ihr Ausgabebereich nicht in der sieben Pixel breiten Splitterspalte landen.
+ */
+.runner-layout {
+    grid-template-columns: minmax(320px, 1fr) minmax(320px, 430px);
+}
+
+.runner-layout > .output-pane {
+    border-left: 1px solid #303036;
+}
+
 /** @brief Verhindert, dass die drei Hauptbereiche ihre Grid- beziehungsweise Flex-Eltern überragen. */
 .editor-pane,
 .result-pane,
@@ -631,6 +646,11 @@ a:visited {
         border-left: 0;
         border-top: 1px solid #303036;
         max-height: none;
+    }
+
+    .runner-layout > .output-pane {
+        border-left: 0;
+        border-top: 1px solid #303036;
     }
 
     .graph-pane {

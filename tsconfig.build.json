@@ -18,6 +18,9 @@
         },
         {
             "path": "./packages/extension/tsconfig.json"
+        },
+        {
+            "path": "./packages/standalone-web/tsconfig.json"
         }
     ]
 }

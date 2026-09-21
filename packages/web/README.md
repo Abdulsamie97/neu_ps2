@@ -10,7 +10,7 @@ Start it from the repository root:
 npm run dev
 ```
 
-Open `http://localhost:20002/pseudo2-workbench`. Press `Start` to initialize the
+Open `http://localhost:21002/pseudo2-workbench`. Press `Start` to initialize the
 editor and language server.
 
 The right side has two views:

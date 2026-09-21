@@ -1,0 +1,19 @@
+{
+  "name": "pseudo2-standalone-web",
+  "description": "Single-file browser runner for Pseudo2 JavaScript generation",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "clean": "node clean.mjs",
+    "build": "tsc -p tsconfig.json --noEmit && node esbuild.mjs",
+    "test": "npm run build && node test/smoke.mjs"
+  },
+  "dependencies": {
+    "langium": "~4.1.0",
+    "pseudo2-language": "0.0.1"
+  },
+  "devDependencies": {
+    "esbuild": "~0.25.5"
+  }
+}

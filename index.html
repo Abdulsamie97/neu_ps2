@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pseudo2 Web Runner</title>
+    <title>Pseudo2 JavaScript Runner</title>
     <link rel="stylesheet" href="packages/web/style.css" />
   </head>
 
@@ -11,21 +11,21 @@
     <div class="app-shell">
       <header class="toolbar">
         <div class="brand">
-          <b>Pseudo2 Runner</b>
-          <span>Editor, Validierung und Ausgabe im Browser</span>
+          <b>Pseudo2 JavaScript Runner</b>
+          <span>Editor, Validierung, Generierung und Ausführung im Browser</span>
         </div>
         <div class="toolbar-actions">
-          <button type="button" id="button-start">Start</button>
-          <button type="button" id="button-dispose">Dispose</button>
-          <button type="button" id="button-summary">Update Summary</button>
-          <button type="button" id="button-code">Update Code</button>
-          <button type="button" id="button-save">Save Code</button>
-          <button type="button" id="button-execute">Execute</button>
+          <button type="button" id="button-start">Editor starten</button>
+          <button type="button" id="button-dispose">Editor stoppen</button>
+          <button type="button" id="button-summary">Zusammenfassung</button>
+          <button type="button" id="button-code">Quelltext</button>
+          <button type="button" id="button-save">Pseudo2 speichern</button>
+          <button type="button" id="button-execute">JavaScript ausführen</button>
           <span id="save-status" class="status-pill" aria-live="polite"></span>
         </div>
       </header>
 
-      <main class="workspace-layout">
+      <main class="workspace-layout runner-layout">
         <section class="editor-pane" aria-label="Pseudo2 editor">
           <div class="pane-header">
             <span>Editor</span>
@@ -36,25 +36,25 @@
         <aside class="output-pane" aria-label="Ausgabe">
           <section class="output-section output-primary">
             <div class="pane-header">
-              <span>Execution</span>
+              <span>JavaScript-Ausgabe</span>
             </div>
             <pre id="exespan"> -no execution yet- </pre>
           </section>
 
           <details class="output-section">
-            <summary>Generated JavaScript</summary>
+            <summary>Generiertes JavaScript</summary>
             <pre id="generatedspan"> -not generated yet- </pre>
           </details>
 
           <section class="output-section">
             <div class="pane-header">
-              <span>Summary</span>
+              <span>Zusammenfassung</span>
             </div>
             <pre id="summaryspan"> -nothing yet- </pre>
           </section>
 
           <details class="output-section">
-            <summary>Current Pseudo2 Code</summary>
+            <summary>Aktueller Pseudo2-Code</summary>
             <pre id="codespan"> -no code yet- </pre>
           </details>
         </aside>
@@ -64,7 +64,9 @@
     <script type="module">
       import { runDsl } from "./packages/web/src/main.ts";
 
-      runDsl();
+      void runDsl().then(() => {
+        document.querySelector('#button-start')?.click();
+      });
     </script>
   </body>
 </html>

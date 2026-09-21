@@ -37,6 +37,11 @@ const VERIFIED_RUNTIME_FILES = [
 const MAX_VERIFAST_BODY_BYTES = 5 * 1024 * 1024;
 /** Standardzeitlimit eines aus der Weboberfläche gestarteten VeriFast-Prozesses. */
 const DEFAULT_VERIFAST_TIMEOUT_MS = 60_000;
+/** Browserisolation, die Monaco und die VS-Code-Webworker auch in der statischen Vorschau benötigen. */
+const BROWSER_ISOLATION_HEADERS = {
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Embedder-Policy': 'require-corp'
+};
 /** Verhindert mehrere gleichzeitig kompilierende oder laufende C-Programme. */
 let cRunInProgress = false;
 
@@ -68,19 +73,20 @@ export const definedViteConfig = defineConfig({
         // dedupe: ['vscode']
     },
     server: {
-        port: 20002,
+        port: 21002,
         cors: {
             origin: '*'
         },
-        headers: {
-            'Cross-Origin-Opener-Policy': 'same-origin',
-            'Cross-Origin-Embedder-Policy': 'require-corp',
-        },
+        headers: BROWSER_ISOLATION_HEADERS,
         watch: {
             ignored: [
                 '**/.chrome/**/*'
             ]
         }
+    },
+    preview: {
+        port: 4173,
+        headers: BROWSER_ISOLATION_HEADERS
     },
     optimizeDeps: {
         exclude: [
@@ -195,7 +201,7 @@ function pseudo2WorkbenchRoutePlugin(): Plugin {
             server.httpServer?.once('listening', () => {
                 setTimeout(() => {
                     const localUrls = server.resolvedUrls?.local ?? [];
-                    const baseUrl = localUrls[0] ?? `http://localhost:${server.config.server.port ?? 20002}/`;
+                    const baseUrl = localUrls[0] ?? `http://localhost:${server.config.server.port ?? 21002}/`;
                     const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
                     server.config.logger.info(`  -> Pseudo2 Workbench: ${normalizedBaseUrl}pseudo2-workbench`);
                     server.config.logger.info('     JavaScript execution, C execution, VeriFast verification, and Graphviz views.');

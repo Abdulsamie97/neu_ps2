@@ -758,7 +758,9 @@ Sie kann direkt per Doppelklick im Browser geoeffnet oder als einzelne Datei auf
 einen statischen Webserver kopiert werden. Sie laedt keine externen Assets und
 benoetigt weder Vite noch einen laufenden Node-Prozess. Die Programmausfuehrung
 erfolgt in einem Web Worker mit Zeitlimit, damit eine Pseudo2-Endlosschleife die
-Oberflaeche nicht dauerhaft blockiert.
+Oberflaeche nicht dauerhaft blockiert. Parser-, Linker- und Validatorfehler werden
+nach einer kurzen Tipp-Pause automatisch als Wellenlinie und Zeilenmarkierung
+angezeigt; Position und Meldung stehen direkt in der Diagnoseleiste des Editors.
 
 Der Einzeldatei-Runner enthaelt bewusst nur browserfaehige Funktionen. C-Ausfuehrung
 und VeriFast bleiben in der vollstaendigen Workbench, weil dafuer native Prozesse

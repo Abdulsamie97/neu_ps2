@@ -24,6 +24,9 @@ assert.equal(/<link[^>]+rel=["']stylesheet/i.test(html), false, 'The standalone 
 assert.equal(html.includes('__PSEUDO2_SCRIPT__'), false, 'The script placeholder must be replaced.');
 assert.equal(html.includes('__PSEUDO2_STYLES__'), false, 'The style placeholder must be replaced.');
 assert.match(html, /Pseudo2 Standalone/, 'The generated file must contain the standalone UI.');
+assert.match(html, /id="editor-diagnostic"/, 'The standalone editor must contain its inline diagnostic message.');
+assert.match(html, /diagnostic-range/, 'The standalone bundle must contain source-range diagnostic decorations.');
+assert.match(html, /data-diagnostic-line/, 'The standalone bundle must contain diagnostic line markers.');
 
 const source = `func square(value)
     return value * value
@@ -42,6 +45,19 @@ await services.shared.workspace.DocumentBuilder.build([document], { validation: 
 
 const errors = (document.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1);
 assert.deepEqual(errors, [], `The standalone example must validate: ${errors.map(error => error.message).join('; ')}`);
+
+const invalidDocument = services.shared.workspace.LangiumDocumentFactory.fromString(
+  'print unknownValue\n',
+  URI.parse('memory:/standalone-invalid-smoke-test.pseudo2')
+);
+await services.shared.workspace.DocumentBuilder.build([invalidDocument], { validation: true });
+const invalidErrors = (invalidDocument.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1);
+assert.ok(invalidErrors.length > 0, 'An unresolved reference must produce an editor error.');
+assert.equal(invalidErrors[0].range.start.line, 0, 'The diagnostic must point to the edited source line.');
+assert.ok(
+  invalidErrors[0].range.end.character > invalidErrors[0].range.start.character,
+  'The diagnostic must expose a visible source range for the editor marker.'
+);
 
 const javaScript = generateProgram(document.parseResult.value);
 const output = [];

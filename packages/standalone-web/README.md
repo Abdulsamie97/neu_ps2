@@ -25,7 +25,8 @@ zum Vite-/Node-Server.
 ## Enthaltene Funktionen
 
 - Pseudo2-Editor mit lokalem Syntax-Highlighting
-- Langium-Parsing und vollstaendige Validierung
+- verzoegerte Langium-Live-Validierung mit Wellenlinien, markierten Zeilennummern
+  und Validator-Meldung direkt im Editor
 - JavaScript-Generierung
 - JavaScript-Ausfuehrung in einem zeitlich begrenzten Web Worker
 - Pretty-Print-Ausgabe mit geschweiften Klammern

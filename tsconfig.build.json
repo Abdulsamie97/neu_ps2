@@ -21,6 +21,9 @@
         },
         {
             "path": "./packages/standalone-web/tsconfig.json"
+        },
+        {
+            "path": "./packages/vpl/tsconfig.json"
         }
     ]
 }

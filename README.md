@@ -33,6 +33,7 @@ normalen `PATH` steht. Ein abweichender Compiler kann mit
 - `packages/cli`: Kommandozeilenwerkzeug fuer JS-, Pretty-Pseudo2-, Graphviz-, C-Generierung und VeriFast.
 - `packages/web`: Monaco/Langium-Weboberflaeche mit JS- und C-Ausfuehrung, VeriFast und gerenderten Graphviz-Graphen.
 - `packages/standalone-web`: Leichter Pseudo2-JavaScript-Runner, der als einzelne HTML-Datei gebaut wird.
+- `packages/vpl`: Gebuendelter Node-Runner fuer Ausfuehrung und automatische Bewertung in Moodle VPL.
 - `packages/extension`: VS-Code-Erweiterung.
 - `examples`: Pseudo2-Beispielprogramme.
 - `out`: uebliches Zielverzeichnis fuer generierte Ausgaben.
@@ -62,6 +63,7 @@ Weitere Quellcodegliederung:
 - `packages/web/src/worker`: Language Server im Web Worker.
 - `packages/web/src/common`: zwischen Browser- und Node-Seite getrennte Web-Hilfsfunktionen.
 - `packages/standalone-web/src`: Einstieg, Vorlage und Styles des eigenstaendigen Ein-Datei-JS-Runners.
+- `packages/vpl/src`: Serverseitige Validierung, isolierte JS-Ausfuehrung und gewichtete VPL-Bewertung.
 - `packages/extension/src/extension` und `packages/extension/src/language`: VS-Code- und Language-Server-Einstiege.
 
 ## Installation
@@ -112,6 +114,13 @@ Nur CLI-Tests:
 
 ```powershell
 npm run --workspace packages/cli test
+```
+
+Nur Moodle-VPL-Runner bauen und testen:
+
+```powershell
+npm run build:vpl
+npm run test --workspace pseudo2-vpl
 ```
 
 Web-Paket separat bauen:
@@ -765,6 +774,33 @@ angezeigt; Position und Meldung stehen direkt in der Diagnoseleiste des Editors.
 Der Einzeldatei-Runner enthaelt bewusst nur browserfaehige Funktionen. C-Ausfuehrung
 und VeriFast bleiben in der vollstaendigen Workbench, weil dafuer native Prozesse
 auf dem Server gestartet werden muessen.
+
+### Moodle VPL mit JavaScript
+
+Fuer automatische Pseudo2-Aufgaben in Moodle VPL gibt es ein separates
+serverseitiges Einzeldatei-Bundle:
+
+```powershell
+npm run build:vpl
+```
+
+Die auszuliefernden Dateien stehen danach in `packages/vpl/dist`. Der zentrale
+Runner `pseudo2-vpl.mjs` enthaelt Parser, Linker, Validator, JavaScript-Generator
+und Runtime. Im VPL-Jail werden deshalb weder das Repository noch TypeScript,
+`npm`, GCC oder VeriFast benoetigt. Erforderlich ist ausschliesslich Node.js
+20.10.0 oder neuer.
+
+`vpl_run.sh` erzeugt einen interaktiven Programmlauf. `vpl_evaluate.sh` liest
+`assignment.json`, fuehrt oeffentliche und versteckte Tests mit separatem
+Zeitlimit aus und schreibt gewichtete `Comment :=>>`-/`Grade :=>>`-Ergebnisse.
+Parser-, Referenz- und Validatorfehler enthalten den Namen von `main.pseudo2`
+sowie Zeile und Spalte, damit Moodle zur betroffenen Stelle verlinken kann.
+
+Die vollstaendige Einrichtung, das JSON-Format und beide Installationsvarianten
+(Datei pro Aktivitaet oder zentral unter `/opt`) sind in
+`packages/vpl/README.md` beschrieben. Fuer mehrere Aufgaben sollte eine
+verborgene VPL-Basisaktivitaet angelegt und ueber `Based on` wiederverwendet
+werden.
 
 ### VeriFast-Pfad fuer die Weboberflaeche
 

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "title": "Quadratfunktion",
+  "mode": "function",
+  "maxGrade": 10,
+  "defaultTimeoutMs": 2000,
+  "tests": [
+    {
+      "name": "Oeffentlicher Test: square(5)",
+      "harness": "print square(5)",
+      "expectedOutput": "25",
+      "points": 4,
+      "hidden": false
+    },
+    {
+      "name": "Versteckter Test: negative Zahl",
+      "harness": "print square(-3)",
+      "expectedOutput": "9",
+      "points": 3,
+      "hidden": true
+    },
+    {
+      "name": "Versteckter Test: Null",
+      "harness": "print square(0)",
+      "expectedOutput": "0",
+      "points": 3,
+      "hidden": true,
+      "timeoutMs": 1000
+    }
+  ]
+}

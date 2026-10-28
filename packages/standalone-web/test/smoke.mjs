@@ -64,9 +64,25 @@ const output = [];
 const capturedConsole = {
   log: (...values) => output.push(values.map(String).join(' ')),
   warn: (...values) => output.push(values.map(String).join(' ')),
-  error: (...values) => output.push(values.map(String).join(' '))
+  error: (...values) => output.push(values.map(String).join(' ')),
+  __ps2_write: (value, ending) => output.push(`${String(value)}${ending}`)
 };
 new Function('console', `"use strict";\n${javaScript}`)(capturedConsole);
 
 assert.deepEqual(output, ['1', '4', '9', '16'], 'Generated JavaScript must produce the expected output.');
+
+const printEndingDocument = services.shared.workspace.LangiumDocumentFactory.fromString(
+  'print 1 end=" "\nprint 2 end=""\n',
+  URI.parse('memory:/standalone-print-ending-smoke-test.pseudo2')
+);
+await services.shared.workspace.DocumentBuilder.build([printEndingDocument], { validation: true });
+const printEndingErrors = (printEndingDocument.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1);
+assert.deepEqual(printEndingErrors, [], 'Explicit print endings must validate in the standalone bundle.');
+
+const printEndingOutput = [];
+new Function('console', `"use strict";\n${generateProgram(printEndingDocument.parseResult.value)}`)({
+  log: (...values) => printEndingOutput.push(`${values.map(String).join(' ')}\n`),
+  __ps2_write: (value, ending) => printEndingOutput.push(`${String(value)}${ending}`)
+});
+assert.equal(printEndingOutput.join(''), '1 2', 'Explicit print endings must be preserved exactly.');
 console.log('Standalone smoke test passed.');

@@ -129,6 +129,29 @@ Web-Paket separat bauen:
 npm run build --workspace packages/web
 ```
 
+## Ausgabe mit `print`
+
+`print` schreibt standardmaessig nach jedem Wert einen Zeilenumbruch. Mit dem
+optionalen, direkt an die Anweisung angehaengten `end` kann dieses Abschlusszeichen
+gewaehlt werden:
+
+```pseudo2
+print "erste Zeile"
+print 1 end=" "
+print 2 end=" "
+print 3
+print "ohne Zeilenumbruch" end=""
+print "\nnaechste Zeile" end=""
+```
+
+`end=""` erzeugt keinen Abschluss, `end=" "` bleibt auf derselben Zeile und trennt
+mit einem Leerzeichen, und Escape-Sequenzen wie `end="\n"` beziehungsweise
+`end="\n\n"` erzeugen einen oder mehrere Zeilenumbrueche. Der Wert vor `end` kann
+wie bisher ein Skalar, Array oder Struct sein. JavaScript, Runtime-C, Direct-C,
+Pretty-Pseudo2, die Weboberflaeche, der Standalone-Runner und der VPL-Runner
+verwenden dieselbe Semantik. `end` ist ein kontextuelles Schluesselwort und darf
+ausserhalb dieser Option weiterhin als Variablen- oder Parametername vorkommen.
+
 ## CLI verwenden
 
 Die CLI wird direkt ueber das lokale Bin-Skript gestartet:

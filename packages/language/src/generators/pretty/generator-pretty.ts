@@ -140,7 +140,8 @@ function printInstruction(instruction: Instruction, level: number, ctx: PrettyCo
   }
 
   if (isPrintCommand(instruction)) {
-    return `${prefix}print ${printExpr(instruction.param)}`;
+    const ending = instruction.ending === undefined ? '' : ` end=${JSON.stringify(instruction.ending)}`;
+    return `${prefix}print ${printExpr(instruction.param)}${ending}`;
   }
 
   if (isThrowCommand(instruction)) {

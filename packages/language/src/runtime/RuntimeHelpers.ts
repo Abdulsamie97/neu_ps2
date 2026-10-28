@@ -95,4 +95,20 @@ function __ps2_asStruct(value) {
     return value;
   }
   throw new Error("ObservableStruct expected");
+}
+
+function __ps2_write(value, ending) {
+  if (typeof console !== "undefined" && typeof console.__ps2_write === "function") {
+    console.__ps2_write(value, ending);
+    return;
+  }
+  if (typeof process !== "undefined" && process.stdout && typeof process.stdout.write === "function") {
+    process.stdout.write(String(value) + ending);
+    return;
+  }
+  if (ending === "\n") {
+    console.log(value);
+  } else {
+    console.log(String(value) + ending);
+  }
 }`;

@@ -151,6 +151,10 @@ void ps2_print(Ps2Value* value);
     //@ requires true;
     //@ ensures true;
 
+void ps2_write(Ps2Value* value, const char* ending);
+    //@ requires true;
+    //@ ensures true;
+
 void ps2_throw(Ps2Value* value);
     //@ requires true;
     //@ ensures false;

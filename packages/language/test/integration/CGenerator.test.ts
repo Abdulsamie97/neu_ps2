@@ -15,6 +15,19 @@ import { parseRuntimeProgram } from '../helpers/runtime-test-utils.js';
 
 /** Integrationssuite für den gemeinsamen C-Generator-Core. */
 describe('CGenerator', () => {
+  test('emits exact print endings through the runtime write operation', async () => {
+    const c = await generateC(`
+      print 1 end=" "
+      print "fertig" end=""
+      print 2
+    `);
+
+    expect(c).toContain('void ps2_write(Ps2Value* value, const char* ending);');
+    expect(c).toContain('ps2_write(ps2_int(1), " ");');
+    expect(c).toMatch(/ps2_write\(ps2_string_literal_\d+\(\), ""\);/);
+    expect(c).toContain('ps2_print(ps2_int(2));');
+  });
+
   test('generates chained array reads and writes for nested arrays', async () => {
     const c = await generateC(`
       func nested()

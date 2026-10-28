@@ -229,6 +229,13 @@ static void ps2_print(Ps2Value* value) {
   free(text);
 }
 
+static void ps2_write(Ps2Value* value, const char* ending) {
+  char* text = ps2_to_cstring(value);
+  fputs(text, stdout);
+  fputs(ending, stdout);
+  free(text);
+}
+
 static void ps2_throw(Ps2Value* value) {
   char* text = ps2_to_cstring(value);
   fprintf(stderr, "%s\n", text);

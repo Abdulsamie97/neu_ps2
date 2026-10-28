@@ -76,6 +76,15 @@ print square(5)
   assert.equal(runResult.code, 0, runResult.stderr);
   assert.equal(runResult.stdout.trim(), '25');
 
+  const printEndingSourcePath = join(temporaryDirectory, 'print-ending.pseudo2');
+  await writeFile(printEndingSourcePath, `for i = 1 to 3
+    print i end=" "
+print "fertig" end=""
+`, 'utf8');
+  const printEndingResult = await runBundle(['run', printEndingSourcePath]);
+  assert.equal(printEndingResult.code, 0, printEndingResult.stderr);
+  assert.equal(printEndingResult.stdout, '1 2 3 fertig');
+
   const invalidSourcePath = join(temporaryDirectory, 'invalid.pseudo2');
   await writeFile(invalidSourcePath, 'print unknownValue\n', 'utf8');
   const invalidResult = await runBundle(['validate', invalidSourcePath]);

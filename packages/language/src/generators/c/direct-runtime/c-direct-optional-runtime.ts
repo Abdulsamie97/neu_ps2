@@ -14,6 +14,11 @@ export function directCOptionalPrintFunction(kind: DirectCOptionalPrintKind): st
   return `ps2_print_optional_${kind}`;
 }
 
+/** Liefert den C-Namen des optionalen Ausgabehelfers mit explizitem Abschluss. */
+export function directCOptionalPrintEndFunction(kind: DirectCOptionalPrintKind): string {
+  return `ps2_print_end_optional_${kind}`;
+}
+
 /**
  * Erzeugt typisierte Ausgabefunktionen fuer Struct-Felder mit `defined`-Status.
  *
@@ -32,10 +37,15 @@ export function directCOptionalPrintRuntime(
 ): string {
   return kinds.map(kind => {
     const name = directCOptionalPrintFunction(kind);
+    const endName = directCOptionalPrintEndFunction(kind);
     const type = kind === 'string' ? 'const char *' : kind;
     if (mode === 'contracts') {
       return [
         `void ${name}(bool defined, ${type} value);`,
+        '//@ requires true;',
+        '//@ ensures true;',
+        '',
+        `void ${endName}(bool defined, ${type} value, const char *ending);`,
         '//@ requires true;',
         '//@ ensures true;'
       ].join('\n');
@@ -47,6 +57,13 @@ export function directCOptionalPrintRuntime(
         : kind === 'double'
           ? '  printf("%.15g\\n", value);'
           : '  printf("%d\\n", value);';
+    const outputWithoutEnding = kind === 'string'
+      ? '  fputs(value == NULL ? "null" : value, stdout);'
+      : kind === 'bool'
+        ? '  fputs(value ? "true" : "false", stdout);'
+        : kind === 'double'
+          ? '  printf("%.15g", value);'
+          : '  printf("%d", value);';
     return [
       `static void ${name}(bool defined, ${type} value) {`,
       '  if (!defined) {',
@@ -54,6 +71,16 @@ export function directCOptionalPrintRuntime(
       '    return;',
       '  }',
       output,
+      '}',
+      '',
+      `static void ${endName}(bool defined, ${type} value, const char *ending) {`,
+      '  if (!defined) {',
+      '    fputs("undefined", stdout);',
+      '    fputs(ending, stdout);',
+      '    return;',
+      '  }',
+      outputWithoutEnding,
+      '  fputs(ending, stdout);',
       '}'
     ].join('\n');
   }).join('\n\n');

@@ -124,7 +124,7 @@ interface StructAttDeclaration extends Variable {
  * Die Regel erzeugt direkt einen VarDecl-Knoten.
  */
 VarDeclaration returns VarDecl:
-  'var' name=ID
+  'var' name=Identifier
   (isArrayVariable?='[' size=Expression ']')?
   ('=' initializer=Expression)?
 ;
@@ -177,7 +177,7 @@ ForLoop:
 
 /** Erzeugt den als VarDecl modellierten Iterator oder Längenparameter aus einem Bezeichner. */
 LengthParameter returns VarDecl:
-  name=ID
+  name=Identifier
 ;
 
 /** Liest eine do-while-Schleife mit vorangestellten VeriFast-Annotationen. */
@@ -195,7 +195,7 @@ DoWhileLoop:
  * Liest eine Struct-Deklaration mit geklammerten oder eingerückten Attributen und Methoden.
  */
 StructDeclaration:
-  'struct' name=ID
+  'struct' name=Identifier
   (
     '{' children+=StructDeclarationChild* '}'
     |
@@ -211,7 +211,7 @@ StructDeclarationChild:
 
 /** Liest Typ und Namen eines Struct-Attributs und erzeugt dessen AST-Schnittstelle. */
 StructAttDeclarationRule returns StructAttDeclaration:
-  type=TypeRef name=ID
+  type=TypeRef name=Identifier
 ;
 
 // -------------------- Types --------------------
@@ -281,7 +281,7 @@ BoolTypeRule returns BoolType:
 
 /** Löst einen Typbezeichner auf eine vorhandene Struct-Deklaration auf. */
 StructTypeRule returns StructType:
-  {StructType} struct=[StructDeclaration:ID]
+  {StructType} struct=[StructDeclaration:Identifier]
 ;
 
 
@@ -354,7 +354,7 @@ interface FunctionDeclaration {
 FunctionDeclaration returns FunctionDeclaration:
   annotations+=VerificationAnnotationRule*
   (keyword?='func')?
-  name=ID
+  name=Identifier
   '(' (params+=Parameter (',' params+=Parameter)*)? ')'
   body=Block
 ;
@@ -362,7 +362,7 @@ FunctionDeclaration returns FunctionDeclaration:
 
 /** Liest einen skalaren Parameter oder einen Arrayparameter der Form `A[start..length]`. */
 Parameter returns ParameterDecl:
-  name=ID
+  name=Identifier
   (
     isArray?='[' start=INT '..' len=LengthParameter ']' //start zu 1
   )?
@@ -370,7 +370,7 @@ Parameter returns ParameterDecl:
 
 /** Löst einen globalen Funktionsnamen auf und liest die tatsächlichen Argumente. */
 FunctionCall:
-  f=[FunctionDeclaration:ID]
+  f=[FunctionDeclaration:Identifier]
   '(' (params+=Expression (',' params+=Expression)*)? ')'
 ;
 
@@ -393,6 +393,8 @@ interface ReturnStmt {
 interface PrintCommand {
   /** Auszugebender Pseudo2-Ausdruck. */
   param: Expr
+  /** Optionaler Abschluss; standardmäßig wird ein Zeilenumbruch ausgegeben. */
+  ending?: string
 }
 
 /** AST-Schnittstelle des globalen throw-Kommandos. */
@@ -414,9 +416,9 @@ GlobalCommand:
   | CallCommandRule
 ;
 
-/** Liest ein print-Kommando mit genau einem Ausdruck. */
+/** Liest ein print-Kommando mit Ausdruck und optionalem Abschlussstring. */
 PrintCommandRule returns PrintCommand:
-  'print' param=Expression
+  'print' param=Expression ('end' '=' ending=STRING)?
 ;
 
 /** Liest ein throw-Kommando mit genau einem Ausdruck. */
@@ -451,7 +453,7 @@ This returns ThisExpr:
 interface VarRef extends Expr { ref: @Variable index?: Expr }
 /** Löst einen Variablennamen auf und liest optional einen einsbasierten Indexausdruck. */
 VarRefRule returns VarRef:
-  {VarRef} ref=[Variable:ID] ('[' index=Expression ']')?
+  {VarRef} ref=[Variable:Identifier] ('[' index=Expression ']')?
 ;
 
 // Attribute ref: field or field[i]
@@ -459,7 +461,7 @@ VarRefRule returns VarRef:
 interface AttRef { ref: @StructAttDeclaration index?: Expr }
 /** Löst einen Attributnamen im Struct-Kontext auf und liest optional einen Index. */
 AttRefRule returns AttRef:
-  {AttRef} ref=[StructAttDeclaration:ID] ('[' index=Expression ']')?
+  {AttRef} ref=[StructAttDeclaration:Identifier] ('[' index=Expression ']')?
 ;
 
 // Method ref: method(args...)
@@ -467,7 +469,7 @@ AttRefRule returns AttRef:
 interface MethRef { f: @FunctionDeclaration params: Expr[] }
 /** Löst einen Methodennamen auf und liest dessen Argumentliste. */
 MethRefRule returns MethRef:
-  {MethRef} f=[FunctionDeclaration:ID]
+  {MethRef} f=[FunctionDeclaration:Identifier]
   '(' (params+=Expression (',' params+=Expression)*)? ')'
 ;
 
@@ -564,7 +566,7 @@ SpecPredicateRule returns SpecPredicateExpr:
 
 /** Liest `new` und löst den folgenden Namen auf eine Struct-Deklaration auf. */
 NewRule returns NewExpr:
-  {NewExpr} 'new' type=[StructDeclaration:ID]
+  {NewExpr} 'new' type=[StructDeclaration:Identifier]
 ;
 
 /** Liest ein leeres oder kommasepariertes Arrayliteral. */
@@ -682,6 +684,15 @@ Primary returns Expr:
 // ======================================================
 // Terminals
 // ======================================================
+
+/**
+ * Liest normale Bezeichner und erlaubt `end` weiterhin als kontextuellen Namen.
+ * Dadurch bleibt vorhandener Code mit Parametern namens `end` kompatibel, obwohl
+ * dasselbe Wort den optionalen Abschluss eines print-Kommandos einleitet.
+ */
+Identifier returns string:
+  ID | 'end'
+;
 
 /** Synthetisches Terminal, das der Indentation-Aware-Lexer beim Einrücken einfügt. */
 terminal INDENT: 'synthetic:indent';

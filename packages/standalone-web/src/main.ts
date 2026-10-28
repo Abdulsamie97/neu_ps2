@@ -80,7 +80,7 @@ const LIVE_VALIDATION_DELAY_MS = 450;
 /** Pseudo2-Schluesselwoerter und Spezifikationsbezeichner fuer das lokale Highlighting. */
 const KEYWORDS = new Set([
   'assert', 'assume', 'bool', 'by', 'call', 'close', 'decreases', 'do', 'downto',
-  'else', 'ensures', 'false', 'for', 'func', 'if', 'INT_MAX', 'INT_MIN', 'invariant',
+  'else', 'end', 'ensures', 'false', 'for', 'func', 'if', 'INT_MAX', 'INT_MIN', 'invariant',
   'leak', 'length', 'mod', 'new', 'null', 'num', 'open', 'print', 'requires', 'result',
   'return', 'string', 'struct', 'terminates', 'this', 'throw', 'to', 'true', 'undefined',
   'var', 'while'
@@ -438,9 +438,10 @@ async function runCurrentSource(): Promise<void> {
   showResultTab('output');
 
   const execution = await executeJavaScript(javaScript);
-  const output = execution.output.length > 0 ? execution.output.join('\n') : '(keine Ausgabe)';
+  const output = execution.output.length > 0 ? execution.output.join('') : '(keine Ausgabe)';
+  const errorSeparator = output.endsWith('\n\n') ? '' : output.endsWith('\n') ? '\n' : '\n\n';
   resultValues.output = execution.error
-    ? `${output}\n\nLaufzeitfehler:\n${execution.error}`
+    ? `${output}${errorSeparator}Laufzeitfehler:\n${execution.error}`
     : output;
   showResultTab('output');
 }
@@ -471,9 +472,10 @@ function executeJavaScript(source: string): Promise<ExecutionResult> {
     self.onmessage = function (event) {
       var output = [];
       var capturedConsole = {
-        log: function () { output.push(Array.from(arguments).map(formatValue).join(' ')); },
-        warn: function () { output.push(Array.from(arguments).map(formatValue).join(' ')); },
-        error: function () { output.push(Array.from(arguments).map(formatValue).join(' ')); }
+        log: function () { output.push(Array.from(arguments).map(formatValue).join(' ') + '\\n'); },
+        warn: function () { output.push(Array.from(arguments).map(formatValue).join(' ') + '\\n'); },
+        error: function () { output.push(Array.from(arguments).map(formatValue).join(' ') + '\\n'); },
+        __ps2_write: function (value, ending) { output.push(formatValue(value) + String(ending)); }
       };
 
       try {

@@ -2956,9 +2956,12 @@ function generateExprStatement(stmt: ExprStatement, context: Pseudo2GeneratorCon
   return `${indent}${genExpr(stmt.expr, context, state)};`;
 }
 
-/** @returns Runtime-Aufruf von `ps2_print` für das Pseudo2-print-Kommando. */
+/** @returns Runtime-Aufruf für `print` mit standardmäßigem oder explizitem Abschluss. */
 function generatePrintCommand(cmd: PrintCommand, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
-  return `${indent}ps2_print(${genExpr(cmd.param, context, state)});`;
+  const value = genExpr(cmd.param, context, state);
+  return cmd.ending === undefined
+    ? `${indent}ps2_print(${value});`
+    : `${indent}ps2_write(${value}, ${JSON.stringify(cmd.ending)});`;
 }
 
 /** @returns Runtime-Aufruf von `ps2_throw` für das Pseudo2-throw-Kommando. */

@@ -388,8 +388,10 @@ const updateExecution = async () => {
         setTextContent('#generatedspan', generatedCode);
 
         const result = executeJavaScript(generatedCode);
-        const output = result.output.length > 0 ? result.output.join('\n') : '(no output)';
-        const runtimeError = result.error ? `\nRuntime error:\n${result.error}` : '';
+        const output = result.output.length > 0 ? result.output.join('') : '(no output)';
+        const runtimeError = result.error
+            ? `${output.endsWith('\n') ? '' : '\n'}Runtime error:\n${result.error}`
+            : '';
         setTextContent('#exespan', `${output}${runtimeError}`);
     } catch (error) {
         setTextContent('#exespan', `Execution failed:\n${formatError(error)}`);
@@ -1522,16 +1524,17 @@ async function parsePseudo2(code: string): Promise<{
  * @return Erfasste Konsolenausgaben und optionaler Laufzeitfehler.
  */
 function executeJavaScript(source: string): {
-    /** @brief In Aufrufreihenfolge erfasste Ausgaben von `console.log`, `warn` und `error`. */
+    /** @brief In Aufrufreihenfolge erfasste Ausgabefragmente einschließlich ihrer Abschlusszeichen. */
     output: string[];
     /** @brief Formatierter Laufzeitfehler, sofern die JavaScript-Ausführung fehlschlug. */
     error?: string
 } {
     const output: string[] = [];
     const capturedConsole = {
-        log: (...args: unknown[]) => output.push(args.map(formatValue).join(' ')),
-        warn: (...args: unknown[]) => output.push(args.map(formatValue).join(' ')),
-        error: (...args: unknown[]) => output.push(args.map(formatValue).join(' '))
+        log: (...args: unknown[]) => output.push(`${args.map(formatValue).join(' ')}\n`),
+        warn: (...args: unknown[]) => output.push(`${args.map(formatValue).join(' ')}\n`),
+        error: (...args: unknown[]) => output.push(`${args.map(formatValue).join(' ')}\n`),
+        __ps2_write: (value: unknown, ending: string) => output.push(`${formatValue(value)}${ending}`)
     };
 
     try {

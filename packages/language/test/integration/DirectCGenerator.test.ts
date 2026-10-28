@@ -10,6 +10,29 @@ async function directC(source: string): Promise<string> {
 }
 
 describe('Direct C generator', () => {
+  test('emits exact print endings for scalar, array and struct values', async () => {
+    const { model, document } = await parseRuntimeProgram(`
+      struct Box
+        num value
+      var values = [1, 2]
+      var box = new Box
+      print 1 end=" "
+      print "ok" end=""
+      print values end=";"
+      print box end="\\n"
+      print true
+    `);
+    expect((document.diagnostics ?? []).filter(d => d.severity === 1).map(d => d.message)).toEqual([]);
+
+    const c = generateDirectCProgram(model, { runtime: 'implementation' });
+    expect(c).toContain('printf("%d", 1);');
+    expect(c).toContain('fputs(" ", stdout);');
+    expect(c).toContain('fputs("", stdout);');
+    expect(c).toMatch(/ps2_print_end_Ps2DirectArray_ps2_int_1\(.+, ";"\);/);
+    expect(c).toMatch(/ps2_print_end_direct_struct\(.+, "\\n"\);/);
+    expect(c).toContain('puts(true ? "true" : "false");');
+  });
+
   test('emits readable native arithmetic, functions and control flow', async () => {
     const c = await directC(`
       func add(a, b)

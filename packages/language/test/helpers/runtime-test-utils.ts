@@ -78,16 +78,27 @@ export async function generateRuntimeCode(text: string): Promise<string> {
  * @returns Zusammengeführte Programmausgabe.
  */
 export async function executePseudo2(text: string): Promise<string> {
+  return normalizeOutput(await executePseudo2Raw(text));
+}
+
+/**
+ * Führt Pseudo2 aus und gibt die Ausgabe einschließlich aller durch `print end=...`
+ * gewählten Leerzeichen und Zeilenumbrüche unverändert zurück.
+ * @param text Pseudo2-Quelltext.
+ * @returns Exakte, in Ausgabereihenfolge zusammengesetzte Zeichenfolge.
+ */
+export async function executePseudo2Raw(text: string): Promise<string> {
   const output: string[] = [];
   const code = await generateRuntimeCode(text);
 
   vm.runInNewContext(code, {
     console: {
-      log: (...values: unknown[]) => output.push(values.map(value => String(value)).join(' '))
+      log: (...values: unknown[]) => output.push(`${values.map(value => String(value)).join(' ')}\n`),
+      __ps2_write: (value: unknown, ending: string) => output.push(`${String(value)}${ending}`)
     }
   }, { timeout: 1000 });
 
-  return normalizeOutput(output.join(' '));
+  return output.join('');
 }
 
 /**

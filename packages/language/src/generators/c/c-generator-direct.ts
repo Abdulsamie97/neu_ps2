@@ -33,13 +33,16 @@ import type { CSourceMapEntry } from './c-generator-core.js';
 import { directCStringRuntime, type DirectCStringRuntimeMode } from './direct-runtime/c-direct-string-runtime.js';
 import { directCArrayRuntime, type DirectCArrayRuntimeType } from './direct-runtime/c-direct-array-runtime.js';
 import {
+  directCOptionalPrintEndFunction,
   directCOptionalPrintFunction,
   directCOptionalPrintRuntime,
   type DirectCOptionalPrintKind
 } from './direct-runtime/c-direct-optional-runtime.js';
 import {
+  DIRECT_C_STRUCT_PRINT_END_FUNCTION,
   DIRECT_C_STRUCT_PRINT_FUNCTION,
   DIRECT_C_STRUCT_THROW_FUNCTION,
+  directCArrayPrintEndFunction,
   directCArrayPrintFunction,
   directCArrayThrowFunction,
   directCPrintRuntime
@@ -862,7 +865,7 @@ class DirectCGenerator {
         `${i}return${returnValue ? ` ${returnValue}` : ''};`
       ].join('\n');
     }
-    if (isPrintCommand(instruction)) return this.emitPrint(instruction.param, level, state);
+    if (isPrintCommand(instruction)) return this.emitPrint(instruction.param, level, state, instruction.ending);
     if (isThrowCommand(instruction)) return this.emitThrow(instruction.param, level, state);
     if (isCallCommand(instruction)) {
       const lowered = this.lowerRootExpression(instruction.param, state, i);
@@ -1776,28 +1779,51 @@ class DirectCGenerator {
     return { code, sourceMap };
   }
 
-  /** Waehlt ein printf-Format fuer einen eindeutig bestimmten skalaren Ausdruck. */
-  private emitPrint(value: Expr, level: number, state: EmitState): string {
+  /**
+   * Erzeugt native Ausgabe mit dem normalen Zeilenumbruch oder einem expliziten Abschlussstring.
+   * @param value Auszugebender Pseudo2-Ausdruck.
+   * @param level Aktuelle Einrueckungsebene.
+   * @param state Typ- und Ownershipzustand der umgebenden Generierung.
+   * @param ending Optionaler Abschluss aus `print ... end="..."`.
+   * @returns Eine oder mehrere C-Anweisungen.
+   */
+  private emitPrint(value: Expr, level: number, state: EmitState, ending?: string): string {
     const i = '  '.repeat(level);
-    if (isNullLiteral(this.unwrap(value))) return `${i}puts("null");`;
+    const endingLiteral = JSON.stringify(ending ?? '\n');
+    const hasCustomEnding = ending !== undefined;
+    if (isNullLiteral(this.unwrap(value))) {
+      return hasCustomEnding
+        ? `${i}fputs("null", stdout);\n${i}fputs(${endingLiteral}, stdout);`
+        : `${i}puts("null");`;
+    }
     const type = this.typeOfExpr(value);
     if (!type) throw new DirectCGenerationError('Typ des print-Ausdrucks ist nicht bestimmbar.', value);
     const defined = this.fieldDefinedTarget(this.unwrap(value), state);
     if (type.depth > 0) {
       const lowered = this.materializeRootCall(value, state, i);
       const descriptor = lowered?.expression ?? this.arrayDescriptorValue(value, type, state);
-      const output = `${directCArrayPrintFunction(this.arrayRuntimeType(type))}(${descriptor});`;
+      const output = hasCustomEnding
+        ? `${directCArrayPrintEndFunction(this.arrayRuntimeType(type))}(${descriptor}, ${endingLiteral});`
+        : `${directCArrayPrintFunction(this.arrayRuntimeType(type))}(${descriptor});`;
+      const undefinedOutput = hasCustomEnding
+        ? `{ fputs("undefined", stdout); fputs(${endingLiteral}, stdout); }`
+        : 'puts("undefined");';
       return [
         ...(lowered?.prefix ?? []),
-        `${i}${defined ? `if (${defined}) ${output} else puts("undefined");` : output}`
+        `${i}${defined ? `if (${defined}) ${output} else ${undefinedOutput}` : output}`
       ].join('\n');
     }
     if (type.base.startsWith('struct ')) {
       const lowered = this.lowerRootExpression(value, state, i);
-      const output = `${DIRECT_C_STRUCT_PRINT_FUNCTION}(${lowered.expression});`;
+      const output = hasCustomEnding
+        ? `${DIRECT_C_STRUCT_PRINT_END_FUNCTION}(${lowered.expression}, ${endingLiteral});`
+        : `${DIRECT_C_STRUCT_PRINT_FUNCTION}(${lowered.expression});`;
+      const undefinedOutput = hasCustomEnding
+        ? `{ fputs("undefined", stdout); fputs(${endingLiteral}, stdout); }`
+        : 'puts("undefined");';
       return [
         ...lowered.prefix,
-        `${i}${defined ? `if (${defined}) ${output} else puts("undefined");` : output}`
+        `${i}${defined ? `if (${defined}) ${output} else ${undefinedOutput}` : output}`
       ].join('\n');
     }
     const lowered = this.lowerRootExpression(value, state, i);
@@ -1812,15 +1838,26 @@ class DirectCGenerator {
     if (defined) {
       const kind = this.optionalPrintKind(type);
       if (!kind) throw new DirectCGenerationError('Initialisierbares Feld besitzt keinen direkt ausgebbaren C-Typ.', value);
-      return [...prefix, `${i}${directCOptionalPrintFunction(kind)}(${defined}, ${expression});`].join('\n');
+      const call = hasCustomEnding
+        ? `${directCOptionalPrintEndFunction(kind)}(${defined}, ${expression}, ${endingLiteral});`
+        : `${directCOptionalPrintFunction(kind)}(${defined}, ${expression});`;
+      return [...prefix, `${i}${call}`].join('\n');
     }
     let output: string;
-    if (type.base === 'bool') output = [...prefix, `${i}puts(${expression} ? "true" : "false");`].join('\n');
+    if (type.base === 'bool') {
+      output = hasCustomEnding
+        ? [...prefix, `${i}fputs(${expression} ? "true" : "false", stdout);`, `${i}fputs(${endingLiteral}, stdout);`].join('\n')
+        : [...prefix, `${i}puts(${expression} ? "true" : "false");`].join('\n');
+    }
     else if (type.base === 'const char *') {
       const temp = this.temp('text');
-      output = [...prefix, `${i}const char *${temp} = ${expression};`, `${i}printf("%s\\n", ${temp} == NULL ? "null" : ${temp});`].join('\n');
+      output = hasCustomEnding
+        ? [...prefix, `${i}const char *${temp} = ${expression};`, `${i}fputs(${temp} == NULL ? "null" : ${temp}, stdout);`, `${i}fputs(${endingLiteral}, stdout);`].join('\n')
+        : [...prefix, `${i}const char *${temp} = ${expression};`, `${i}printf("%s\\n", ${temp} == NULL ? "null" : ${temp});`].join('\n');
     } else {
-      output = [...prefix, `${i}printf("${this.verifiedIntegers ? '%d' : '%.15g'}\\n", ${expression});`].join('\n');
+      output = hasCustomEnding
+        ? [...prefix, `${i}printf("${this.verifiedIntegers ? '%d' : '%.15g'}", ${expression});`, `${i}fputs(${endingLiteral}, stdout);`].join('\n')
+        : [...prefix, `${i}printf("${this.verifiedIntegers ? '%d' : '%.15g'}\\n", ${expression});`].join('\n');
     }
     return output;
   }

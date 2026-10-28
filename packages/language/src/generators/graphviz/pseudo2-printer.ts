@@ -267,7 +267,8 @@ function printReturn(ret: ReturnStmt): string {
  * @returns Text der Form `print ausdruck`.
  */
 function printPrint(cmd: PrintCommand): string {
-  return `print ${printExpr(cmd.param)}`;
+  const ending = cmd.ending === undefined ? '' : ` end=${JSON.stringify(cmd.ending)}`;
+  return `print ${printExpr(cmd.param)}${ending}`;
 }
 
 /**

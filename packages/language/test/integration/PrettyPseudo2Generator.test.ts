@@ -273,6 +273,25 @@ describe('PrettyPseudo2Generator', () => {
     const reparsed = await parseRuntimeProgram(pretty);
     expectErrors(reparsed.document);
   });
+
+  test('preserves explicit print endings and reparses them', async () => {
+    const { model, document } = await parseRuntimeProgram(`
+      print 1 end=" "
+      print "fertig" end=""
+    `);
+    expectErrors(document);
+
+    const pretty = generatePrettyPseudo2(model);
+    expect(pretty).toBe([
+      'print 1 end=" "',
+      '',
+      'print "fertig" end=""',
+      ''
+    ].join('\n'));
+
+    const reparsed = await parseRuntimeProgram(pretty);
+    expectErrors(reparsed.document);
+  });
 });
 
 /**

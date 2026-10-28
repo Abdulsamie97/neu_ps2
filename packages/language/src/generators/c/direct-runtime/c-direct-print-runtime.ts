@@ -22,6 +22,11 @@ export function directCArrayPrintFunction(type: DirectCArrayRuntimeType): string
   return `ps2_print_${identifier(type.resultType)}`;
 }
 
+/** @returns Name des Array-Ausgabehelfers mit frei waehlbarem Abschluss. */
+export function directCArrayPrintEndFunction(type: DirectCArrayRuntimeType): string {
+  return `ps2_print_end_${identifier(type.resultType)}`;
+}
+
 /** @returns Name des abbrechenden Array-Ausgabehelfers fuer `throw`. */
 export function directCArrayThrowFunction(type: DirectCArrayRuntimeType): string {
   return `ps2_throw_${identifier(type.resultType)}`;
@@ -29,6 +34,8 @@ export function directCArrayThrowFunction(type: DirectCArrayRuntimeType): string
 
 /** Name des generischen Ausgabehelfers fuer einen Struct-Zeiger. */
 export const DIRECT_C_STRUCT_PRINT_FUNCTION = 'ps2_print_direct_struct';
+/** Name des Struct-Ausgabehelfers mit frei waehlbarem Abschluss. */
+export const DIRECT_C_STRUCT_PRINT_END_FUNCTION = 'ps2_print_end_direct_struct';
 /** Name des abbrechenden Ausgabehelfers fuer einen Struct-Zeiger. */
 export const DIRECT_C_STRUCT_THROW_FUNCTION = 'ps2_throw_direct_struct';
 
@@ -53,10 +60,15 @@ function leafWrite(type: DirectCArrayRuntimeType, expression: string): string {
 /** Erzeugt Deklarationen und VeriFast-Vertraege eines Array-Ausgabetyps. */
 function contractRuntime(type: DirectCArrayRuntimeType): string[] {
   const print = directCArrayPrintFunction(type);
+  const printEnd = directCArrayPrintEndFunction(type);
   const fail = directCArrayThrowFunction(type);
   const arrayOwnership = ownership(type, '?values');
   return [
     `void ${print}(${type.resultType} value);`,
+    `//@ requires 0 <= value.length &*& ${arrayOwnership};`,
+    `//@ ensures ${ownership(type, 'values')};`,
+    '',
+    `void ${printEnd}(${type.resultType} value, const char *ending);`,
     `//@ requires 0 <= value.length &*& ${arrayOwnership};`,
     `//@ ensures ${ownership(type, 'values')};`,
     '',
@@ -71,6 +83,7 @@ function contractRuntime(type: DirectCArrayRuntimeType): string[] {
 function implementationRuntime(type: DirectCArrayRuntimeType, types: DirectCArrayRuntimeType[]): string[] {
   const write = directCArrayWriteFunction(type);
   const print = directCArrayPrintFunction(type);
+  const printEnd = directCArrayPrintEndFunction(type);
   const fail = directCArrayThrowFunction(type);
   let elementWrite: string;
   if (type.depth > 1) {
@@ -94,6 +107,11 @@ function implementationRuntime(type: DirectCArrayRuntimeType, types: DirectCArra
     "  fputc('\\n', stdout);",
     '}',
     '',
+    `static void ${printEnd}(${type.resultType} value, const char *ending) {`,
+    `  ${write}(value, stdout);`,
+    '  fputs(ending, stdout);',
+    '}',
+    '',
     `static void ${fail}(${type.resultType} value) {`,
     `  ${write}(value, stderr);`,
     "  fputc('\\n', stderr);",
@@ -111,6 +129,10 @@ function structRuntime(mode: DirectCStringRuntimeMode): string[] {
       '//@ requires true;',
       '//@ ensures true;',
       '',
+      `void ${DIRECT_C_STRUCT_PRINT_END_FUNCTION}(void *value, const char *ending);`,
+      '//@ requires true;',
+      '//@ ensures true;',
+      '',
       `void ${DIRECT_C_STRUCT_THROW_FUNCTION}(void *value);`,
       '//@ requires true;',
       '//@ ensures false;',
@@ -120,6 +142,11 @@ function structRuntime(mode: DirectCStringRuntimeMode): string[] {
   return [
     `static void ${DIRECT_C_STRUCT_PRINT_FUNCTION}(void *value) {`,
     '  puts(value == NULL ? "null" : "[object Object]");',
+    '}',
+    '',
+    `static void ${DIRECT_C_STRUCT_PRINT_END_FUNCTION}(void *value, const char *ending) {`,
+    '  fputs(value == NULL ? "null" : "[object Object]", stdout);',
+    '  fputs(ending, stdout);',
     '}',
     '',
     `static void ${DIRECT_C_STRUCT_THROW_FUNCTION}(void *value) {`,

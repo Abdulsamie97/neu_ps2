@@ -583,7 +583,9 @@ function generateExprStatement(
 }
 
 /**
- * Übersetzt `print` in einen Aufruf von `console.log`.
+ * Übersetzt `print` standardmäßig in `console.log`. Bei einem expliziten
+ * Abschlussstring verwendet der Generator den Runtime-Schreibhelfer, der keine
+ * zusätzliche Zeilentrennung einfügt.
  *
  * @param cmd Pseudo2-Print-Anweisung.
  * @param context Namenskontext.
@@ -597,7 +599,10 @@ function generatePrintCommand(
   indent = '',
   state = DEFAULT_STATE
 ): string {
-  return `${indent}console.log(${genExpr(cmd.param, context, state)});`;
+  const value = genExpr(cmd.param, context, state);
+  return cmd.ending === undefined
+    ? `${indent}console.log(${value});`
+    : `${indent}__ps2_write(${value}, ${JSON.stringify(cmd.ending)});`;
 }
 
 /**

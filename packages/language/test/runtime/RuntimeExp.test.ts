@@ -4,8 +4,8 @@
  * @author Abdul
  */
 
-import { describe, test } from 'vitest';
-import { assertExecResult } from '../helpers/runtime-test-utils.js';
+import { describe, expect, test } from 'vitest';
+import { assertExecResult, executePseudo2Raw } from '../helpers/runtime-test-utils.js';
 
 /** Ausführungsbasierte Regressionstests der Ausdruckssemantik. */
 describe('RuntimeTestsExp', () => {
@@ -14,6 +14,25 @@ describe('RuntimeTestsExp', () => {
       print 34
       print "hello world"
     `, '34 hello world');
+  });
+
+  test('supports configurable print endings without changing the default newline', async () => {
+    expect(await executePseudo2Raw(`
+      for i = 1 to 3
+        print i end=" "
+      print "fertig"
+      print "A" end="\\n\\n"
+      print "B" end=""
+    `)).toBe('1 2 3 fertig\nA\n\nB');
+  });
+
+  test('keeps end available as a contextual identifier', async () => {
+    await assertExecResult(`
+      func identity(end)
+        return end
+      var end = identity(4)
+      print end
+    `, '4');
   });
 
   test('constants and unary expressions', async () => {

@@ -10,11 +10,17 @@
  * @author Abdul
  */
 
-import { EmptyFileSystem, URI } from 'langium';
+import { AstUtils, EmptyFileSystem, URI } from 'langium';
 import {
   createPseudo2Services,
   generatePrettyPseudo2,
   generateProgram,
+  isFunctionDeclaration,
+  isParameterDecl,
+  isStructAttDeclaration,
+  isStructDeclaration,
+  isVarDecl,
+  Pseudo2GeneratorContext,
   type Program
 } from 'pseudo2-language';
 
@@ -53,6 +59,29 @@ interface AnalysisResult {
   program?: Program;
   /** Alle vom Langium-Dokument gemeldeten Diagnosen. */
   diagnostics: StandaloneDiagnostic[];
+  /** Deklarationen aller globalen und lokalen Pseudo2-Variablen. */
+  variables: VariableDefinition[];
+}
+
+/** Stabile Quelltextposition und Geltungsbereich einer Variablen. */
+interface VariableDefinition {
+  id: string;
+  name: string;
+  scope: string;
+  global: boolean;
+  line: number;
+}
+
+/** Zur Laufzeit beobachteter Wert mit letzter Zuweisungszeile. */
+interface VariableValue extends VariableDefinition {
+  value: string;
+  changedLine: number;
+}
+
+/** Einfuegbarer Vorschlag aus Langium oder der Schluesselwortliste. */
+interface CompletionSuggestion {
+  label: string;
+  insertText: string;
 }
 
 /** Ergebnis der isolierten JavaScript-Ausfuehrung. */
@@ -61,6 +90,8 @@ interface ExecutionResult {
   output: string[];
   /** Laufzeitfehler oder Zeitlimitmeldung. */
   error?: string;
+  /** Zuletzt beobachtete globale und lokale Variablen. */
+  variables?: VariableValue[];
 }
 
 /** Standardprogramm, das die wichtigsten lokalen Funktionen sofort demonstriert. */
@@ -76,6 +107,8 @@ for i=1 to 4
 const EXECUTION_TIMEOUT_MS = 5_000;
 /** Wartezeit zwischen letzter Eingabe und automatischer Langium-Validierung. */
 const LIVE_VALIDATION_DELAY_MS = 450;
+/** Verzoegerung fuer die automatische Vervollstaendigung beim Tippen. */
+const COMPLETION_DELAY_MS = 120;
 
 /** Pseudo2-Schluesselwoerter und Spezifikationsbezeichner fuer das lokale Highlighting. */
 const KEYWORDS = new Set([
@@ -103,6 +136,16 @@ let activeEditorDiagnostic: StandaloneDiagnostic | undefined;
 let sourceRevision = 0;
 /** Noch nicht gestarteter Zeitgeber der Live-Validierung. */
 let liveValidationTimer: number | undefined;
+/** Noch nicht gestartete Vervollstaendigung und ihre sichtbaren Vorschlaege. */
+let completionTimer: number | undefined;
+let completionRequest = 0;
+let completionSuggestions: CompletionSuggestion[] = [];
+let selectedCompletion = 0;
+let completionStart = 0;
+let completionEnd = 0;
+let suppressNextCompletion = false;
+/** Editorversion, deren Werte zuletzt erfolgreich ausgefuehrt wurden. */
+let executedRevision = -1;
 /** Letzter Inhalt jeder Ergebnisansicht. */
 const resultValues: Record<ResultTab, string> = {
   output: 'Noch nicht ausgefuehrt.',
@@ -120,6 +163,8 @@ const editorDiagnostic = requireElement<HTMLElement>('#editor-diagnostic');
 const editorDiagnosticKind = requireElement<HTMLElement>('#editor-diagnostic-kind');
 const editorDiagnosticLocation = requireElement<HTMLElement>('#editor-diagnostic-location');
 const editorDiagnosticText = requireElement<HTMLElement>('#editor-diagnostic-text');
+const completionList = requireElement<HTMLElement>('#completion-list');
+const variableList = requireElement<HTMLElement>('#variable-list');
 const actionButtons = [...document.querySelectorAll<HTMLButtonElement>('.toolbar-actions button')];
 
 /**
@@ -156,7 +201,8 @@ async function analyzeSource(source: string, includeProgram = true): Promise<Ana
         endLine: 1,
         endColumn: 1,
         message: 'Der Quelltext ist leer.'
-      }]
+      }],
+      variables: []
     };
   }
 
@@ -178,11 +224,27 @@ async function analyzeSource(source: string, includeProgram = true): Promise<Ana
     message: diagnostic.message
   }));
 
+  const program = document.parseResult.value as Program;
+  const context = Pseudo2GeneratorContext.fromProgram(program);
+  const variables: VariableDefinition[] = [...AstUtils.streamAllContents(program)]
+    .filter(node => isVarDecl(node) || isParameterDecl(node))
+    .map(variable => {
+      const fn = AstUtils.getContainerOfType(variable, isFunctionDeclaration);
+      const struct = fn ? AstUtils.getContainerOfType(fn, isStructDeclaration) : undefined;
+      return {
+        id: context.getVarName(variable),
+        name: variable.name,
+        scope: fn ? `${struct ? `Methode ${struct.name}.` : 'Funktion '}${fn.name}` : 'Programm',
+        global: variable.$container.$type === 'Program',
+        line: (variable.$cstNode?.range.start.line ?? variable.$container.$cstNode?.range.start.line ?? 0) + 1
+      };
+    });
   const result: AnalysisResult = diagnostics.some(diagnostic => diagnostic.kind === 'Fehler')
-    ? { diagnostics }
+    ? { diagnostics, variables }
     : {
-        program: includeProgram ? document.parseResult.value as Program : undefined,
-        diagnostics
+        program: includeProgram ? program : undefined,
+        diagnostics,
+        variables
       };
 
   if (!includeProgram) {
@@ -218,6 +280,9 @@ async function analyzeCurrentSource(): Promise<AnalysisResult> {
 function presentAnalysis(analysis: AnalysisResult, revealErrors: boolean): void {
   resultValues.diagnostics = formatDiagnostics(analysis.diagnostics);
   setEditorDiagnostics(analysis.diagnostics);
+  if (executedRevision !== sourceRevision) {
+    showVariables(analysis.variables);
+  }
 
   const errorCount = analysis.diagnostics.filter(diagnostic => diagnostic.kind === 'Fehler').length;
   const warningCount = analysis.diagnostics.filter(diagnostic => diagnostic.kind === 'Warnung').length;
@@ -432,17 +497,47 @@ async function runCurrentSource(): Promise<void> {
     return;
   }
 
+  const context = Pseudo2GeneratorContext.fromProgram(analysis.program, true);
   const javaScript = generateProgram(analysis.program);
+  const fieldNames = Object.fromEntries(
+    [...AstUtils.streamAllContents(analysis.program)]
+      .filter(isStructAttDeclaration)
+      .map(field => [context.getVarName(field), field.name])
+  );
+  const executable = generateProgram(analysis.program, context);
   resultValues.javascript = javaScript;
   resultValues.output = 'Programm wird ausgefuehrt ...';
+  const observed = new Map<string, VariableValue>();
+  showVariables(analysis.variables, observed, 'Programm wird ausgefuehrt ...');
   showResultTab('output');
 
-  const execution = await executeJavaScript(javaScript);
+  const runRevision = sourceRevision;
+  let refreshPending = false;
+  let running = true;
+  const execution = await executeJavaScript(executable, fieldNames, variable => {
+    if (runRevision !== sourceRevision) return;
+    observed.set(variable.id, variable);
+    if (!refreshPending) {
+      refreshPending = true;
+      window.requestAnimationFrame(() => {
+        refreshPending = false;
+        if (running && runRevision === sourceRevision) {
+          showVariables(analysis.variables, observed, 'Programm wird ausgefuehrt ...');
+        }
+      });
+    }
+  });
+  running = false;
   const output = execution.output.length > 0 ? execution.output.join('') : '(keine Ausgabe)';
   const errorSeparator = output.endsWith('\n\n') ? '' : output.endsWith('\n') ? '\n' : '\n\n';
   resultValues.output = execution.error
     ? `${output}${errorSeparator}Laufzeitfehler:\n${execution.error}`
     : output;
+  if (runRevision === sourceRevision) {
+    executedRevision = sourceRevision;
+    for (const variable of execution.variables ?? []) observed.set(variable.id, variable);
+    showVariables(analysis.variables, observed, execution.error ? 'Nicht erreicht.' : 'Nicht ausgefuehrt.');
+  }
   showResultTab('output');
 }
 
@@ -454,7 +549,11 @@ async function runCurrentSource(): Promise<void> {
  * @param source Ausfuehrbarer JavaScript-Quelltext des Generators.
  * @returns Abgefangene Ausgabe und optionaler Fehlertext.
  */
-function executeJavaScript(source: string): Promise<ExecutionResult> {
+function executeJavaScript(
+  source: string,
+  fieldNames: Record<string, string>,
+  onVariable: (variable: VariableValue) => void
+): Promise<ExecutionResult> {
   const workerProgram = `
     function formatValue(value) {
       if (typeof value === 'string') return value;
@@ -469,8 +568,47 @@ function executeJavaScript(source: string): Promise<ExecutionResult> {
       }
     }
 
+    function formatVariable(value, fieldNames, depth, path) {
+      if (value === null) return 'null';
+      if (value === undefined) return 'undefined';
+      if (typeof value === 'string') return JSON.stringify(value);
+      if (typeof value !== 'object') return String(value);
+      if (path.has(value)) return '[Zyklus]';
+      if (depth >= 4) return '...';
+      path.add(value);
+      try {
+        if (typeof value.get === 'function' && Object.prototype.hasOwnProperty.call(value, 'value')) {
+          return formatVariable(value.get(), fieldNames, depth + 1, path);
+        }
+        if (Array.isArray(value.ref) || Array.isArray(value)) {
+          var items = Array.isArray(value) ? value : value.ref;
+          var shown = items.slice(0, 30).map(item => formatVariable(item, fieldNames, depth + 1, path));
+          if (items.length > 30) shown.push('...');
+          return '[' + shown.join(', ') + ']';
+        }
+        var object = typeof value.getRef === 'function' ? value.getRef() : value;
+        if (object === null) return 'null';
+        if (path.has(object) && object !== value) return '[Zyklus]';
+        if (object !== value) path.add(object);
+        try {
+          var entries = Object.entries(object);
+          var shown = entries.slice(0, 30).map(function (entry) {
+            return (fieldNames[entry[0]] || entry[0]) + ': ' + formatVariable(entry[1], fieldNames, depth + 1, path);
+          });
+          if (entries.length > 30) shown.push('...');
+          return '{' + shown.join(', ') + '}';
+        } finally {
+          if (object !== value) path.delete(object);
+        }
+      } finally {
+        path.delete(value);
+      }
+    }
+
     self.onmessage = function (event) {
       var output = [];
+      var traces = new Map();
+      var traceCount = 0;
       var capturedConsole = {
         log: function () { output.push(Array.from(arguments).map(formatValue).join(' ') + '\\n'); },
         warn: function () { output.push(Array.from(arguments).map(formatValue).join(' ') + '\\n'); },
@@ -478,13 +616,36 @@ function executeJavaScript(source: string): Promise<ExecutionResult> {
         __ps2_write: function (value, ending) { output.push(formatValue(value) + String(ending)); }
       };
 
+      function currentVariables() {
+        return Array.from(traces.values()).map(function (entry) {
+          return Object.assign({}, entry.metadata, {
+            value: formatVariable(entry.value, event.data.fieldNames, 0, new Set())
+          });
+        });
+      }
+
+      function trace(metadata, value) {
+        traces.set(metadata.id, { metadata: metadata, value: value });
+        traceCount++;
+        if (traceCount <= 500 || traceCount % 5000 === 0) {
+          try {
+            self.postMessage({ type: 'variable', variable: Object.assign({}, metadata, {
+              value: formatVariable(value, event.data.fieldNames, 0, new Set())
+            }) });
+          } catch (_) {
+            // Darstellung darf die Programmausfuehrung nicht beeinflussen.
+          }
+        }
+      }
+
       try {
-        new Function('console', '\"use strict\";\\n' + event.data)(capturedConsole);
-        self.postMessage({ output: output });
+        new Function('console', '__ps2_trace', '\"use strict\";\\n' + event.data.source)(capturedConsole, trace);
+        self.postMessage({ output: output, variables: currentVariables() });
       } catch (error) {
         self.postMessage({
           output: output,
-          error: error instanceof Error ? error.name + ': ' + error.message : String(error)
+          error: error instanceof Error ? error.name + ': ' + error.message : String(error),
+          variables: currentVariables()
         });
       }
     };
@@ -494,6 +655,7 @@ function executeJavaScript(source: string): Promise<ExecutionResult> {
     const workerUrl = URL.createObjectURL(new Blob([workerProgram], { type: 'text/javascript' }));
     const worker = new Worker(workerUrl);
     let settled = false;
+    const lastValues = new Map<string, VariableValue>();
 
     const finish = (result: ExecutionResult) => {
       if (settled) {
@@ -503,7 +665,7 @@ function executeJavaScript(source: string): Promise<ExecutionResult> {
       window.clearTimeout(timeout);
       worker.terminate();
       URL.revokeObjectURL(workerUrl);
-      resolve(result);
+      resolve({ ...result, variables: result.variables ?? [...lastValues.values()] });
     };
 
     const timeout = window.setTimeout(() => {
@@ -514,17 +676,247 @@ function executeJavaScript(source: string): Promise<ExecutionResult> {
     }, EXECUTION_TIMEOUT_MS);
 
     worker.onmessage = event => {
-      const result = event.data as ExecutionResult;
+      const result = event.data as ExecutionResult & { type?: string; variable?: VariableValue };
+      if (result.type === 'variable' && result.variable) {
+        lastValues.set(result.variable.id, result.variable);
+        onVariable(result.variable);
+        return;
+      }
       finish({
         output: Array.isArray(result.output) ? result.output.map(String) : [],
-        error: typeof result.error === 'string' ? result.error : undefined
+        error: typeof result.error === 'string' ? result.error : undefined,
+        variables: Array.isArray(result.variables) ? result.variables : undefined
       });
     };
     worker.onerror = event => {
       finish({ output: [], error: event.message || 'Unbekannter Worker-Fehler.' });
     };
-    worker.postMessage(source);
+    worker.postMessage({ source, fieldNames });
   });
+}
+
+/** Zeigt alle Deklarationen, zuletzt beobachtete Werte und die Quellposition. */
+function showVariables(
+  definitions: VariableDefinition[],
+  values: Map<string, VariableValue> = new Map(),
+  pending = 'Noch nicht ausgefuehrt.'
+): void {
+  variableList.replaceChildren();
+  if (definitions.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'variable-empty';
+    empty.textContent = pending === 'Noch nicht ausgefuehrt.' ? pending : 'Keine Variablen.';
+    variableList.append(empty);
+    return;
+  }
+
+  for (const global of [true, false]) {
+    const group = definitions.filter(definition => definition.global === global);
+    if (group.length === 0) continue;
+    const heading = document.createElement('div');
+    heading.className = 'variable-group';
+    heading.textContent = global ? 'Global' : 'Lokal';
+    variableList.append(heading);
+
+    for (const definition of group) {
+      const observed = values.get(definition.id);
+      const row = document.createElement('div');
+      row.className = 'variable-row';
+      const label = document.createElement('span');
+      label.className = 'variable-name';
+      label.textContent = definition.name;
+      const value = document.createElement('span');
+      value.className = 'variable-value';
+      value.textContent = observed?.value ?? pending;
+      value.classList.toggle('pending', !observed);
+      const location = document.createElement('button');
+      location.type = 'button';
+      location.className = 'variable-location';
+      location.textContent = `${definition.scope}, definiert Zeile ${definition.line}`
+        + (observed && observed.changedLine !== definition.line ? `, zuletzt gesetzt Zeile ${observed.changedLine}` : '')
+        + (observed && !global && pending !== 'Programm wird ausgefuehrt ...' ? ' (letzter Wert)' : '');
+      location.title = 'Zur Deklaration springen';
+      location.addEventListener('click', () => {
+        const offset = sourcePositionToOffset(sourceEditor.value, getLineStarts(sourceEditor.value), definition.line, 1);
+        sourceEditor.focus();
+        sourceEditor.setSelectionRange(offset, offset);
+        const lineHeight = Number.parseFloat(window.getComputedStyle(sourceEditor).lineHeight) || 21.7;
+        sourceEditor.scrollTop = Math.max(0, (definition.line - 1) * lineHeight - sourceEditor.clientHeight / 2);
+        syncEditorScroll();
+      });
+      row.append(label, value, location);
+      variableList.append(row);
+    }
+  }
+}
+
+/** Plant kontextbezogene Pseudo2-Vorschlaege fuer die aktuelle Cursorposition. */
+function scheduleCompletion(force = false): void {
+  hideCompletion();
+  const caret = sourceEditor.selectionStart;
+  if (caret !== sourceEditor.selectionEnd) {
+    return;
+  }
+  const beforeCaret = sourceEditor.value.slice(0, caret);
+  const prefix = beforeCaret.match(/[A-Za-z_][A-Za-z0-9_]*$/)?.[0] ?? '';
+  if (!force && prefix.length === 0 && !beforeCaret.endsWith('.')) {
+    return;
+  }
+  if (isInsideLiteralOrComment(beforeCaret)) {
+    return;
+  }
+
+  const request = ++completionRequest;
+  const revision = sourceRevision;
+  const source = sourceEditor.value;
+  const start = caret - prefix.length;
+  completionTimer = window.setTimeout(() => {
+    completionTimer = undefined;
+    void loadCompletion(source, caret, start, prefix, revision, request);
+  }, force ? 0 : COMPLETION_DELAY_MS);
+}
+
+/** Unterdrueckt Vorschlaege in Kommentaren sowie offenen String-/Zeichenliteralen. */
+function isInsideLiteralOrComment(beforeCaret: string): boolean {
+  const line = beforeCaret.slice(beforeCaret.lastIndexOf('\n') + 1);
+  let quote: '"' | "'" | undefined;
+  for (let index = 0; index < line.length; index++) {
+    if (quote) {
+      if (line[index] === '\\') {
+        index++;
+      } else if (line[index] === quote) {
+        quote = undefined;
+      }
+    } else if (line.startsWith('//', index)) {
+      return true;
+    } else if (line[index] === '"' || line[index] === "'") {
+      quote = line[index] as '"' | "'";
+    }
+  }
+  return quote !== undefined;
+}
+
+/** Holt Langium-Vorschlaege aus einem kurzlebigen In-Memory-Dokument. */
+async function loadCompletion(
+  source: string,
+  caret: number,
+  start: number,
+  prefix: string,
+  revision: number,
+  request: number
+): Promise<void> {
+  const uri = URI.parse(`memory:/completion-${documentCounter++}.pseudo2`);
+  const document = services.shared.workspace.LangiumDocumentFactory.fromString(source, uri);
+  let suggestions: CompletionSuggestion[] = [];
+  try {
+    await services.shared.workspace.DocumentBuilder.build([document], { validation: false });
+    const position = document.textDocument.positionAt(caret);
+    const completion = await services.Pseudo2.lsp.CompletionProvider?.getCompletion(document, {
+      textDocument: { uri: uri.toString() },
+      position
+    });
+    suggestions = (completion?.items ?? []).map(item => ({
+      label: item.label,
+      insertText: item.insertTextFormat === 2
+        ? item.label
+        : item.textEdit && 'newText' in item.textEdit
+          ? item.textEdit.newText
+          : item.insertText ?? item.label
+    }));
+  } catch {
+    // Unvollstaendige Eingaben duerfen die Editorbedienung nicht unterbrechen.
+  } finally {
+    services.shared.workspace.IndexManager.remove(uri);
+    services.shared.workspace.LangiumDocuments.deleteDocument(uri);
+  }
+
+  if (request !== completionRequest || revision !== sourceRevision || caret !== sourceEditor.selectionStart) {
+    return;
+  }
+
+  const normalized = prefix.toLowerCase();
+  const filtered = suggestions.filter(item => (
+    item.label.toLowerCase().startsWith(normalized) && item.label !== prefix
+  ));
+  if (filtered.length === 0 && !source.slice(0, start).endsWith('.')) {
+    filtered.push(...[...KEYWORDS]
+      .filter(keyword => keyword.toLowerCase().startsWith(normalized) && keyword !== prefix)
+      .map(keyword => ({ label: keyword, insertText: keyword })));
+  }
+  const unique = new Map(filtered.map(item => [item.label, item]));
+  completionSuggestions = [...unique.values()].slice(0, 12);
+  completionStart = start;
+  completionEnd = caret;
+  selectedCompletion = 0;
+  renderCompletion();
+}
+
+/** Zeigt die Vorschlagsliste neben dem Caret und markiert die aktuelle Auswahl. */
+function renderCompletion(): void {
+  completionList.replaceChildren();
+  completionList.hidden = completionSuggestions.length === 0;
+  if (completionList.hidden) {
+    return;
+  }
+  completionSuggestions.forEach((suggestion, index) => {
+    const option = document.createElement('button');
+    option.type = 'button';
+    option.className = 'completion-option';
+    option.setAttribute('role', 'option');
+    option.setAttribute('aria-selected', String(index === selectedCompletion));
+    option.classList.toggle('active', index === selectedCompletion);
+    option.textContent = suggestion.label;
+    option.addEventListener('mousedown', event => event.preventDefault());
+    option.addEventListener('click', () => acceptCompletion(index));
+    completionList.append(option);
+  });
+  positionCompletion();
+}
+
+/** Berechnet die Position im nicht umbrechenden, monospace dargestellten Editor. */
+function positionCompletion(): void {
+  const source = sourceEditor.value;
+  const caret = sourceEditor.selectionStart;
+  const lineStart = source.lastIndexOf('\n', caret - 1) + 1;
+  const line = source.slice(0, lineStart).split('\n').length - 1;
+  const column = [...source.slice(lineStart, caret)].reduce(
+    (width, character) => character === '\t' ? width + (4 - width % 4) : width + 1,
+    0
+  );
+  const style = window.getComputedStyle(sourceEditor);
+  const lineHeight = Number.parseFloat(style.lineHeight) || 21.7;
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (context) context.font = style.font;
+  const characterWidth = context?.measureText('M').width ?? 8;
+  const left = 52 + Number.parseFloat(style.paddingLeft) + column * characterWidth - sourceEditor.scrollLeft;
+  const top = Number.parseFloat(style.paddingTop) + (line + 1) * lineHeight - sourceEditor.scrollTop;
+  completionList.style.left = `${Math.max(54, Math.min(left, sourceEditor.clientWidth - 248))}px`;
+  completionList.style.top = `${top + 210 > sourceEditor.clientHeight ? Math.max(0, top - 210 - lineHeight) : top}px`;
+}
+
+/** Ersetzt das aktuelle Wort durch den ausgewaehlten Vorschlag. */
+function acceptCompletion(index: number): void {
+  const suggestion = completionSuggestions[index];
+  if (!suggestion) return;
+  let end = completionEnd;
+  while (end < sourceEditor.value.length && isIdentifierPart(sourceEditor.value[end])) end++;
+  suppressNextCompletion = true;
+  sourceEditor.setRangeText(suggestion.insertText, completionStart, end, 'end');
+  sourceEditor.dispatchEvent(new Event('input', { bubbles: true }));
+  sourceEditor.focus();
+  hideCompletion();
+}
+
+/** Entfernt Vorschlaege und verwirft noch laufende Anfragen. */
+function hideCompletion(): void {
+  if (completionTimer !== undefined) {
+    window.clearTimeout(completionTimer);
+    completionTimer = undefined;
+  }
+  completionRequest++;
+  completionSuggestions = [];
+  completionList.hidden = true;
 }
 
 /**
@@ -929,22 +1321,60 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-result-
 
 sourceEditor.addEventListener('input', () => {
   sourceRevision++;
+  executedRevision = -1;
   editorDiagnostics = [];
   activeEditorDiagnostic = undefined;
   resultValues.diagnostics = 'Quelltext geaendert. Erneut validieren.';
   updateEditorPresentation();
   showEditorDiagnostic(undefined);
   setStatus('Geaendert');
+  showVariables([]);
   if (activeResultTab === 'diagnostics') {
     showResultTab('diagnostics');
   }
   scheduleLiveValidation();
+  if (suppressNextCompletion) {
+    suppressNextCompletion = false;
+  } else {
+    scheduleCompletion();
+  }
 });
-sourceEditor.addEventListener('scroll', syncEditorScroll);
-sourceEditor.addEventListener('click', updateActiveEditorDiagnostic);
+sourceEditor.addEventListener('scroll', () => {
+  syncEditorScroll();
+  if (!completionList.hidden) positionCompletion();
+});
+sourceEditor.addEventListener('click', () => {
+  hideCompletion();
+  updateActiveEditorDiagnostic();
+});
 sourceEditor.addEventListener('keyup', updateActiveEditorDiagnostic);
 sourceEditor.addEventListener('select', updateActiveEditorDiagnostic);
 sourceEditor.addEventListener('keydown', event => {
+  if ((event.ctrlKey || event.metaKey) && event.code === 'Space') {
+    event.preventDefault();
+    scheduleCompletion(true);
+    return;
+  }
+  if (!completionList.hidden) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      selectedCompletion = (selectedCompletion + (event.key === 'ArrowDown' ? 1 : -1)
+        + completionSuggestions.length) % completionSuggestions.length;
+      renderCompletion();
+      completionList.children[selectedCompletion]?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey || event.key === 'Tab') {
+      event.preventDefault();
+      acceptCompletion(selectedCompletion);
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      hideCompletion();
+      return;
+    }
+  }
   if (event.key === 'Tab') {
     event.preventDefault();
     insertIndentation();

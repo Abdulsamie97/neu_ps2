@@ -41,6 +41,7 @@
               spellcheck="false"
               wrap="off"
             ></textarea>
+            <div id="completion-list" class="completion-list" role="listbox" aria-label="Codevorschlaege" hidden></div>
             <button
               type="button"
               id="editor-diagnostic"
@@ -67,6 +68,13 @@
           </div>
           <pre id="result-content" tabindex="0" aria-live="polite">Noch nicht ausgefuehrt.</pre>
         </section>
+
+        <aside class="variables-pane" aria-labelledby="variables-heading">
+          <div class="pane-header"><span id="variables-heading">Variablen</span></div>
+          <div id="variable-list" class="variable-list" aria-live="polite">
+            <p class="variable-empty">Noch nicht ausgefuehrt.</p>
+          </div>
+        </aside>
       </main>
 
       <footer class="footer-bar">

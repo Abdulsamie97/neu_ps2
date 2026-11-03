@@ -102,6 +102,39 @@ const METHOD_THIS_NAME = 'mythis';
 /** Gemeinsamer Typrechner für Runtime-Klassifikation und Gleichheit. */
 const TYPES = new Pseudo2TypeComputer();
 
+/** Meldet einen Variablenwert nur bei explizit aktivierter Editorbeobachtung. */
+function traceCall(
+  variable: Variable | undefined,
+  context: Pseudo2GeneratorContext,
+  changedAt?: AstNode
+): string | undefined {
+  if (!context.traceVariables || !variable || isStructAttDeclaration(variable)) return undefined;
+  const fn = AstUtils.getContainerOfType(variable, isFunctionDeclaration);
+  const struct = fn ? AstUtils.getContainerOfType(fn, isStructDeclaration) : undefined;
+  const global = variable.$container.$type === 'Program';
+  const scope = fn
+    ? `${struct ? `Methode ${struct.name}.` : 'Funktion '}${fn.name}`
+    : 'Programm';
+  const name = context.getVarName(variable);
+  const line = (variable.$cstNode?.range.start.line ?? variable.$container.$cstNode?.range.start.line ?? 0) + 1;
+  const metadata = {
+    id: name,
+    name: variable.name,
+    scope,
+    global,
+    line,
+    changedLine: (changedAt?.$cstNode?.range.start.line ?? line - 1) + 1
+  };
+  return `__ps2_trace(${JSON.stringify(metadata)}, ${name})`;
+}
+
+/** Liefert die Wurzelvariable eines Array- oder Struct-Zuweisungsziels. */
+function assignedVariable(target: Expr): Variable | undefined {
+  if (isVarRef(target)) return target.ref?.ref;
+  if (isAttSelection(target) || isIndexSelection(target)) return assignedVariable(target.receiver);
+  return undefined;
+}
+
 /**
  * Erzeugt das vollständige JavaScript eines Pseudo2-Programms.
  *
@@ -318,15 +351,18 @@ function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent
   const stepName = context.getAnonymousVarName('__forStep');
   const directionOp = loop.direction === 'to' ? '<=' : '>=';
   const stepOp = loop.direction === 'to' ? '+' : '-';
+  const trace = loop.iterator ? traceCall(loop.iterator, context, loop) : undefined;
+  const update = `${iterName}.set(${iterName}.get() ${stepOp} ${stepName}.get())`;
 
   return [
     `${indent}let ${iterName} = new ObservableScalar(${from});`,
+    ...(trace ? [`${indent}${trace};`] : []),
     `${indent}let ${endName} = new ObservableScalar(${to});`,
     `${indent}let ${stepName} = new ObservableScalar(${step});`,
     `${indent}if (${stepName}.get() <= 0) {`,
     `${indent}  throw new Error("Invoked for-loop with negative step-size " + ${stepName}.get());`,
     `${indent}}`,
-    `${indent}for (${iterName}.get(); ${iterName}.get() ${directionOp} ${endName}.get(); ${iterName}.set(${iterName}.get() ${stepOp} ${stepName}.get())) ${body}`
+    `${indent}for (${iterName}.get(); ${iterName}.get() ${directionOp} ${endName}.get(); ${trace ? `(${update}, ${trace})` : update}) ${body}`
   ].join('\n');
 }
 
@@ -489,13 +525,19 @@ function generateParameterPrelude(
 
     if (p.isArray) {
       out.push(`${indent}${paramName} = new ObservableArray(${paramName});`);
+      const parameterTrace = traceCall(p, context);
+      if (parameterTrace) out.push(`${indent}${parameterTrace};`);
       if (p.len) {
         out.push(`${indent}${context.getVarName(p.len)} = new ObservableScalar(__ps2_arrayLength(${paramName}));`);
+        const lengthTrace = traceCall(p.len, context);
+        if (lengthTrace) out.push(`${indent}${lengthTrace};`);
       }
       continue;
     }
 
     out.push(`${indent}${paramName} = __ps2_wrapValue(${paramName}, ${JSON.stringify(runtimeKindForParameter(p))});`);
+    const trace = traceCall(p, context);
+    if (trace) out.push(`${indent}${trace};`);
   }
 
   return out;
@@ -656,18 +698,20 @@ function generateCallCommand(
  */
 function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   const name = context.getVarName(decl);
+  const trace = traceCall(decl, context);
+  let declaration: string;
 
   if (decl.isArrayVariable) {
     const sizeExpr = decl.size ? genExpr(decl.size, context, state) : '0';
     const initExpr = decl.initializer ? genExpr(decl.initializer, context, state) : 'null';
-    return `${indent}let ${name} = __ps2_array((${sizeExpr}), () => ${initExpr});`;
+    declaration = `${indent}let ${name} = __ps2_array((${sizeExpr}), () => ${initExpr});`;
+  } else if (decl.initializer) {
+    declaration = `${indent}let ${name} = __ps2_wrapValue(${genExpr(decl.initializer, context, state)}, ${JSON.stringify(runtimeKindForExpr(decl.initializer))});`;
+  } else {
+    declaration = `${indent}let ${name} = __ps2_wrapValue(null, "scalar");`;
   }
 
-  if (decl.initializer) {
-    return `${indent}let ${name} = __ps2_wrapValue(${genExpr(decl.initializer, context, state)}, ${JSON.stringify(runtimeKindForExpr(decl.initializer))});`;
-  }
-
-  return `${indent}let ${name} = __ps2_wrapValue(null, "scalar");`;
+  return trace ? `${declaration}\n${indent}${trace};` : declaration;
 }
 
 /**
@@ -685,7 +729,10 @@ function generateAssignment(
   indent = '',
   state = DEFAULT_STATE
 ): string {
-  return `${indent}${genAssignmentTarget(assign.sel as Expr, genExpr(assign.value, context, state), context, state)};`;
+  const target = assign.sel as Expr;
+  const assignment = `${indent}${genAssignmentTarget(target, genExpr(assign.value, context, state), context, state)};`;
+  const trace = traceCall(assignedVariable(target), context, assign);
+  return trace ? `${assignment}\n${indent}${trace};` : assignment;
 }
 
 /**

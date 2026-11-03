@@ -9,7 +9,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EmptyFileSystem, URI } from 'langium';
-import { createPseudo2Services, generateProgram } from 'pseudo2-language';
+import { createPseudo2Services, generateProgram, isVarDecl, Pseudo2GeneratorContext } from 'pseudo2-language';
 
 const workspaceDirectory = dirname(dirname(fileURLToPath(import.meta.url)));
 const outputDirectory = join(workspaceDirectory, 'dist');
@@ -27,6 +27,8 @@ assert.match(html, /Pseudo2 Standalone/, 'The generated file must contain the st
 assert.match(html, /id="editor-diagnostic"/, 'The standalone editor must contain its inline diagnostic message.');
 assert.match(html, /diagnostic-range/, 'The standalone bundle must contain source-range diagnostic decorations.');
 assert.match(html, /data-diagnostic-line/, 'The standalone bundle must contain diagnostic line markers.');
+assert.match(html, /id="completion-list"/, 'The editor must contain its completion list.');
+assert.match(html, /id="variable-list"/, 'The UI must contain the runtime variable panel.');
 
 const source = `func square(value)
     return value * value
@@ -70,6 +72,60 @@ const capturedConsole = {
 new Function('console', `"use strict";\n${javaScript}`)(capturedConsole);
 
 assert.deepEqual(output, ['1', '4', '9', '16'], 'Generated JavaScript must produce the expected output.');
+
+const context = Pseudo2GeneratorContext.fromProgram(document.parseResult.value);
+const globalVariables = document.parseResult.value.instructions.filter(isVarDecl);
+const snapshot = new Function('console', `"use strict";\n${javaScript}\nreturn [${globalVariables
+  .map(variable => `{ name: ${JSON.stringify(variable.name)}, value: ${context.getVarName(variable)} }`)
+  .join(',')}];`)(capturedConsole);
+assert.equal(snapshot[0].name, 'values');
+assert.deepEqual(snapshot[0].value.get(), [1, 2, 3, 4], 'The runtime panel must see current array values.');
+
+const tracedSource = `func increase(a)
+    var local = a
+    local = local + 1
+    return local
+var number = 1
+number = 5
+var answer = increase(number)
+`;
+const tracedDocument = services.shared.workspace.LangiumDocumentFactory.fromString(
+  tracedSource, URI.parse('memory:/standalone-trace-smoke-test.pseudo2')
+);
+await services.shared.workspace.DocumentBuilder.build([tracedDocument], { validation: true });
+assert.deepEqual((tracedDocument.diagnostics ?? []).filter(item => item.severity === 1), []);
+const traceEvents = [];
+const tracedProgram = tracedDocument.parseResult.value;
+const tracedJavaScript = generateProgram(tracedProgram, Pseudo2GeneratorContext.fromProgram(tracedProgram, true));
+new Function('console', '__ps2_trace', `"use strict";\n${tracedJavaScript}`)(capturedConsole, (metadata, value) => {
+  traceEvents.push({ ...metadata, value: value.get() });
+});
+assert.deepEqual(traceEvents.filter(event => event.name === 'number').map(event => event.value), [1, 5]);
+assert.deepEqual(traceEvents.filter(event => event.name === 'local').map(event => event.value), [5, 6]);
+assert.equal(traceEvents.find(event => event.name === 'local').scope, 'Funktion increase');
+assert.equal(traceEvents.find(event => event.name === 'local').line, 2);
+assert.equal(traceEvents.find(event => event.name === 'local' && event.value === 6).changedLine, 3);
+assert.equal(traceEvents.find(event => event.name === 'a').value, 5, 'Function parameters must be observed.');
+assert.equal(traceEvents.find(event => event.name === 'answer').value, 6);
+
+const loopEvents = [];
+const loopProgram = document.parseResult.value;
+new Function('console', '__ps2_trace', `"use strict";\n${generateProgram(
+  loopProgram, Pseudo2GeneratorContext.fromProgram(loopProgram, true)
+)}`)(capturedConsole, (metadata, value) => {
+  if (metadata.name === 'i') loopEvents.push(value.get());
+});
+assert.deepEqual(loopEvents, [1, 2, 3, 4, 5], 'The for-loop iterator must update after each assignment.');
+
+const completionSource = 'var count = 5\nprint cou';
+const completionUri = URI.parse('memory:/standalone-completion-smoke-test.pseudo2');
+const completionDocument = services.shared.workspace.LangiumDocumentFactory.fromString(completionSource, completionUri);
+await services.shared.workspace.DocumentBuilder.build([completionDocument], { validation: false });
+const completions = await services.Pseudo2.lsp.CompletionProvider.getCompletion(completionDocument, {
+  textDocument: { uri: completionUri.toString() },
+  position: completionDocument.textDocument.positionAt(completionSource.length)
+});
+assert.ok(completions?.items.some(item => item.label === 'count'), 'Completion must suggest declared variables.');
 
 const printEndingDocument = services.shared.workspace.LangiumDocumentFactory.fromString(
   'print 1 end=" "\nprint 2 end=""\n',

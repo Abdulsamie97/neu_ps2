@@ -8,8 +8,12 @@ import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import { EmptyFileSystem, URI } from 'langium';
-import { createPseudo2Services, generateProgram, isVarDecl, Pseudo2GeneratorContext } from 'pseudo2-language';
+import {
+  OBSERVED_WORKER_SCRIPT, collectStructFieldNames, collectVariableDefinitions,
+  createPseudo2Services, generateProgram, isVarDecl, PSEUDO2_VERSION, Pseudo2GeneratorContext
+} from 'pseudo2-language';
 
 const workspaceDirectory = dirname(dirname(fileURLToPath(import.meta.url)));
 const outputDirectory = join(workspaceDirectory, 'dist');
@@ -24,6 +28,8 @@ assert.equal(/<link[^>]+rel=["']stylesheet/i.test(html), false, 'The standalone 
 assert.equal(html.includes('__PSEUDO2_SCRIPT__'), false, 'The script placeholder must be replaced.');
 assert.equal(html.includes('__PSEUDO2_STYLES__'), false, 'The style placeholder must be replaced.');
 assert.match(html, /Pseudo2 Standalone/, 'The generated file must contain the standalone UI.');
+assert.match(html, /id="language-version"/, 'The standalone editor must have a visible language version.');
+assert.ok(html.includes(JSON.stringify(PSEUDO2_VERSION)), 'The bundled script must include the current language version.');
 assert.match(html, /id="editor-diagnostic"/, 'The standalone editor must contain its inline diagnostic message.');
 assert.match(html, /diagnostic-range/, 'The standalone bundle must contain source-range diagnostic decorations.');
 assert.match(html, /data-diagnostic-line/, 'The standalone bundle must contain diagnostic line markers.');
@@ -107,6 +113,30 @@ assert.equal(traceEvents.find(event => event.name === 'local').line, 2);
 assert.equal(traceEvents.find(event => event.name === 'local' && event.value === 6).changedLine, 3);
 assert.equal(traceEvents.find(event => event.name === 'a').value, 5, 'Function parameters must be observed.');
 assert.equal(traceEvents.find(event => event.name === 'answer').value, 6);
+
+const tracedContext = Pseudo2GeneratorContext.fromProgram(tracedProgram, true);
+const definitions = collectVariableDefinitions(tracedProgram, tracedContext);
+assert.ok(definitions.some(item => item.name === 'number' && item.global));
+assert.ok(definitions.some(item => item.name === 'local' && item.scope === 'Funktion increase'));
+const workerMessages = [];
+const worker = { postMessage: message => workerMessages.push(message) };
+runInNewContext(OBSERVED_WORKER_SCRIPT, { self: worker });
+worker.onmessage({ data: {
+  source: tracedJavaScript,
+  fieldNames: collectStructFieldNames(tracedProgram, tracedContext)
+} });
+const workerResult = workerMessages.at(-1);
+assert.equal(workerResult.error, undefined, 'The shared worker script must execute generated JavaScript.');
+assert.equal(workerResult.variables.find(item => item.name === 'local').value, '6');
+assert.equal(workerResult.variables.find(item => item.name === 'number').changedLine, 6);
+
+const incomplete = services.shared.workspace.LangiumDocumentFactory.fromString(
+  'var result = 5\nvar later = 2', URI.parse('memory:/standalone-incomplete-variables.pseudo2')
+);
+assert.ok(
+  collectVariableDefinitions(incomplete.parseResult.value).some(item => item.name === 'later'),
+  'An incomplete declaration must not hide unrelated variables in the editor.'
+);
 
 const loopEvents = [];
 const loopProgram = document.parseResult.value;

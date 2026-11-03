@@ -5,6 +5,20 @@ Scoping, Validator, JavaScript-Generator, C-Generator, Graphviz-Generatoren,
 CLI und Weboberflaeche. Der C-Generator erzeugt VeriFast-faehigen C-Code und
 unterstuetzt einfache Pseudo2-Annotationen fuer VeriFast.
 
+## Pseudo2-Sprachversion
+
+Die aktuelle Sprachversion wird ausschliesslich in
+`packages/language/src/version.ts` festgelegt. Der Wert wird in der VS-Code-Statusleiste
+bei aktiven Pseudo2-Dateien sowie in den Kopfzeilen des JavaScript-Runners,
+der Web-Workbench und des Standalone-Webeditors angezeigt.
+
+Die Sprachversion ist unabhaengig von den npm-Paket- und Erweiterungsversionen.
+Bei inkompatiblen Syntax- oder Semantikaenderungen wird die Hauptversion,
+bei kompatiblen Spracherweiterungen die Nebenversion und bei Korrekturen ohne
+beabsichtigte Sprachaenderung die Patchversion erhoeht. Nach jeder Aenderung
+muessen die Web-Bundles und die VS-Code-Erweiterung neu gebaut werden. Die
+Versionsnummer wird aktuell nicht in `.pseudo2`-Quelldateien gespeichert.
+
 ## Voraussetzungen
 
 - Node.js 20 oder neuer
@@ -794,9 +808,28 @@ Oberflaeche nicht dauerhaft blockiert. Parser-, Linker- und Validatorfehler werd
 nach einer kurzen Tipp-Pause automatisch als Wellenlinie und Zeilenmarkierung
 angezeigt; Position und Meldung stehen direkt in der Diagnoseleiste des Editors.
 
+Die Einzeldatei, die einfache Root-Seite und die vollstaendige Web-Workbench
+zeigen globale und lokale Variablen samt Deklarationsort. Nach `Ausfuehren` bzw.
+`Run JavaScript` erscheinen die zuletzt beobachteten Werte und Aenderungszeilen.
+Ein Klick auf den Deklarationsort springt zur Quellzeile. Bei mehrfachen
+Funktionsaufrufen bleibt fuer lokale Variablen der Wert des letzten Aufrufs
+sichtbar; die Anzeige ist kein interaktiver Stack-Debugger.
+
 Der Einzeldatei-Runner enthaelt bewusst nur browserfaehige Funktionen. C-Ausfuehrung
 und VeriFast bleiben in der vollstaendigen Workbench, weil dafuer native Prozesse
 auf dem Server gestartet werden muessen.
+
+### VS-Code-Editor
+
+Die Erweiterung unter `packages/extension` zeigt fuer aktive `.pseudo2`-Dateien
+im Explorer die Ansicht `Pseudo2-Variablen`. Deklarationen werden beim Tippen
+aktualisiert. Der Befehl `Pseudo2: Ausfuehren und Variablen anzeigen` (auch ueber
+das Startsymbol der Ansicht erreichbar) validiert und startet das aktuelle
+Programm mit einem Zeitlimit von fuenf Sekunden. Danach erscheinen die Werte
+unter `Global` und `Lokal`; die Programmausgabe steht im Ausgabekanal
+`Pseudo2-Ausgabe`. Ein Klick auf eine Variable springt zu ihrer Deklaration.
+Aus Sicherheitsgruenden ist die Ausfuehrung nur in einem als vertrauenswuerdig
+markierten VS-Code-Workspace moeglich.
 
 ### Moodle VPL mit JavaScript
 

@@ -11,7 +11,10 @@
     <div class="app-shell">
       <header class="toolbar">
         <div class="brand">
-          <b>Pseudo2 JavaScript Runner</b>
+          <div class="brand-title">
+            <b>Pseudo2 JavaScript Runner</b>
+            <span id="language-version" class="language-version" aria-label="Pseudo2-Sprachversion"></span>
+          </div>
           <span>Editor, Validierung, Generierung und Ausführung im Browser</span>
         </div>
         <div class="toolbar-actions">
@@ -39,6 +42,13 @@
               <span>JavaScript-Ausgabe</span>
             </div>
             <pre id="exespan"> -no execution yet- </pre>
+          </section>
+
+          <section class="output-section">
+            <details open>
+              <summary>Variablen</summary>
+              <div id="variable-list" class="variable-list" aria-live="polite">Noch nicht ausgefuehrt.</div>
+            </details>
           </section>
 
           <details class="output-section">

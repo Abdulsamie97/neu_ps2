@@ -10,18 +10,19 @@
  * @author Abdul
  */
 
-import { AstUtils, EmptyFileSystem, URI } from 'langium';
+import { EmptyFileSystem, URI } from 'langium';
 import {
+  collectStructFieldNames,
+  collectVariableDefinitions,
   createPseudo2Services,
+  executeObservedJavaScript,
   generatePrettyPseudo2,
   generateProgram,
-  isFunctionDeclaration,
-  isParameterDecl,
-  isStructAttDeclaration,
-  isStructDeclaration,
-  isVarDecl,
+  PSEUDO2_VERSION,
   Pseudo2GeneratorContext,
-  type Program
+  type Program,
+  type VariableDefinition,
+  type VariableValue
 } from 'pseudo2-language';
 
 /** Auswaehlbare Bereiche des Ergebnisfensters. */
@@ -63,35 +64,10 @@ interface AnalysisResult {
   variables: VariableDefinition[];
 }
 
-/** Stabile Quelltextposition und Geltungsbereich einer Variablen. */
-interface VariableDefinition {
-  id: string;
-  name: string;
-  scope: string;
-  global: boolean;
-  line: number;
-}
-
-/** Zur Laufzeit beobachteter Wert mit letzter Zuweisungszeile. */
-interface VariableValue extends VariableDefinition {
-  value: string;
-  changedLine: number;
-}
-
 /** Einfuegbarer Vorschlag aus Langium oder der Schluesselwortliste. */
 interface CompletionSuggestion {
   label: string;
   insertText: string;
-}
-
-/** Ergebnis der isolierten JavaScript-Ausfuehrung. */
-interface ExecutionResult {
-  /** In zeitlicher Reihenfolge abgefangene Konsolenausgaben. */
-  output: string[];
-  /** Laufzeitfehler oder Zeitlimitmeldung. */
-  error?: string;
-  /** Zuletzt beobachtete globale und lokale Variablen. */
-  variables?: VariableValue[];
 }
 
 /** Standardprogramm, das die wichtigsten lokalen Funktionen sofort demonstriert. */
@@ -103,8 +79,6 @@ for i=1 to 4
     print square(values[i])
 `;
 
-/** Maximale Laufzeit eines generierten Programms im Web Worker. */
-const EXECUTION_TIMEOUT_MS = 5_000;
 /** Wartezeit zwischen letzter Eingabe und automatischer Langium-Validierung. */
 const LIVE_VALIDATION_DELAY_MS = 450;
 /** Verzoegerung fuer die automatische Vervollstaendigung beim Tippen. */
@@ -165,6 +139,7 @@ const editorDiagnosticLocation = requireElement<HTMLElement>('#editor-diagnostic
 const editorDiagnosticText = requireElement<HTMLElement>('#editor-diagnostic-text');
 const completionList = requireElement<HTMLElement>('#completion-list');
 const variableList = requireElement<HTMLElement>('#variable-list');
+const languageVersion = requireElement<HTMLElement>('#language-version');
 const actionButtons = [...document.querySelectorAll<HTMLButtonElement>('.toolbar-actions button')];
 
 /**
@@ -225,20 +200,7 @@ async function analyzeSource(source: string, includeProgram = true): Promise<Ana
   }));
 
   const program = document.parseResult.value as Program;
-  const context = Pseudo2GeneratorContext.fromProgram(program);
-  const variables: VariableDefinition[] = [...AstUtils.streamAllContents(program)]
-    .filter(node => isVarDecl(node) || isParameterDecl(node))
-    .map(variable => {
-      const fn = AstUtils.getContainerOfType(variable, isFunctionDeclaration);
-      const struct = fn ? AstUtils.getContainerOfType(fn, isStructDeclaration) : undefined;
-      return {
-        id: context.getVarName(variable),
-        name: variable.name,
-        scope: fn ? `${struct ? `Methode ${struct.name}.` : 'Funktion '}${fn.name}` : 'Programm',
-        global: variable.$container.$type === 'Program',
-        line: (variable.$cstNode?.range.start.line ?? variable.$container.$cstNode?.range.start.line ?? 0) + 1
-      };
-    });
+  const variables = collectVariableDefinitions(program);
   const result: AnalysisResult = diagnostics.some(diagnostic => diagnostic.kind === 'Fehler')
     ? { diagnostics, variables }
     : {
@@ -499,11 +461,7 @@ async function runCurrentSource(): Promise<void> {
 
   const context = Pseudo2GeneratorContext.fromProgram(analysis.program, true);
   const javaScript = generateProgram(analysis.program);
-  const fieldNames = Object.fromEntries(
-    [...AstUtils.streamAllContents(analysis.program)]
-      .filter(isStructAttDeclaration)
-      .map(field => [context.getVarName(field), field.name])
-  );
+  const fieldNames = collectStructFieldNames(analysis.program, context);
   const executable = generateProgram(analysis.program, context);
   resultValues.javascript = javaScript;
   resultValues.output = 'Programm wird ausgefuehrt ...';
@@ -514,7 +472,7 @@ async function runCurrentSource(): Promise<void> {
   const runRevision = sourceRevision;
   let refreshPending = false;
   let running = true;
-  const execution = await executeJavaScript(executable, fieldNames, variable => {
+  const execution = await executeObservedJavaScript(executable, fieldNames, variable => {
     if (runRevision !== sourceRevision) return;
     observed.set(variable.id, variable);
     if (!refreshPending) {
@@ -539,160 +497,6 @@ async function runCurrentSource(): Promise<void> {
     showVariables(analysis.variables, observed, execution.error ? 'Nicht erreicht.' : 'Nicht ausgefuehrt.');
   }
   showResultTab('output');
-}
-
-/**
- * Startet generierten Code in einem Blob-basierten Worker und beendet den Worker
- * nach Abschluss oder nach dem festen Zeitlimit. Konsolenargumente werden bereits
- * im Worker in Text umgewandelt, sodass nur strukturierbare Daten die Grenze passieren.
- *
- * @param source Ausfuehrbarer JavaScript-Quelltext des Generators.
- * @returns Abgefangene Ausgabe und optionaler Fehlertext.
- */
-function executeJavaScript(
-  source: string,
-  fieldNames: Record<string, string>,
-  onVariable: (variable: VariableValue) => void
-): Promise<ExecutionResult> {
-  const workerProgram = `
-    function formatValue(value) {
-      if (typeof value === 'string') return value;
-      if (typeof value === 'undefined') return 'undefined';
-      if (typeof value === 'bigint') return String(value) + 'n';
-      if (value instanceof Error) return value.name + ': ' + value.message;
-      try {
-        var json = JSON.stringify(value);
-        return typeof json === 'undefined' ? String(value) : json;
-      } catch (_) {
-        return String(value);
-      }
-    }
-
-    function formatVariable(value, fieldNames, depth, path) {
-      if (value === null) return 'null';
-      if (value === undefined) return 'undefined';
-      if (typeof value === 'string') return JSON.stringify(value);
-      if (typeof value !== 'object') return String(value);
-      if (path.has(value)) return '[Zyklus]';
-      if (depth >= 4) return '...';
-      path.add(value);
-      try {
-        if (typeof value.get === 'function' && Object.prototype.hasOwnProperty.call(value, 'value')) {
-          return formatVariable(value.get(), fieldNames, depth + 1, path);
-        }
-        if (Array.isArray(value.ref) || Array.isArray(value)) {
-          var items = Array.isArray(value) ? value : value.ref;
-          var shown = items.slice(0, 30).map(item => formatVariable(item, fieldNames, depth + 1, path));
-          if (items.length > 30) shown.push('...');
-          return '[' + shown.join(', ') + ']';
-        }
-        var object = typeof value.getRef === 'function' ? value.getRef() : value;
-        if (object === null) return 'null';
-        if (path.has(object) && object !== value) return '[Zyklus]';
-        if (object !== value) path.add(object);
-        try {
-          var entries = Object.entries(object);
-          var shown = entries.slice(0, 30).map(function (entry) {
-            return (fieldNames[entry[0]] || entry[0]) + ': ' + formatVariable(entry[1], fieldNames, depth + 1, path);
-          });
-          if (entries.length > 30) shown.push('...');
-          return '{' + shown.join(', ') + '}';
-        } finally {
-          if (object !== value) path.delete(object);
-        }
-      } finally {
-        path.delete(value);
-      }
-    }
-
-    self.onmessage = function (event) {
-      var output = [];
-      var traces = new Map();
-      var traceCount = 0;
-      var capturedConsole = {
-        log: function () { output.push(Array.from(arguments).map(formatValue).join(' ') + '\\n'); },
-        warn: function () { output.push(Array.from(arguments).map(formatValue).join(' ') + '\\n'); },
-        error: function () { output.push(Array.from(arguments).map(formatValue).join(' ') + '\\n'); },
-        __ps2_write: function (value, ending) { output.push(formatValue(value) + String(ending)); }
-      };
-
-      function currentVariables() {
-        return Array.from(traces.values()).map(function (entry) {
-          return Object.assign({}, entry.metadata, {
-            value: formatVariable(entry.value, event.data.fieldNames, 0, new Set())
-          });
-        });
-      }
-
-      function trace(metadata, value) {
-        traces.set(metadata.id, { metadata: metadata, value: value });
-        traceCount++;
-        if (traceCount <= 500 || traceCount % 5000 === 0) {
-          try {
-            self.postMessage({ type: 'variable', variable: Object.assign({}, metadata, {
-              value: formatVariable(value, event.data.fieldNames, 0, new Set())
-            }) });
-          } catch (_) {
-            // Darstellung darf die Programmausfuehrung nicht beeinflussen.
-          }
-        }
-      }
-
-      try {
-        new Function('console', '__ps2_trace', '\"use strict\";\\n' + event.data.source)(capturedConsole, trace);
-        self.postMessage({ output: output, variables: currentVariables() });
-      } catch (error) {
-        self.postMessage({
-          output: output,
-          error: error instanceof Error ? error.name + ': ' + error.message : String(error),
-          variables: currentVariables()
-        });
-      }
-    };
-  `;
-
-  return new Promise(resolve => {
-    const workerUrl = URL.createObjectURL(new Blob([workerProgram], { type: 'text/javascript' }));
-    const worker = new Worker(workerUrl);
-    let settled = false;
-    const lastValues = new Map<string, VariableValue>();
-
-    const finish = (result: ExecutionResult) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      window.clearTimeout(timeout);
-      worker.terminate();
-      URL.revokeObjectURL(workerUrl);
-      resolve({ ...result, variables: result.variables ?? [...lastValues.values()] });
-    };
-
-    const timeout = window.setTimeout(() => {
-      finish({
-        output: [],
-        error: `Zeitlimit von ${EXECUTION_TIMEOUT_MS / 1000} Sekunden ueberschritten.`
-      });
-    }, EXECUTION_TIMEOUT_MS);
-
-    worker.onmessage = event => {
-      const result = event.data as ExecutionResult & { type?: string; variable?: VariableValue };
-      if (result.type === 'variable' && result.variable) {
-        lastValues.set(result.variable.id, result.variable);
-        onVariable(result.variable);
-        return;
-      }
-      finish({
-        output: Array.isArray(result.output) ? result.output.map(String) : [],
-        error: typeof result.error === 'string' ? result.error : undefined,
-        variables: Array.isArray(result.variables) ? result.variables : undefined
-      });
-    };
-    worker.onerror = event => {
-      finish({ output: [], error: event.message || 'Unbekannter Worker-Fehler.' });
-    };
-    worker.postMessage({ source, fieldNames });
-  });
 }
 
 /** Zeigt alle Deklarationen, zuletzt beobachtete Werte und die Quellposition. */
@@ -1410,6 +1214,7 @@ editorDiagnostic.addEventListener('click', () => {
 });
 
 sourceEditor.value = DEFAULT_SOURCE;
+languageVersion.textContent = `v${PSEUDO2_VERSION}`;
 updateEditorPresentation();
 showResultTab('output');
 sourceEditor.focus();

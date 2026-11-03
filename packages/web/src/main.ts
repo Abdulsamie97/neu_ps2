@@ -22,7 +22,10 @@ import * as monaco from '@codingame/monaco-vscode-editor-api';
 import { EmptyFileSystem, URI } from 'langium';
 
 import {
+    collectStructFieldNames,
+    collectVariableDefinitions,
     createPseudo2Services,
+    executeObservedJavaScript,
     generateCProgram,
     generateCProgramWithSourceMap,
     generateDirectCProgram,
@@ -30,9 +33,13 @@ import {
     generateGraphvizArtifacts,
     generateProgram,
     getSummaryFromCode,
+    PSEUDO2_VERSION,
+    Pseudo2GeneratorContext,
     type CSourceMapEntry,
     type GeneratedArtifact,
-    type Program
+    type Program,
+    type VariableDefinition,
+    type VariableValue
 } from 'pseudo2-language'; //TBC
 import { instance, type Viz } from '@viz-js/viz';
 import {
@@ -71,6 +78,12 @@ let lastVeriFastExecutionTrees: VeriFastExecutionTree[] = [];
 let lastVeriFastResult: VeriFastApiResult | undefined;
 /** @brief Gemeinsamer Dispose-Handler der zusätzlich installierten Monaco-Dekorationen. */
 let keywordDecorationDisposable: monaco.IDisposable | undefined;
+/** Aktualisiert die Variablenliste bei Quelltextaenderungen. */
+let variableChangeDisposable: monaco.IDisposable | undefined;
+/** Verwirft veraltete Analyse- und Ausfuehrungsergebnisse. */
+let variableRevision = 0;
+/** Noch nicht gestartete Analyse der Variablendeklarationen. */
+let variableAnalysisTimer: ReturnType<typeof setTimeout> | undefined;
 /** @brief Local-Storage-Schlüssel für das Größenverhältnis des Ergebnisbereichs. */
 const RESULT_PANE_RATIO_KEY = 'pseudo2.resultPaneRatio';
 /** @brief Standardbreite des rechten Ergebnisbereichs in Pixeln. */
@@ -234,6 +247,8 @@ const startEditor = async () => {
         // run editorApp
         await editorApp.start(htmlContainer);
         installPseudo2KeywordDecorations(editorApp.getEditor());
+        variableChangeDisposable = editorApp.getEditor()?.onDidChangeModelContent(scheduleVariableDefinitions);
+        scheduleVariableDefinitions();
     } catch (error) {
         disableElement('button-start', false);
         disableElement('button-dispose', true);
@@ -260,6 +275,11 @@ const disposeEditor = async () => {
     lcWrapper.dispose();
     keywordDecorationDisposable?.dispose();
     keywordDecorationDisposable = undefined;
+    variableChangeDisposable?.dispose();
+    variableChangeDisposable = undefined;
+    variableRevision++;
+    if (variableAnalysisTimer) clearTimeout(variableAnalysisTimer);
+    setTextContent('#variable-list', 'Editor gestoppt.');
 
     editorApp?.reportStatus();
     await editorApp?.dispose();
@@ -379,6 +399,7 @@ const updateExecution = async () => {
 
     try {
         const { program, errors } = await parsePseudo2(currentCode);
+        if (currentCode !== getCurrentCode()) return;
         if (errors.length > 0 || !program) {
             setTextContent('#exespan', `Validation failed:\n${errors.join('\n')}`);
             return;
@@ -386,8 +407,32 @@ const updateExecution = async () => {
 
         const generatedCode = generateProgram(program);
         setTextContent('#generatedspan', generatedCode);
-
-        const result = executeJavaScript(generatedCode);
+        const context = Pseudo2GeneratorContext.fromProgram(program, true);
+        const definitions = collectVariableDefinitions(program, context);
+        const fieldNames = collectStructFieldNames(program, context);
+        const values = new Map<string, VariableValue>();
+        const revision = ++variableRevision;
+        if (variableAnalysisTimer) clearTimeout(variableAnalysisTimer);
+        renderVariables(definitions, values, 'Programm wird ausgefuehrt ...');
+        let running = true;
+        let refreshPending = false;
+        const result = await executeObservedJavaScript(generateProgram(program, context), fieldNames, variable => {
+            if (revision !== variableRevision || currentCode !== getCurrentCode()) return;
+            values.set(variable.id, variable);
+            if (!refreshPending) {
+                refreshPending = true;
+                requestAnimationFrame(() => {
+                    refreshPending = false;
+                    if (running && revision === variableRevision) {
+                        renderVariables(definitions, values, 'Programm wird ausgefuehrt ...');
+                    }
+                });
+            }
+        });
+        running = false;
+        if (revision !== variableRevision || currentCode !== getCurrentCode()) return;
+        for (const variable of result.variables) values.set(variable.id, variable);
+        renderVariables(definitions, values, result.error ? 'Nicht erreicht.' : 'Nicht ausgefuehrt.');
         const output = result.output.length > 0 ? result.output.join('') : '(no output)';
         const runtimeError = result.error
             ? `${output.endsWith('\n') ? '' : '\n'}Runtime error:\n${result.error}`
@@ -889,6 +934,70 @@ const saveCurrentCCode = async () => {
  */
 function getCurrentCode(): string {
     return editorApp?.getEditor()?.getModel()?.getValue() ?? "";
+}
+
+/** Aktualisiert die Deklarationsliste nach einer kurzen Eingabepause. */
+function scheduleVariableDefinitions(): void {
+    const source = getCurrentCode();
+    const revision = ++variableRevision;
+    if (variableAnalysisTimer) clearTimeout(variableAnalysisTimer);
+    variableAnalysisTimer = setTimeout(() => {
+        variableAnalysisTimer = undefined;
+        if (revision !== variableRevision || source !== getCurrentCode()) return;
+        try {
+            const factory = getExecutionServices().shared.workspace.LangiumDocumentFactory;
+            const uri = URI.parse(`memory:/web-variables-${executionDocCounter++}.pseudo2`);
+            const program = factory.fromString(source, uri).parseResult.value as Program;
+            renderVariables(collectVariableDefinitions(program));
+        } catch {
+            setTextContent('#variable-list', 'Variablen koennen erst nach gueltiger Syntax angezeigt werden.');
+        }
+    }, 350);
+}
+
+/** Zeigt globale und lokale Deklarationen mit zuletzt beobachtetem Wert. */
+function renderVariables(
+    definitions: VariableDefinition[],
+    values: Map<string, VariableValue> = new Map(),
+    pending = 'Noch nicht ausgefuehrt.'
+): void {
+    const list = document.querySelector<HTMLElement>('#variable-list');
+    if (!list) return;
+    list.replaceChildren();
+    if (definitions.length === 0) {
+        list.textContent = 'Keine Variablen.';
+        return;
+    }
+    for (const global of [true, false]) {
+        const group = definitions.filter(definition => definition.global === global);
+        if (group.length === 0) continue;
+        const heading = document.createElement('div');
+        heading.className = 'variable-group';
+        heading.textContent = global ? 'Global' : 'Lokal';
+        list.append(heading);
+        for (const definition of group) {
+            const observed = values.get(definition.id);
+            const row = document.createElement('div');
+            row.className = 'variable-row';
+            const label = document.createElement('span');
+            label.className = 'variable-name';
+            label.textContent = definition.name;
+            const value = document.createElement('span');
+            value.className = 'variable-value';
+            value.textContent = observed?.value ?? pending;
+            value.classList.toggle('pending', !observed);
+            const location = document.createElement('button');
+            location.type = 'button';
+            location.className = 'variable-location';
+            location.textContent = `${definition.scope}, definiert Zeile ${definition.line}`
+                + (observed && observed.changedLine !== definition.line ? `, zuletzt gesetzt Zeile ${observed.changedLine}` : '')
+                + (observed && !global && pending !== 'Programm wird ausgefuehrt ...' ? ' (letzter Wert)' : '');
+            location.title = 'Zur Deklaration springen';
+            location.addEventListener('click', () => focusPseudo2SourceLine(definition.line));
+            row.append(label, value, location);
+            list.append(row);
+        }
+    }
 }
 
 /**
@@ -1513,43 +1622,6 @@ async function parsePseudo2(code: string): Promise<{
 }
 
 /**
- * @brief Führt generierten JavaScript-Code mit einer lokalen Konsolenabstraktion aus.
- *
- * `log`, `warn` und `error` werden in derselben geordneten Textliste gesammelt,
- * sodass keine Ausgabe in die Browserkonsole verloren geht. Der Code läuft im
- * Strict Mode über einen dynamischen Funktionskörper. Ausnahmen werden formatiert
- * zurückgegeben, ohne bereits erzeugte Programmausgabe zu verwerfen.
- *
- * @param source Vollständiger, vom Pseudo2-Generator erzeugter JavaScript-Quelltext.
- * @return Erfasste Konsolenausgaben und optionaler Laufzeitfehler.
- */
-function executeJavaScript(source: string): {
-    /** @brief In Aufrufreihenfolge erfasste Ausgabefragmente einschließlich ihrer Abschlusszeichen. */
-    output: string[];
-    /** @brief Formatierter Laufzeitfehler, sofern die JavaScript-Ausführung fehlschlug. */
-    error?: string
-} {
-    const output: string[] = [];
-    const capturedConsole = {
-        log: (...args: unknown[]) => output.push(`${args.map(formatValue).join(' ')}\n`),
-        warn: (...args: unknown[]) => output.push(`${args.map(formatValue).join(' ')}\n`),
-        error: (...args: unknown[]) => output.push(`${args.map(formatValue).join(' ')}\n`),
-        __ps2_write: (value: unknown, ending: string) => output.push(`${formatValue(value)}${ending}`)
-    };
-
-    try {
-        const runner = new Function('console', `"use strict";\n${source}`);
-        runner(capturedConsole);
-        return { output };
-    } catch (error) {
-        return {
-            output,
-            error: formatError(error)
-        };
-    }
-}
-
-/**
  * @brief Wandelt beliebige JavaScript-Werte robust in sichtbaren Ausgabetext um.
  *
  * Strings bleiben unverändert, Error-Objekte behalten Name und Meldung, und
@@ -1786,6 +1858,7 @@ function readStoredResultPaneRatio(): number {
  */
 export const runDsl = async () => {
     try {
+        setTextContent('#language-version', `v${PSEUDO2_VERSION}`);
         installWorkspaceSplitter();
         document.querySelector('#button-start')?.addEventListener('click', startEditor);
         document.querySelector('#button-dispose')?.addEventListener('click', disposeEditor);

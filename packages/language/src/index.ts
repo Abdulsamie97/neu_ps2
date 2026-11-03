@@ -15,6 +15,8 @@ import {
 } from './generated/ast.js';
 
 export * from './pseudo2-module.js';
+export * from './version.js';
+export * from './runtime/variable-inspector.js';
 export * from './pseudo2-validator.js';
 export * from './generators/javascript/langenerator.js';
 export * from './generators/c/c-generator-core.js';

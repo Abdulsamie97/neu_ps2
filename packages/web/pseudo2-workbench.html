@@ -28,7 +28,10 @@
       -->
       <header class="toolbar">
         <div class="brand">
-          <b>Pseudo2 Workbench</b>
+          <div class="brand-title">
+            <b>Pseudo2 Workbench</b>
+            <span id="language-version" class="language-version" aria-label="Pseudo2-Sprachversion"></span>
+          </div>
           <span>Editor, JavaScript, C, VeriFast und Graphviz</span>
         </div>
         <div class="toolbar-actions">
@@ -93,6 +96,13 @@
             <section class="output-section output-primary">
               <div class="pane-header">JavaScript Output</div>
               <pre id="exespan"></pre>
+            </section>
+
+            <section class="output-section">
+              <details open>
+                <summary>Variablen</summary>
+                <div id="variable-list" class="variable-list" aria-live="polite">Noch nicht ausgefuehrt.</div>
+              </details>
             </section>
 
             <section class="output-section">

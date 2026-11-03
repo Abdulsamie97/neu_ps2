@@ -110,6 +110,23 @@ button:disabled {
     min-width: 220px;
 }
 
+.brand-title {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.brand .language-version {
+    border: 1px solid #56565e;
+    border-radius: 4px;
+    padding: 2px 5px;
+    color: #d7d7d7;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
 .brand b {
     color: #ffffff;
     font-size: 18px;
@@ -576,6 +593,66 @@ pre {
 #exespan {
     border-color: #214d31;
     min-height: 150px;
+}
+
+.variable-list {
+    display: grid;
+    gap: 2px;
+    max-height: 280px;
+    overflow: auto;
+    padding: 8px 0 0;
+    color: #eeeeee;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+}
+
+.variable-group {
+    border-bottom: 1px solid #515158;
+    padding: 7px 0 4px;
+    color: #b8b8b8;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.variable-row {
+    display: grid;
+    gap: 3px;
+    border-bottom: 1px solid #303036;
+    padding: 6px 0;
+}
+
+.variable-name {
+    color: #ef55ad;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.variable-value {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.variable-value.pending {
+    color: #a0a0a0;
+    font-style: italic;
+}
+
+.variable-location {
+    justify-self: start;
+    border: 0;
+    padding: 0;
+    color: #a8a8a8;
+    background: none;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 11px;
+    text-align: left;
+}
+
+.variable-location:hover {
+    color: #ffffff;
+    text-decoration: underline;
 }
 
 #c-outputspan {

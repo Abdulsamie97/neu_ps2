@@ -10,9 +10,11 @@
  */
 
 import type { LanguageClientOptions, ServerOptions } from 'vscode-languageclient/node.js';
-import type * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { LanguageClient, TransportKind } from 'vscode-languageclient/node.js';
+import { PSEUDO2_VERSION } from 'pseudo2-language/version';
+import { registerVariableInspector } from './variables.js';
 
 /** Aktuell laufender Pseudo2-Language-Client der Erweiterungsinstanz. */
 let client: LanguageClient;
@@ -23,6 +25,20 @@ let client: LanguageClient;
  * @param context Von VS Code bereitgestellter Erweiterungskontext zur Pfadauflösung.
  */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+    registerVariableInspector(context);
+    const versionItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+    versionItem.name = 'Pseudo2-Sprachversion';
+    versionItem.text = `Pseudo2 v${PSEUDO2_VERSION}`;
+    versionItem.tooltip = `Aktive Pseudo2-Sprachversion: ${PSEUDO2_VERSION}`;
+    const updateVersionVisibility = () => {
+        if (vscode.window.activeTextEditor?.document.languageId === 'pseudo2') {
+            versionItem.show();
+        } else {
+            versionItem.hide();
+        }
+    };
+    context.subscriptions.push(versionItem, vscode.window.onDidChangeActiveTextEditor(updateVersionVisibility));
+    updateVersionVisibility();
     client = await startLanguageClient(context);
 }
 

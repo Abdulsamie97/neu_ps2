@@ -30,10 +30,37 @@
                 "scopeName": "source.pseudo2",
                 "path": "syntaxes/pseudo2.tmLanguage.json"
             }
-        ]
+        ],
+        "commands": [
+            {
+                "command": "pseudo2.inspectVariables",
+                "title": "Pseudo2: Ausfuehren und Variablen anzeigen",
+                "icon": "$(run)"
+            }
+        ],
+        "views": {
+            "explorer": [
+                {
+                    "id": "pseudo2.variables",
+                    "name": "Pseudo2-Variablen",
+                    "when": "editorLangId == pseudo2"
+                }
+            ]
+        },
+        "menus": {
+            "view/title": [
+                {
+                    "command": "pseudo2.inspectVariables",
+                    "when": "view == pseudo2.variables",
+                    "group": "navigation"
+                }
+            ]
+        }
     },
     "activationEvents": [
-        "onLanguage:pseudo2"
+        "onLanguage:pseudo2",
+        "onCommand:pseudo2.inspectVariables",
+        "onView:pseudo2.variables"
     ],
     "main": "./out/extension/main.cjs",
     "scripts": {

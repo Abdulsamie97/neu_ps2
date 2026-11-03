@@ -17,12 +17,19 @@
         ".": {
             "types": "./out/index.d.ts",
             "default": "./out/index.js"
+        },
+        "./version": {
+            "types": "./out/version.d.ts",
+            "default": "./out/version.js"
         }
     },
     "typesVersions": {
         "*": {
             ".": [
                 "out/index"
+            ],
+            "version": [
+                "out/version"
             ]
         }
     },

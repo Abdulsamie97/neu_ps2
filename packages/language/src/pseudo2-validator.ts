@@ -106,7 +106,7 @@ import {
   //isNeg
 } from './generated/ast.js';
 
-import { Pseudo2TypeComputer } from './typing/pseudo2-type-computer.js';
+import { Pseudo2TypeComputer, additionResultType } from './typing/pseudo2-type-computer.js';
 import { canonicalSpecPredicateKind } from './spec-predicates.js';
 import { TYPE_NUM, TYPE_BOOL, TYPE_STRING, TYPE_ARRAY_UNKNOWN, TYPE_UNKNOWN, TYPE_STRUCT } from './typing/pseudo2-type.js';
 
@@ -116,6 +116,10 @@ export const INCOMPATIBLE_TYPES = 'INCOMPATIBLE_TYPES';
 export const INCOMPATIBLE_TYPES_EQ = 'INCOMPATIBLE_TYPES_EQ';
 /** Diagnosecode für unzulässige Operanden einer Addition oder Verkettung. */
 export const INCOMPATIBLE_TYPES_PLUS = 'INCOMPATIBLE_TYPES_PLUS';
+/** Diagnosecode für einen Vergleich mit mehreren Ordnungsoperatoren. */
+export const CHAINED_COMPARISON = 'CHAINED_COMPARISON';
+/** Diagnosecode für einen Vergleich mit mehreren Gleichheitsoperatoren. */
+export const CHAINED_EQUALITY = 'CHAINED_EQUALITY';
 /** Diagnosecode für einen innerhalb seines Namensraums doppelt deklarierten Eintrag. */
 export const DUPLICATE_ELEMENT = 'DUPLICATE_ELEMENT';
 /** Diagnosecode für unterschiedliche Werttypen in den Rückgaben einer Funktion. */
@@ -1791,9 +1795,9 @@ export class Pseudo2Validator {
   /**
    * Validiert die Pseudo2-Überladung von `+` und die numerische Subtraktion.
    *
-   * Strings dürfen mit skalaren Zahlen, booleschen Werten und Strings verkettet werden.
-   * Ohne String sind nur numerische Operanden zulässig; Arrays und Structs sind immer
-   * verboten. Unbekannte Typen lösen keine zusätzliche Folgediagnose aus.
+   * Jeder Operator wird von links nach rechts geprüft. Strings dürfen mit skalaren
+   * Zahlen, booleschen Werten und Strings verkettet werden; `-` verlangt auf beiden
+   * Seiten Zahlen. Unbekannte Typen lösen keine zusätzliche Folgediagnose aus.
    *
    * @param node Zu prüfende Additionskette.
    * @param accept Empfänger für unzulässige Operanden.
@@ -1803,59 +1807,21 @@ export class Pseudo2Validator {
       return;
     }
 
-    const operands = [node.left, ...(node.right ?? [])];
-    const types = operands.map(e => this.types.typeFor(e));
-
-    const hasString = types.some(t => t.isSameAs(TYPE_STRING));
-    const hasBool = types.some(t => t.isSameAs(TYPE_BOOL));
-    const hasStruct = types.some(t => t.isStructType());
-    const hasArray = types.some(t => t.isArrayType());
-
-    // Array/Struct bei + bleiben verboten
-    if (hasStruct || hasArray) {
-      accept(
-        'error',
-        `Ungültige Addition: '+' erlaubt keine Arrays oder Structs.`,
-        { node,
+    let result = this.types.typeFor(node.left);
+    for (let i = 0; i < node.right.length; i++) {
+      const right = this.types.typeFor(node.right[i]);
+      const operator = node.op[i];
+      const next = additionResultType(result, right, operator);
+      if (next.isUnknown() && !result.isUnknown() && !right.isUnknown()) {
+        accept('error', `Operator '${operator}' ist für '${result.asString()}' und '${right.asString()}' nicht erlaubt.`, {
+          node,
+          property: 'right',
+          index: i,
           code: INCOMPATIBLE_TYPES_PLUS
-        }
-      );
-      return;
-    }
-
-    // Sobald string beteiligt ist, ist string-Verkettung erlaubt
-    // -> string+string, string+num, num+string, string+bool, bool+string
-    if (hasString) {
-      return;
-    }
-
-    // Ohne string bleibt nur num+num erlaubt
-    if (hasBool) {
-      accept(
-        'error',
-        `Ungültige Addition: bool ist nur in String-Verkettung mit '+' erlaubt.`,
-        { node, 
-          code: INCOMPATIBLE_TYPES_PLUS 
-        }
-      );
-      return;
-    }
-
-    for (let i = 0; i < types.length; i++) {
-      const t = types[i];
-      if (!t.isSameAs(TYPE_NUM) && !t.isUnknown()) {
-        accept(
-          'error',
-          `Ungültiger Operand für '+': erwartet num oder string, erhalten '${t.asString()}'.`,
-          {
-            node,
-            property: i === 0 ? 'left' : 'right',
-            index: i === 0 ? undefined : i - 1,
-            code: INCOMPATIBLE_TYPES_PLUS
-          } as any
-        );
+        });
         return;
       }
+      result = next;
     }
   }
 
@@ -2099,6 +2065,16 @@ export class Pseudo2Validator {
       return;
     }
 
+    if (node.right.length > 1) {
+      accept('error', `Verkettete Gleichheitsvergleiche sind nicht erlaubt. Verbinde einzelne Vergleiche mit '&&' oder klammere den Teilausdruck.`, {
+        node,
+        property: 'op',
+        index: 1,
+        code: CHAINED_EQUALITY
+      });
+      return;
+    }
+
     const operands = [node.left, ...(node.right ?? [])];
     const types = operands.map(e => this.types.typeFor(e));
 
@@ -2163,8 +2139,18 @@ export class Pseudo2Validator {
   checkComparison(node: Comparison, accept: ValidationAcceptor): void {
     if ((node.right?.length ?? 0) === 0) return;
 
+    if (node.right.length > 1) {
+      accept('error', `Verkettete Ordnungsvergleiche sind nicht erlaubt. Verwende z. B. '(a > b) && (b > c)'.`, {
+        node,
+        property: 'op',
+        index: 1,
+        code: CHAINED_COMPARISON
+      });
+      return;
+    }
+
     const operands = [node.left, ...(node.right ?? [])];
-    this.requireAllTypes(node, operands, TYPE_NUM, accept, `Vergleichsoperatoren '<', '<=', '>' und '>=' erwarten num.`);
+    this.requireAllTypes(node, operands, TYPE_NUM, accept, `Vergleichsoperatoren '<', '<=', '>' und '>=' erwarten num.`, INCOMPATIBLE_TYPES);
   }
 
 

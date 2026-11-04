@@ -26,6 +26,7 @@ import {
   isStringLiteral,
   isNullLiteral,
   isEquality,
+  isComparison,
   isAddition
 } from '../../src/generated/ast.js';
 
@@ -39,6 +40,7 @@ import {
   TYPE_NUM,
   TYPE_STRING,
   TYPE_BOOL,
+  TYPE_UNKNOWN,
   TYPE_ARRAY_NUM,
   TYPE_STRUCT
 } from '../../src/typing/pseudo2-type.js';
@@ -47,6 +49,8 @@ import {
   INCOMPATIBLE_TYPES,
   INCOMPATIBLE_TYPES_EQ,
   INCOMPATIBLE_TYPES_PLUS,
+  CHAINED_COMPARISON,
+  CHAINED_EQUALITY,
   DIFFERENT_TYPES_OF_RETURNS
 } from '../../src/pseudo2-validator.js';
 
@@ -387,6 +391,43 @@ describe('ParsingTests_Typing', () => {
   test('comparisonExp', async () => { await assertTypeExp('1 < 2', TYPE_BOOL); });
   test('equalityExp', async () => { await assertTypeExp('1 == 2', TYPE_BOOL); });
   test('noEqualityExp', async () => { await assertTypeExp('1 != 2', TYPE_BOOL); });
+  test.each([
+    ['3 > 2 > 1', CHAINED_COMPARISON],
+    ['1 < 2 <= 3', CHAINED_COMPARISON],
+    ['1 == 1 == 1', CHAINED_EQUALITY],
+    ['true != false == true', CHAINED_EQUALITY]
+  ])('rejects ambiguous comparison chain %s', async (expression, code) => {
+    const { model, document } = await parseModel(`print ${expression}`);
+    expect(document.parseResult.parserErrors).toHaveLength(0);
+    const diagnostics = errorDiagnostics(document).filter(diagnostic => diagnostic.code === code);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].range.start.line).toBe(0);
+    const comparison = code === CHAINED_COMPARISON
+      ? firstNodeOfType(model, isComparison)
+      : firstNodeOfType(model, isEquality);
+    expect(types.typeFor(comparison)).toBe(TYPE_UNKNOWN);
+  });
+  test('rejects an ambiguous chained comparison in an if condition', async () => {
+    const { document } = await parseModel(`
+      if 3 > 2 > 1
+        print "alles gut"
+      else
+        print "uh, oh, ah!"
+    `);
+    expect(document.parseResult.parserErrors).toHaveLength(0);
+    expect(errorDiagnostics(document).map(diagnostic => diagnostic.code)).toEqual([CHAINED_COMPARISON]);
+  });
+  test('accepts explicit boolean composition instead of comparison chains', async () => {
+    const { document } = await parseModel(`
+      print (3 > 2) && (2 > 1)
+      print (1 == 1) == true
+    `);
+    assertNoErrors(document);
+  });
+  test('rejects a comparison between a boolean result and a number', async () => {
+    await assertErrorOnNode('print (3 > 2) > 1', isComparison, INCOMPATIBLE_TYPES);
+    await assertErrorOnNode('print (3 > 2) == 1', isEquality, INCOMPATIBLE_TYPES_EQ);
+  });
   test('andExp', async () => { await assertTypeExp('true && false', TYPE_BOOL); });
   test('orExp', async () => { await assertTypeExp('true || false', TYPE_BOOL); });
 
@@ -396,6 +437,22 @@ describe('ParsingTests_Typing', () => {
   test('numAndStringPlus2', async () => { await assertTypeExp("2 + 'a'", TYPE_STRING); });
   test('boolAndStringPlus', async () => { await assertTypeExp("'a' + true", TYPE_STRING); });
   test('boolAndStringPlus2', async () => { await assertTypeExp("false + 'a'", TYPE_STRING); });
+  test('valid left-to-right string concatenation', async () => {
+    await assertTypeExp('3 + " hello " + false', TYPE_STRING);
+    await assertTypeExp('3 - 2 + " hello "', TYPE_STRING);
+  });
+  test.each([
+    '1 + true + "x"',
+    '1 - "x" + "y"',
+    '1 + "x" - 2',
+    '1 - "x"'
+  ])('rejects invalid intermediate arithmetic in %s', async expression => {
+    const { model, document } = await parseModel(`print ${expression}`);
+    expect(document.parseResult.parserErrors).toHaveLength(0);
+    expect(errorDiagnostics(document).some(diagnostic => diagnostic.code === INCOMPATIBLE_TYPES_PLUS)).toBe(true);
+    const addition = firstNodeOfType(model, isAddition);
+    expect(types.typeFor(addition)).toBe(TYPE_UNKNOWN);
+  });
 
 test('arrayAccess', async () => {
   await assertTypeReturnStmt(`

@@ -86,6 +86,29 @@ import {
 export const TYPE_ARRAY_UNKNOWN = Pseudo2Type.create({ name: '', isStruct: false, isArray: true });
 
 /**
+ * @brief Bestimmt den Ergebnistyp genau eines Additions- oder Subtraktionsschritts.
+ *
+ * `+` erlaubt zwei Zahlen oder die Verkettung eines Strings mit einem skalaren
+ * Wert. `-` akzeptiert ausschließlich Zahlen. Unbekannte und unzulässige
+ * Operanden liefern `TYPE_UNKNOWN`, damit keine falschen Folgetypen entstehen.
+ *
+ * @param left Typ des bisherigen Ergebnisses.
+ * @param right Typ des nächsten Operanden.
+ * @param operator Operator zwischen beiden Operanden.
+ * @returns Typ nach diesem Rechenschritt oder `TYPE_UNKNOWN`.
+ */
+export function additionResultType(left: Pseudo2Type, right: Pseudo2Type, operator: string): Pseudo2Type {
+  if (left.isUnknown() || right.isUnknown()) return TYPE_UNKNOWN;
+  if ((operator === '+' || operator === '-') && left.isSameAs(TYPE_NUM) && right.isSameAs(TYPE_NUM)) return TYPE_NUM;
+  if (operator === '+' && (left.isSameAs(TYPE_STRING) || right.isSameAs(TYPE_STRING))) {
+    const scalar = (type: Pseudo2Type) =>
+      type.isSameAs(TYPE_STRING) || type.isSameAs(TYPE_NUM) || type.isSameAs(TYPE_BOOL);
+    if (scalar(left) && scalar(right)) return TYPE_STRING;
+  }
+  return TYPE_UNKNOWN;
+}
+
+/**
  * @brief Verfolgt bereits untersuchte Deklarationen, Funktionen und Ausdrücke zur Zyklenerkennung.
  *
  * Der Type-Computer folgt Initialisierern, Rückgabewerten und Aufrufargumenten rekursiv.
@@ -179,8 +202,8 @@ export class Pseudo2TypeComputer {
     if (isOr(e)) return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_BOOL;
     if (isAnd(e)) return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_BOOL;
 
-    if (isEquality(e)) return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_BOOL;
-    if (isComparison(e)) return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : TYPE_BOOL;
+    if (isEquality(e)) return e.right.length === 0 ? this.typeFor(e.left, ctx) : e.right.length === 1 ? TYPE_BOOL : TYPE_UNKNOWN;
+    if (isComparison(e)) return e.right.length === 0 ? this.typeFor(e.left, ctx) : e.right.length === 1 ? TYPE_BOOL : TYPE_UNKNOWN;
 
     // ---- arithmetic ----
     if (isAddition(e)) return (e.right?.length ?? 0) === 0 ? this.typeFor(e.left, ctx) : this.handlePlus(e, ctx);
@@ -284,42 +307,19 @@ export class Pseudo2TypeComputer {
   /**
    * @brief Bestimmt, ob eine Additionskette numerische Addition oder Stringverkettung liefert.
    *
-   * Unbekannte, Array- oder Structoperanden machen das Ergebnis unbekannt. Sobald ein
-   * String beteiligt ist, entsteht ein String. Boolesche Operanden ohne String sind
-   * ungültig; ausschließlich numerische Operanden ergeben `num`.
+   * Jeder Operator wird von links nach rechts auf das bisherige Ergebnis angewendet.
+   * So kann ein späterer String einen früheren ungültigen Rechenschritt nicht verdecken.
    *
    * @param e Additionsausdruck mit linkem und optionalen rechten Operanden.
    * @param ctx Aktueller Berechnungskontext.
    * @return `string`, `num` oder `TYPE_UNKNOWN` gemäß den Additionsregeln.
    */
   private handlePlus(e: Addition, ctx: TypeComputationContext): Pseudo2Type {
-    const parts: Expr[] = [e.left, ...(e.right ?? [])];
-    const types = parts.map(p => this.typeFor(p, ctx.copy()));
-
-    // unbekannt bleibt unbekannt
-    if (types.some(t => t.isUnknown())) {
-      return TYPE_UNKNOWN;
+    let result = this.typeFor(e.left, ctx.copy());
+    for (let i = 0; i < e.right.length; i++) {
+      result = additionResultType(result, this.typeFor(e.right[i], ctx.copy()), e.op[i]);
     }
-
-    // Arrays/Structs sind bei + verboten
-    if (types.some(t => t.isArrayType() || t.isStructType())) {
-      return TYPE_UNKNOWN;
-    }
-
-    const hasString = types.some(t => t.isSameAs(TYPE_STRING));
-    const hasBool = types.some(t => t.isSameAs(TYPE_BOOL));
-
-    // Sobald string beteiligt ist, wird verkettet
-    if (hasString) {
-      return TYPE_STRING;
-    }
-
-    // bool ohne string bleibt ungültig
-    if (hasBool) {
-      return TYPE_UNKNOWN;
-    }
-
-    return TYPE_NUM;
+    return result;
   }
 
   /**

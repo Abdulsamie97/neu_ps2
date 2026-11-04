@@ -619,12 +619,12 @@ And returns And:
   left=Equality ( op+=('&&' | '&*&') right+=Equality )*
 ;
 
-/** Liest verkettete Gleichheits- und Ungleichheitsoperatoren. */
+/** Parst auch Gleichheitsketten, damit der Validator sie gezielt ablehnen kann. */
 Equality returns Equality:
   left=Comparison ( op+=('==' | '!=') right+=Comparison )*
 ;
 
-/** Liest verkettete numerische Ordnungsvergleiche. */
+/** Parst auch Ordnungsketten, damit der Validator sie gezielt ablehnen kann. */
 Comparison returns Comparison:
   left=Addition ( op+=('<' | '<=' | '>' | '>=') right+=Addition )*
 ;

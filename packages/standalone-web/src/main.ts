@@ -582,22 +582,34 @@ function scheduleCompletion(force = false): void {
 
 /** Unterdrueckt Vorschlaege in Kommentaren sowie offenen String-/Zeichenliteralen. */
 function isInsideLiteralOrComment(beforeCaret: string): boolean {
-  const line = beforeCaret.slice(beforeCaret.lastIndexOf('\n') + 1);
   let quote: '"' | "'" | undefined;
-  for (let index = 0; index < line.length; index++) {
-    if (quote) {
-      if (line[index] === '\\') {
+  let blockComment = false;
+  for (let index = 0; index < beforeCaret.length; index++) {
+    if (blockComment) {
+      if (beforeCaret.startsWith('*/', index)) {
+        blockComment = false;
         index++;
-      } else if (line[index] === quote) {
+      }
+      continue;
+    }
+    if (quote) {
+      if (beforeCaret[index] === '\\') {
+        index++;
+      } else if (beforeCaret[index] === quote || beforeCaret[index] === '\n') {
         quote = undefined;
       }
-    } else if (line.startsWith('//', index)) {
-      return true;
-    } else if (line[index] === '"' || line[index] === "'") {
-      quote = line[index] as '"' | "'";
+    } else if (beforeCaret.startsWith('/*', index)) {
+      blockComment = true;
+      index++;
+    } else if (beforeCaret.startsWith('//', index)) {
+      const lineEnd = beforeCaret.indexOf('\n', index);
+      if (lineEnd === -1) return true;
+      index = lineEnd;
+    } else if (beforeCaret[index] === '"' || beforeCaret[index] === "'") {
+      quote = beforeCaret[index] as '"' | "'";
     }
   }
-  return quote !== undefined;
+  return blockComment || quote !== undefined;
 }
 
 /** Holt Langium-Vorschlaege aus einem kurzlebigen In-Memory-Dokument. */
@@ -827,6 +839,13 @@ function highlightPseudo2(source: string, diagnostics: StandaloneDiagnostic[]): 
   };
 
   while (index < source.length) {
+    if (source.startsWith('/*', index)) {
+      const closing = source.indexOf('*/', index + 2);
+      const end = closing === -1 ? source.length : closing + 2;
+      append(index, end, 'comment');
+      index = end;
+      continue;
+    }
     if (source.startsWith('//@', index)) {
       const end = findLineEnd(source, index);
       append(index, end, 'annotation');

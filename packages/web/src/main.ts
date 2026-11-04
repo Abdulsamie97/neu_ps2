@@ -1458,9 +1458,10 @@ function installPseudo2KeywordDecorations(editor: monaco.editor.IStandaloneCodeE
         }
 
         const decorations: monaco.editor.IModelDeltaDecoration[] = [];
+        let inBlockComment = false;
         for (let lineNumber = 1; lineNumber <= model.getLineCount(); lineNumber++) {
             const line = model.getLineContent(lineNumber);
-            collectPseudo2Decorations(line, lineNumber, keywords, decorations);
+            inBlockComment = collectPseudo2Decorations(line, lineNumber, keywords, decorations, inBlockComment);
         }
 
         decorationIds = editor.deltaDecorations(decorationIds, decorations);
@@ -1482,22 +1483,26 @@ function installPseudo2KeywordDecorations(editor: monaco.editor.IStandaloneCodeE
 /**
  * @brief Erkennt hervorzuhebende Pseudo2-Tokens in genau einer Quelltextzeile.
  *
- * Der Scanner arbeitet von links nach rechts. Kommentare beenden die Analyse der
- * restlichen Zeile. Strings und Zeichen berücksichtigen Escape-Sequenzen, Zahlen
- * erlauben Dezimalpunkte und Bezeichner werden nur bei einem Eintrag in der
- * Schlüsselwortmenge markiert. Alle Monaco-Spalten werden von null- auf einsbasiert umgerechnet.
+ * Der Scanner arbeitet von links nach rechts. Einzeilige Kommentare beenden die
+ * Analyse der Zeile; Blockkommentare behalten ihren Zustand über Zeilengrenzen.
+ * Strings und Zeichen berücksichtigen Escape-Sequenzen, Zahlen erlauben Dezimalpunkte
+ * und Bezeichner werden nur bei einem Eintrag in der Schlüsselwortmenge markiert.
+ * Alle Monaco-Spalten werden von null- auf einsbasiert umgerechnet.
  *
  * @param line Inhalt einer einzelnen Monaco-Modellzeile.
  * @param lineNumber Einsbasierte Zeilennummer im Editor.
  * @param keywords Menge aller hervorzuhebenden Pseudo2- und VeriFast-Schlüsselwörter.
  * @param decorations Zielsammlung, an die erkannte Monaco-Dekorationen angehängt werden.
+ * @param inBlockComment Gibt an, ob die vorherige Zeile in einem Blockkommentar endete.
+ * @returns `true`, wenn der Blockkommentar am Ende dieser Zeile noch offen ist.
  */
 function collectPseudo2Decorations(
     line: string,
     lineNumber: number,
     keywords: Set<string>,
-    decorations: monaco.editor.IModelDeltaDecoration[]
-): void {
+    decorations: monaco.editor.IModelDeltaDecoration[],
+    inBlockComment: boolean
+): boolean {
     let index = 0;
 
     /**
@@ -1518,9 +1523,24 @@ function collectPseudo2Decorations(
     while (index < line.length) {
         const char = line[index];
 
+        if (inBlockComment) {
+            const closing = line.indexOf('*/', index);
+            const end = closing === -1 ? line.length : closing + 2;
+            addDecoration(index, end, 'pseudo2-comment-token');
+            index = end;
+            if (closing === -1) return true;
+            inBlockComment = false;
+            continue;
+        }
+
+        if (char === '/' && line[index + 1] === '*') {
+            inBlockComment = true;
+            continue;
+        }
+
         if (char === '#' || (char === '/' && line[index + 1] === '/')) {
             addDecoration(index, line.length, 'pseudo2-comment-token');
-            return;
+            return false;
         }
 
         if (char === '"' || char === "'") {
@@ -1567,6 +1587,7 @@ function collectPseudo2Decorations(
 
         index++;
     }
+    return inBlockComment;
 }
 
 /**

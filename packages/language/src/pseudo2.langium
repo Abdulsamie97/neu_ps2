@@ -616,12 +616,12 @@ Or returns Or:
 
 /** Liest linksassoziative logische UND-Verknüpfungen. */
 And returns And:
-  left=Equality ( op+=('&&' | '&*&') right+=Equality )*
+  left=Equality ( op+=('&&' | '&*&') right+=Equality )*     //warum nicht ? anstatt von *   
 ;
 
 /** Parst auch Gleichheitsketten, damit der Validator sie gezielt ablehnen kann. */
 Equality returns Equality:
-  left=Comparison ( op+=('==' | '!=') right+=Comparison )*
+  left=Comparison ( op+=('==' | '!=') right+=Comparison )*  //warum nicht ? anstatt von *
 ;
 
 /** Parst auch Ordnungsketten, damit der Validator sie gezielt ablehnen kann. */

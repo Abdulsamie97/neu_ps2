@@ -41,6 +41,8 @@ import {
   isIntLiteral,
   isMethSelection,
   isMultiplication,
+  isPrefixUpdate,
+  isPostfixUpdate,
   isNeg,
   isNewExpr,
   isNot,
@@ -128,7 +130,7 @@ function printInstruction(instruction: Instruction, level: number, ctx: PrettyCo
   }
 
   if (isAssignment(instruction)) {
-    return `${prefix}${printExpr(instruction.sel)} = ${printExpr(instruction.value)}`;
+    return `${prefix}${printExpr(instruction.sel)} ${instruction.operator} ${printExpr(instruction.value)}`;
   }
 
   if (isExprStatement(instruction)) {
@@ -386,6 +388,14 @@ function printExpr(expr: Expr): string {
 
   if (isNeg(expr)) {
     return `-${printExpr(expr.value)}`;
+  }
+
+  if (isPrefixUpdate(expr)) {
+    return `${expr.op}${printExpr(expr.target)}`;
+  }
+
+  if (isPostfixUpdate(expr)) {
+    return `${printExpr(expr.target)}${expr.op}`;
   }
 
   if (isGrouping(expr)) {

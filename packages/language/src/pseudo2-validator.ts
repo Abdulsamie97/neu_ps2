@@ -28,6 +28,8 @@ import type {
   ReturnStmt,
   VarDecl,
   Assignment,
+  PrefixUpdate,
+  PostfixUpdate,
   StructDeclaration,
   StructAttDeclaration,
   StructType,
@@ -65,6 +67,7 @@ import type { Pseudo2Services } from './pseudo2-module.js';
 
 import {
   isProgram,
+  isExpr,
   isFunctionDeclaration,
   isStructDeclaration,
   isStructAttDeclaration,
@@ -81,6 +84,7 @@ import {
   isForLoop,
   isDoWhileLoop,
   isFunctionCall,
+  isNewExpr,
   isMethSelection,
   isMethRef,
   isOr,
@@ -211,6 +215,8 @@ export function registerValidationChecks(services: Pseudo2Services) {
 
     VarDecl: validator.checkVarDecl,
     Assignment: validator.checkAssignment,
+    PrefixUpdate: validator.checkUpdate,
+    PostfixUpdate: validator.checkUpdate,
 
     StructDeclaration: validator.checkStructDeclaration,
     StructAttDeclaration: validator.checkStructAttDeclaration,
@@ -785,6 +791,9 @@ export class Pseudo2Validator {
    */
   private isLengthParameterDecl(v: VarDecl): boolean {
     const parent: any = v.$container;
+    if (parent && isParameterDecl(parent)) {
+      return parent.len === v;
+    }
     if (!parent || !isFunctionDeclaration(parent)) {
       return false;
     }
@@ -831,6 +840,12 @@ export class Pseudo2Validator {
     if (isVarRef(left)) {
       const target = left.ref?.ref;
       if (target) {
+        if (isVarDecl(target) && this.isLengthParameterDecl(target)) {
+          accept('error', `Arraylaenge '${target.name}' darf nicht zugewiesen werden.`, {
+            node, property: 'sel', code: INCOMPATIBLE_TYPES
+          });
+          return;
+        }
         const loop = AstUtils.getContainerOfType(target, isForLoop);
         if (loop && loop.iterator === target) {
           accept('error', `Schleifenvariable '${target.name}' darf nicht zugewiesen werden.`, {
@@ -854,6 +869,18 @@ export class Pseudo2Validator {
     const leftType = this.types.typeFor(leftExpr);
     const rightType = this.types.typeFor(node.value);
 
+    if (node.operator !== '=') {
+      const numeric = (type: typeof leftType) => type.isSameAs(TYPE_NUM) || type.isUnknown();
+      const stringConcat = node.operator === '+=' && leftType.isSameAs(TYPE_STRING)
+        && !rightType.isArrayType() && !rightType.isStructType();
+      if (!stringConcat && (!numeric(leftType) || !numeric(rightType))) {
+        accept('error', `Operator '${node.operator}' erwartet numerische Operanden oder eine Stringverkettung mit +=.`, {
+          node, property: 'operator', code: INCOMPATIBLE_TYPES
+        });
+      }
+      return;
+    }
+
     if (!this.isAssignable(rightType, leftType)) {
       accept(
         'error',
@@ -864,6 +891,78 @@ export class Pseudo2Validator {
         }
         
       );
+    }
+  }
+
+  /** Prueft verändernde Praefix- und Postfixausdruecke auf eine numerische Variable. */
+  checkUpdate(node: PrefixUpdate | PostfixUpdate, accept: ValidationAcceptor): void {
+    if (this.isInsideVeriFastAnnotation(node)) {
+      accept('error', '++ und -- sind in VeriFast-Annotationen nicht erlaubt.', {
+        node, code: INCOMPATIBLE_TYPES
+      });
+      return;
+    }
+    const target = this.unwrapSingletonExpr(node.target);
+    if (!isVarRef(target) || target.index || !target.ref?.ref || isStructAttDeclaration(target.ref.ref)) {
+      accept('error', '++ und -- erwarten eine numerische Variable ohne Index oder Attributzugriff.', {
+        node, property: 'target', code: INCOMPATIBLE_TYPES
+      });
+      return;
+    }
+    if (isVarDecl(target.ref.ref) && this.isLengthParameterDecl(target.ref.ref)) {
+      accept('error', `Arraylaenge '${target.ref.ref.name}' darf nicht veraendert werden.`, {
+        node, property: 'target', code: INCOMPATIBLE_TYPES
+      });
+      return;
+    }
+    const loop = AstUtils.getContainerOfType(target.ref.ref, isForLoop);
+    if (loop?.iterator === target.ref.ref) {
+      accept('error', `Schleifenvariable '${target.ref.ref.name}' darf nicht veraendert werden.`, {
+        node, property: 'target', code: ASSIGNED_TO_LOOPVAR
+      });
+      return;
+    }
+    const type = this.types.typeFor(target);
+    if (!type.isSameAs(TYPE_NUM) && !type.isUnknown()) {
+      accept('error', `++ und -- erwarten num, erhalten '${type.asString()}'.`, {
+        node, property: 'target', code: INCOMPATIBLE_TYPES
+      });
+    }
+    for (let current: AstNode = node; current.$container && isExpr(current.$container); current = current.$container) {
+      const parent = current.$container;
+      if ((isAnd(parent) || isOr(parent)) && parent.right.includes(current as Expr)) {
+        accept('error', '++ und -- sind auf der bedingt ausgewerteten Seite von && oder || nicht erlaubt.', {
+          node, code: INCOMPATIBLE_TYPES
+        });
+        break;
+      }
+    }
+    let root: Expr = node;
+    while (root.$container && isExpr(root.$container)) {
+      root = root.$container;
+    }
+    const references = [root, ...AstUtils.streamAllContents(root)]
+      .filter(isVarRef)
+      .filter(reference => reference.ref?.ref === target.ref?.ref);
+    if (references.length > 1) {
+      accept('error', `Variable '${target.ref.ref.name}' darf im selben Ausdruck nicht zusaetzlich zu ${node.op} gelesen oder veraendert werden.`, {
+        node, code: INCOMPATIBLE_TYPES
+      });
+    }
+    const beforeUpdate = node.$cstNode?.offset;
+    const earlierEffect = beforeUpdate === undefined ? undefined
+      : [root, ...AstUtils.streamAllContents(root)].find(candidate => {
+          if (!(isFunctionCall(candidate) || isMethSelection(candidate) || isNewExpr(candidate)) ||
+              (candidate.$cstNode?.offset ?? Number.POSITIVE_INFINITY) >= beforeUpdate) return false;
+          for (let parent: AstNode | undefined = node.$container; parent; parent = parent.$container) {
+            if (parent === candidate) return false;
+          }
+          return true;
+        });
+    if (earlierEffect) {
+      accept('error', `Funktionsaufrufe oder new vor ${node.op} muessen in getrennten Anweisungen stehen.`, {
+        node, code: INCOMPATIBLE_TYPES
+      });
     }
   }
 

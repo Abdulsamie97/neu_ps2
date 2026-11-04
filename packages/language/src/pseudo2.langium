@@ -129,9 +129,9 @@ VarDeclaration returns VarDecl:
   ('=' initializer=Expression)?
 ;
 
-/** Liest eine Zuweisung an eine zuvor aufgelöste Selection. */
+/** Liest einfache und zusammengesetzte Zuweisungen an eine Selection. */
 Assignment:
-  sel=Selection '=' value=Expression
+  sel=Selection operator=('=' | '+=' | '-=' | '*=' | '/=') value=Expression
 ;
 
 // ======================================================
@@ -480,6 +480,10 @@ interface AttSelection extends Expr { receiver: Expr attref: AttRef }
 interface MethSelection extends Expr { receiver: Expr methref: MethRef }
 /** AST-Knoten eines zusätzlichen Indexzugriffs auf einen vorhergehenden Ausdruck. */
 interface IndexSelection extends Expr { receiver: Expr index: Expr }
+/** Aendert eine numerische Variable nach dem Lesen und liefert den alten Wert. */
+interface PostfixUpdate extends Expr { target: Expr op: string }
+/** Aendert eine numerische Variable vor dem Lesen und liefert den neuen Wert. */
+interface PrefixUpdate extends Expr { target: Expr op: string }
 
 // Selection starts with VarRef or This, then .att / .meth(...) chain
 /**
@@ -494,6 +498,7 @@ Selection returns Expr:
     | ({AttSelection.receiver=current} '.' attref=AttRefRule)
     | ({MethSelection.receiver=current} '.' methref=MethRefRule)
   )*
+  ({PostfixUpdate.target=current} op=('++' | '--'))?
 ;
 
 // ---- Primary literals etc ----
@@ -641,9 +646,15 @@ Exponentiation returns Exponentiation:
 
 /** Wählt logische Negation, numerisches Vorzeichen oder einen Primärausdruck. */
 Unary returns Expr:
-    NotRule
+    PrefixUpdateRule
+  | NotRule
   | NegRule
   | Primary
+;
+
+/** Liest Praefix-Inkrement oder -Dekrement vor einer variablen Selection. */
+PrefixUpdateRule returns PrefixUpdate:
+  {PrefixUpdate} op=('++' | '--') target=Selection
 ;
 
 /** Liest eine rekursive logische Negation. */

@@ -55,6 +55,8 @@ import {
   isNullLiteral,
   isOr,
   isPrintCommand,
+  isPostfixUpdate,
+  isPrefixUpdate,
   isResultExpr,
   isReturnStmt,
   isSpecPredicateExpr,
@@ -89,6 +91,8 @@ export function printExpr(expr: Expr): string {
   if (isArrayLiteral(expr)) return printArrayLiteral(expr);
   if (isNewExpr(expr)) return `new ${expr.type?.ref?.name ?? '/*unresolved*/'}`;
   if (isVarRef(expr)) return printVarRef(expr);
+  if (isPrefixUpdate(expr)) return `${expr.op}${printExpr(expr.target)}`;
+  if (isPostfixUpdate(expr)) return `${printExpr(expr.target)}${expr.op}`;
   if (isAttSelection(expr)) return printAttSelection(expr);
   if (isIndexSelection(expr)) return printIndexSelection(expr);
   if (isMethSelection(expr)) return printMethSelection(expr);
@@ -237,7 +241,7 @@ function printVarDecl(decl: VarDecl): string {
  * @returns Zuweisung der Form `ziel = wert`.
  */
 function printAssignment(assign: Assignment): string {
-  return `${printExpr(assign.sel)} = ${printExpr(assign.value)}`;
+  return `${printExpr(assign.sel)} ${assign.operator} ${printExpr(assign.value)}`;
 }
 
 /**

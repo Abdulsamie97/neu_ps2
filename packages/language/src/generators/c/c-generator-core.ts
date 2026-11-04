@@ -71,6 +71,8 @@ import {
   isNullLiteral,
   isOr,
   isPrintCommand,
+  isPostfixUpdate,
+  isPrefixUpdate,
   isResultExpr,
   isSpecConstantExpr,
   isSpecPredicateExpr,
@@ -88,6 +90,7 @@ import {
 } from '../../generated/ast.js';
 import { C_RUNTIME_CONTRACTS } from './runtime/c-runtime-contracts.js';
 import { C_RUNTIME_IMPLEMENTATION } from './runtime/c-runtime-implementation.js';
+import { generateCUpdateHelpers } from './c-update-helpers.js';
 import { Pseudo2GeneratorContext } from '../javascript/generator-context.js';
 import { canonicalSpecPredicateKind } from '../../spec-predicates.js';
 import { Pseudo2TypeComputer } from '../../typing/pseudo2-type-computer.js';
@@ -256,6 +259,9 @@ function generateCProgramInternal(
   const arrayFillHelpers = generateArrayFillHelpers(arrayFillArities, options.runtime ?? 'contracts');
   const stringLiteralHelpers = generateStringLiteralHelpers(stringLiterals, options.runtime ?? 'contracts');
   const divisionLiteralHelpers = generateDivisionLiteralHelpers(divisionLiterals, options.runtime ?? 'contracts');
+  const updateHelpers = AstUtils.streamAllContents(program).some(node => isPrefixUpdate(node) || isPostfixUpdate(node))
+    ? generateCUpdateHelpers()
+    : '';
   const verifastOptions = options.runtime !== 'implementation' && hasMutatingStructLoop(program)
     ? '//verifast_options{prover:Z3v4.5}'
     : '';
@@ -294,6 +300,7 @@ function generateCProgramInternal(
     arrayFillHelpers,
     stringLiteralHelpers,
     divisionLiteralHelpers,
+    updateHelpers,
     prototypes,
     globals,
     definitions,
@@ -883,7 +890,8 @@ function generateInstruction(
   } else if (isAssignment(instruction)) {
     generated = generateAssignment(instruction, context, indent, state);
   } else if (isFunctionCall(instruction)) {
-    generated = `${indent}${genFunctionCall(instruction, context, state)};`;
+    const updates = materializeRuntimeUpdates(instruction, context, indent, state);
+    generated = [...updates.prelude, `${indent}${genFunctionCall(instruction, context, updates.state)};`].join('\n');
   } else if (isReturnStmt(instruction)) {
     generated = generateReturnStatement(instruction, context, indent, state);
   } else if (isExprStatement(instruction)) {
@@ -2484,8 +2492,11 @@ function materializeNestedHeapCreations(
 function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   const name = context.getVarName(decl);
   const prefix = state.topLevel ? '' : 'Ps2Value* ';
+  const updates = decl.initializer
+    ? materializeRuntimeUpdates(decl.initializer, context, indent, state)
+    : { prelude: [] as string[], state };
   const materializedInitializer = decl.initializer
-    ? materializeNestedHeapCreations(decl.initializer, context, indent, state, decl.isArrayVariable)
+    ? materializeNestedHeapCreations(decl.initializer, context, indent, updates.state, decl.isArrayVariable)
     : { prelude: [] as string[], value: 'ps2_null()' };
 
   if (decl.isArrayVariable) {
@@ -2493,7 +2504,7 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
     const initExpr = materializedInitializer.value;
     const fillArity = state.arrayFillDecls?.has(decl) ? arrayFillArityFor(decl) : undefined;
     if (fillArity !== undefined) {
-      return [...materializedInitializer.prelude, `${indent}${prefix}${name} = ${arrayFillHelperName(fillArity)}(${initExpr});`].join('\n');
+      return [...updates.prelude, ...materializedInitializer.prelude, `${indent}${prefix}${name} = ${arrayFillHelperName(fillArity)}(${initExpr});`].join('\n');
     }
 
     const indexName = context.getAnonymousVarName('__arrInit');
@@ -2501,6 +2512,7 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
     const initializerName = context.getAnonymousVarName('__arrValue');
     const stateName = '__ps2_array_loop_0';
     return [
+      ...updates.prelude,
       ...materializedInitializer.prelude,
       `${indent}Ps2Value* ${initializerName} = ps2_copy_value(${initExpr});`,
       `${indent}${prefix}${name} = ps2_array_create(ps2_as_int(${sizeExpr}));`,
@@ -2525,6 +2537,7 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
   }
 
   return [
+    ...updates.prelude,
     ...materializedInitializer.prelude,
     `${indent}${prefix}${name} = ps2_copy_value(${materializedInitializer.value});`
   ].join('\n');
@@ -2541,17 +2554,85 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
  * @returns Mehrzeiliger C-Code der Zuweisung.
  */
 function generateAssignment(assign: Assignment, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
-  const materialized = materializeHeapReads(assign.value, context, indent, state);
-  const replacement = materializeHeapReplacement(assign, context, indent, state);
-  const target = materializeAssignmentTarget(assign.sel as Expr, materialized.value, context, indent, state);
+  const hasUpdate = [assign.sel, assign.value, ...AstUtils.streamAllContents(assign.sel), ...AstUtils.streamAllContents(assign.value)]
+    .some(node => isPrefixUpdate(node) || isPostfixUpdate(node));
+  const evaluatedTarget = assign.operator !== '=' || hasUpdate
+    ? materializeTargetEvaluation(assign.sel as Expr, context, indent, state)
+    : { prelude: [] as string[], state };
+  const orderedState = evaluatedTarget.state;
+  if (assign.operator !== '=') {
+    const oldValue = materializeHeapReads(assign.sel as Expr, context, indent, orderedState);
+    const oldName = context.getAnonymousVarName('__oldValue');
+    const updates = materializeRuntimeUpdates(assign.value, context, indent, orderedState);
+    const rhs = materializeHeapReads(assign.value, context, indent, updates.state);
+    const rightName = context.getAnonymousVarName('__rightValue');
+    const nextName = context.getAnonymousVarName('__nextValue');
+    const operator = assign.operator.slice(0, -1);
+    const next = `${binaryRuntimeFunction(operator)}(${oldName}, ${rightName})`;
+    const target = materializeAssignmentTarget(assign.sel as Expr, nextName, context, indent, orderedState);
+    const numeric = TYPES.typeFor(assign.sel as Expr).name !== 'string';
+    const overflow = state.runtimeMode === 'contracts' && state.integerOverflowChecks && numeric && ['+', '-', '*'].includes(operator)
+      ? [`${indent}(void)(ps2_as_int(${oldName}) ${operator} ps2_as_int(${rightName}));`]
+      : [];
+    return [
+      ...evaluatedTarget.prelude,
+      ...oldValue.prelude,
+      `${indent}Ps2Value* ${oldName} = ps2_copy_value(${oldValue.value});`,
+      ...updates.prelude,
+      ...rhs.prelude,
+      `${indent}Ps2Value* ${rightName} = ps2_copy_value(${rhs.value});`,
+      ...overflow,
+      `${indent}Ps2Value* ${nextName} = ${next};`,
+      ...target.prelude,
+      `${indent}${target.statement};`
+    ].join('\n');
+  }
+  const updates = materializeRuntimeUpdates(assign.value, context, indent, orderedState);
+  const materialized = materializeHeapReads(assign.value, context, indent, updates.state);
+  const replacement = materializeHeapReplacement(assign, context, indent, orderedState);
+  const target = materializeAssignmentTarget(assign.sel as Expr, materialized.value, context, indent, orderedState);
   return [
+    ...evaluatedTarget.prelude,
+    ...updates.prelude,
     ...materialized.prelude,
-    ...generateIntegerOverflowChecks(assign.value, context, indent, state),
+    ...generateIntegerOverflowChecks(assign.value, context, indent, orderedState),
     ...replacement.prelude,
     ...target.prelude,
     `${indent}${target.statement};`,
     ...replacement.postlude
   ].join('\n');
+}
+
+/**
+ * Wertet Empfaenger und Index eines Zuweisungsziels vor der rechten Seite aus.
+ * Die AST-zu-Temp-Abbildung wird beim spaeteren Lesen und Schreiben wiederverwendet.
+ */
+function materializeTargetEvaluation(
+  target: Expr,
+  context: Pseudo2GeneratorContext,
+  indent: string,
+  state: CGeneratorState
+): { prelude: string[]; state: CGeneratorState } {
+  const expressionTemps = new Map(state.expressionTemps ?? []);
+  const prelude: string[] = [];
+  const orderedState = { ...state, expressionTemps };
+  const capture = (expression: Expr, label: string): void => {
+    if (expressionTemps.has(expression)) return;
+    const read = materializeHeapReads(expression, context, indent, orderedState);
+    const name = context.getAnonymousVarName(label);
+    prelude.push(...read.prelude, `${indent}Ps2Value* ${name} = ps2_copy_value(${read.value});`);
+    expressionTemps.set(expression, name);
+  };
+  if (isAttSelection(target)) {
+    capture(target.receiver, '__targetReceiver');
+    if (target.attref.index) capture(target.attref.index, '__targetIndex');
+  } else if (isIndexSelection(target)) {
+    capture(target.receiver, '__targetReceiver');
+    capture(target.index, '__targetIndex');
+  } else if (isVarRef(target) && target.index) {
+    capture(target.index, '__targetIndex');
+  }
+  return { prelude, state: orderedState };
 }
 
 /**
@@ -2763,7 +2844,7 @@ function materializeHeapReads(
 ): { prelude: string[]; value: string } {
   const reads = [expr, ...AstUtils.streamAllContents(expr)]
     .filter((node): node is Expr => isVarRef(node) && node.index !== undefined || isAttSelection(node) || isIndexSelection(node));
-  const expressionTemps = new Map<AstNode, string>();
+  const expressionTemps = new Map<AstNode, string>(state.expressionTemps ?? []);
   const prelude: string[] = [];
 
   for (const read of reads.reverse()) {
@@ -2781,6 +2862,24 @@ function materializeHeapReads(
     prelude,
     value: genExpr(expr, context, { ...state, expressionTemps })
   };
+}
+
+/** Legt Updates vor der umgebenden Runtime-Operation in eigenen C-Anweisungen ab. */
+function materializeRuntimeUpdates(
+  expr: Expr,
+  context: Pseudo2GeneratorContext,
+  indent: string,
+  state: CGeneratorState
+): { prelude: string[]; state: CGeneratorState } {
+  const expressionTemps = new Map<AstNode, string>(state.expressionTemps ?? []);
+  const prelude: string[] = [];
+  for (const node of [expr, ...AstUtils.streamAllContents(expr)]) {
+    if (!isPrefixUpdate(node) && !isPostfixUpdate(node)) continue;
+    const name = context.getAnonymousVarName('__update');
+    prelude.push(`${indent}Ps2Value* ${name} = ${genExpr(node, context, { ...state, expressionTemps })};`);
+    expressionTemps.set(node, name);
+  }
+  return { prelude, state: { ...state, expressionTemps } };
 }
 
 /**
@@ -2842,14 +2941,16 @@ function generateReturnStatement(ret: ReturnStmt, context: Pseudo2GeneratorConte
     return [...leaks, `${indent}return ps2_null();`].join('\n');
   }
 
-  const materialized = materializeHeapReads(ret.retExpr, context, indent, state);
+  const updates = materializeRuntimeUpdates(ret.retExpr, context, indent, state);
+  const materialized = materializeHeapReads(ret.retExpr, context, indent, updates.state);
   const returnExpr = `ps2_copy_value(${materialized.value})`;
   if (leaks.length === 0) {
-    return [...materialized.prelude, `${indent}return ${returnExpr};`].join('\n');
+    return [...updates.prelude, ...materialized.prelude, `${indent}return ${returnExpr};`].join('\n');
   }
 
   const resultName = context.getAnonymousVarName('__return');
   return [
+    ...updates.prelude,
     ...materialized.prelude,
     `${indent}Ps2Value* ${resultName} = ${returnExpr};`,
     ...leaks,
@@ -2953,25 +3054,30 @@ function directSpecReceiver(expr: Expr, context: Pseudo2GeneratorContext, state:
 
 /** @returns C-Ausdrucksanweisung für ein Pseudo2-ExprStatement. */
 function generateExprStatement(stmt: ExprStatement, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
-  return `${indent}${genExpr(stmt.expr, context, state)};`;
+  const updates = materializeRuntimeUpdates(stmt.expr, context, indent, state);
+  return [...updates.prelude, `${indent}${genExpr(stmt.expr, context, updates.state)};`].join('\n');
 }
 
 /** @returns Runtime-Aufruf für `print` mit standardmäßigem oder explizitem Abschluss. */
 function generatePrintCommand(cmd: PrintCommand, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
-  const value = genExpr(cmd.param, context, state);
-  return cmd.ending === undefined
+  const updates = materializeRuntimeUpdates(cmd.param, context, indent, state);
+  const value = genExpr(cmd.param, context, updates.state);
+  const output = cmd.ending === undefined
     ? `${indent}ps2_print(${value});`
     : `${indent}ps2_write(${value}, ${JSON.stringify(cmd.ending)});`;
+  return [...updates.prelude, output].join('\n');
 }
 
 /** @returns Runtime-Aufruf von `ps2_throw` für das Pseudo2-throw-Kommando. */
 function generateThrowCommand(cmd: ThrowCommand, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
-  return `${indent}ps2_throw(${genExpr(cmd.param, context, state)});`;
+  const updates = materializeRuntimeUpdates(cmd.param, context, indent, state);
+  return [...updates.prelude, `${indent}ps2_throw(${genExpr(cmd.param, context, updates.state)});`].join('\n');
 }
 
 /** @returns Als eigenständige C-Anweisung ausgegebener Ausdruck des Pseudo2-call-Kommandos. */
 function generateCallCommand(cmd: CallCommand, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
-  return `${indent}${genExpr(cmd.param, context, state)};`;
+  const updates = materializeRuntimeUpdates(cmd.param, context, indent, state);
+  return [...updates.prelude, `${indent}${genExpr(cmd.param, context, updates.state)};`].join('\n');
 }
 
 /**
@@ -3051,6 +3157,14 @@ function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_S
 
   if (isThisExpr(expr)) return state.thisName;
   if (isVarRef(expr)) return genVarRef(expr, context, state);
+  if (isPrefixUpdate(expr) || isPostfixUpdate(expr)) {
+    const target = unwrapSingletonSpecExpr(expr.target);
+    if (!isVarRef(target) || target.index || !target.ref?.ref) {
+      throw new Error('++ und -- erwarten eine einfache Variable.');
+    }
+    const operation = expr.op === '++' ? 'inc' : 'dec';
+    return `ps2_${isPrefixUpdate(expr) ? 'pre' : 'post'}_${operation}(&${context.getVarName(target.ref.ref)})`;
+  }
   if (isAttSelection(expr)) return genAttSelection(expr, context, state);
   if (isIndexSelection(expr)) return genArrayGet(genExpr(expr.receiver, context, state), expr.index, context, state);
   if (isMethSelection(expr)) return genMethSelectionCall(expr, context, state);

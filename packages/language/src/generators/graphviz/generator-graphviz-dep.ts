@@ -19,6 +19,8 @@ import {
   isFunctionCall,
   isFunctionDeclaration,
   isMethSelection,
+  isPostfixUpdate,
+  isPrefixUpdate,
   isStructAttDeclaration,
   isStructDeclaration,
   isVarDecl,
@@ -456,5 +458,6 @@ function depEdgeAttributes(kind: DepEdgeKind): Record<string, string> {
  */
 function isDirectAssignmentTarget(node: AstNode): boolean {
   const parent = node.$container;
-  return isAssignment(parent) && parent.sel === node;
+  return isAssignment(parent) && parent.sel === node ||
+    (isPostfixUpdate(parent) || isPrefixUpdate(parent)) && parent.target === node;
 }

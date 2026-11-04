@@ -20,6 +20,35 @@ import { applyCSourceMapToVeriFastResult, runVeriFast, type CSourceMapFile } fro
 
 /** Integrationssuite der programmatisch aufgerufenen CLI-Generatoraktionen. */
 describe('CLI generator', () => {
+  test('update operators run identically in runtime C and direct C', async () => {
+    if (!resolveCCompiler()) return;
+    const sourcePath = path.join(process.cwd(), 'examples', 'update-operators.pseudo2');
+    const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-update-c-'));
+    const expected = ['2', '2', '2', '4', '4', '3', '3', '2', '6', 'a2'].join('\n');
+    for (const direct of [false, true]) {
+      await generateCAction(sourcePath, { destination, direct, runtime: 'implementation' });
+      const file = path.join(destination, direct ? 'updateoperators.direct.c' : 'updateoperators.c');
+      const result = await runCSource(fs.readFileSync(file, 'utf8'), path.basename(file));
+      expect(result.ok, result.stderr).toBe(true);
+      expect(result.stdout.trim().replace(/\r\n/g, '\n')).toBe(expected);
+    }
+  }, 60_000);
+
+  test('VeriFast verifies prefix, postfix and compound updates in both C generators', async () => {
+    const verifastExe = path.join(process.cwd(), 'verifast-26.01', 'bin', 'verifast.exe');
+    if (!fs.existsSync(verifastExe)) return;
+    const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-update-vf-'));
+    for (const example of ['valid_update_operators', 'valid_update_array_index', 'valid_update_print', 'valid_update_expression']) {
+      const sourcePath = path.join(process.cwd(), 'examples', 'verifast', `${example}.pseudo2`);
+      for (const direct of [false, true]) {
+        await generateCAction(sourcePath, { destination, direct });
+        const file = path.join(destination, direct ? `${example}.direct.c` : `${example}.c`);
+        const result = await runVeriFast({ verifastExe, file, compileOnly: true, timeoutMs: 30_000 });
+        expect(result.ok, `${example} (${direct ? 'direct' : 'runtime'}): ${result.stderr || result.stdout}`).toBe(true);
+      }
+    }
+  }, 90_000);
+
   test('generateAction writes JavaScript and Graphviz artifacts to explicit destination', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-cli-'));
     const sourcePath = path.join(tmp, 'sample-file.pseudo2');

@@ -43,6 +43,8 @@ import {
   isExponentiation,
   isNot,
   isNeg,
+  isPrefixUpdate,
+  isPostfixUpdate,
   isGrouping,
   isIntLiteral,
   isBoolLiteral,
@@ -188,6 +190,7 @@ export class Pseudo2TypeComputer {
     // ---- unary ----
     if (isNot(e)) return TYPE_BOOL;
     if (isNeg(e)) return TYPE_NUM;
+    if (isPrefixUpdate(e) || isPostfixUpdate(e)) return TYPE_NUM;
 
     // ---- literals / grouping ----
     if (isGrouping(e)) return this.typeFor(e.value, ctx);

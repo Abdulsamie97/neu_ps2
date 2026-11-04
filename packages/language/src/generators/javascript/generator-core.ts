@@ -22,6 +22,8 @@ import type {
   Instruction,
   MethSelection,
   ParameterDecl,
+  PrefixUpdate,
+  PostfixUpdate,
   PrintCommand,
   Program,
   ReturnStmt,
@@ -64,6 +66,8 @@ import {
   isOr,
   isParameterDecl,
   isPrintCommand,
+  isPrefixUpdate,
+  isPostfixUpdate,
   isResultExpr,
   isUndefinedSpecExpr,
   isSpecConstantExpr,
@@ -730,9 +734,93 @@ function generateAssignment(
   state = DEFAULT_STATE
 ): string {
   const target = assign.sel as Expr;
-  const assignment = `${indent}${genAssignmentTarget(target, genExpr(assign.value, context, state), context, state)};`;
+  const expression = assign.operator === '='
+    ? genAssignmentTarget(target, genExpr(assign.value, context, state), context, state)
+    : genCompoundAssignment(assign, context, state);
+  const assignment = `${indent}${expression};`;
   const trace = traceCall(assignedVariable(target), context, assign);
   return trace ? `${assignment}\n${indent}${trace};` : assignment;
+}
+
+/** Schreibt ein numerisches Update und liefert je nach Form den alten oder neuen Wert. */
+function genUpdateExpr(
+  expr: PrefixUpdate | PostfixUpdate,
+  context: Pseudo2GeneratorContext
+): string {
+  const target = expr.target;
+  if (!isVarRef(target) || target.index || !target.ref?.ref || isStructAttDeclaration(target.ref.ref)) {
+    throw new Error('++ und -- erwarten eine einfache numerische Variable.');
+  }
+  const name = context.getVarName(target.ref.ref);
+  const old = context.getAnonymousVarName('__old');
+  const next = context.getAnonymousVarName('__next');
+  const operator = expr.op === '++' ? '+' : '-';
+  const trace = traceCall(target.ref.ref, context, expr);
+  return `(() => { const ${old} = ${name}.get(); const ${next} = ${old} ${operator} 1; `
+    + `${name}.set(${next}); ${trace ? `${trace}; ` : ''}return ${isPrefixUpdate(expr) ? next : old}; })()`;
+}
+
+/** Berechnet eine zusammengesetzte Zuweisung nach einmaliger Auswertung des Ziels. */
+function genCompoundAssignment(
+  assign: Assignment,
+  context: Pseudo2GeneratorContext,
+  state: GeneratorState
+): string {
+  const target = assign.sel as Expr;
+  const operator = assign.operator.slice(0, -1);
+  const before: string[] = [];
+  const receiverName = context.getAnonymousVarName('__receiver');
+  const arrayName = context.getAnonymousVarName('__array');
+  const indexName = context.getAnonymousVarName('__index');
+  const oldName = context.getAnonymousVarName('__old');
+  const rightName = context.getAnonymousVarName('__right');
+  const nextName = context.getAnonymousVarName('__next');
+  let read = '';
+  let write = '';
+
+  const arrayTarget = (array: string, index: Expr) => {
+    before.push(`const ${arrayName} = ${array};`, `const ${indexName} = ${genExpr(index, context, state)};`);
+    read = `__ps2_arrayGet(${arrayName}, ${indexName})`;
+    write = `__ps2_arraySet(${arrayName}, ${indexName}, ${nextName})`;
+  };
+  if (isVarRef(target)) {
+    const decl = target.ref?.ref;
+    if (!decl) throw new Error('Unbekanntes Zuweisungsziel.');
+    const name = context.getVarName(decl);
+    if (target.index) {
+      const array = isStructAttDeclaration(decl) ? genStructGet(state.thisName, name) : name;
+      arrayTarget(array, target.index);
+    } else if (isStructAttDeclaration(decl)) {
+      before.push(`const ${receiverName} = ${state.thisName};`);
+      read = genStructGet(receiverName, name);
+      write = genStructSet(receiverName, name, nextName, 'scalar');
+    } else {
+      read = `${name}.get()`;
+      write = `${name}.set(${nextName})`;
+    }
+  } else if (isAttSelection(target)) {
+    const decl = target.attref.ref?.ref;
+    if (!decl) throw new Error('Unbekanntes Struct-Feld.');
+    const name = context.getVarName(decl);
+    before.push(`const ${receiverName} = ${genExpr(target.receiver, context, state)};`);
+    if (target.attref.index) {
+      const fieldName = context.getAnonymousVarName('__field');
+      before.push(`const ${fieldName} = ${genStructGet(receiverName, name)};`);
+      arrayTarget(fieldName, target.attref.index);
+    } else {
+      read = genStructGet(receiverName, name);
+      write = genStructSet(receiverName, name, nextName, 'scalar');
+    }
+  } else if (isIndexSelection(target)) {
+    arrayTarget(genExpr(target.receiver, context, state), target.index);
+  } else {
+    throw new Error('Ungueltiges zusammengesetztes Zuweisungsziel.');
+  }
+
+  const rhs = genExpr(assign.value, context, state);
+  return `(() => { ${before.join(' ')} const ${oldName} = ${read}; `
+    + `const ${rightName} = ${rhs}; const ${nextName} = ${oldName} ${operator} ${rightName}; `
+    + `${write}; return ${nextName}; })()`;
 }
 
 /**
@@ -772,6 +860,7 @@ function genExpr(expr: Expr, context: Pseudo2GeneratorContext, state = DEFAULT_S
   if (isGrouping(expr)) return `(${genExpr(expr.value, context, state)})`;
   if (isNot(expr)) return `(!${genExpr(expr.value, context, state)})`;
   if (isNeg(expr)) return `(-${genExpr(expr.value, context, state)})`;
+  if (isPrefixUpdate(expr) || isPostfixUpdate(expr)) return genUpdateExpr(expr, context);
 
   if (isOr(expr)) {
     return (expr.right?.length ?? 0) === 0

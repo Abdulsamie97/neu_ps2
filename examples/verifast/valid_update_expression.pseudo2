@@ -1,0 +1,7 @@
+func updateExpression()
+    var cnt = 1
+    var value = cnt++ + 1
+    //@ assert value == 2
+    return value
+
+print updateExpression()

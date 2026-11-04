@@ -1,0 +1,13 @@
+func updateCounter()
+    var cnt = 1
+    var old = cnt++
+    //@ assert old == 1
+    //@ assert cnt == 2
+    var next = ++cnt
+    //@ assert next == 3
+    //@ assert cnt == 3
+    cnt += 2
+    //@ assert cnt == 5
+    return cnt
+
+print updateCounter()

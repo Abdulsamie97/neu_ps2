@@ -94,7 +94,7 @@ const KEYWORDS = new Set([
 ]);
 
 /** Laengere Operatoren muessen vor ihren Praefixen erkannt werden. */
-const OPERATORS = ['&*&', '!=', '<=', '>=', '==', '&&', '||', '..', '+', '-', '*', '/', '%', '^', '<', '>', '=', '!', '.', ',', '(', ')', '[', ']', '{', '}'];
+const OPERATORS = ['&*&', '!=', '<=', '>=', '==', '&&', '||', '..', '++', '--', '+=', '-=', '*=', '/=', '+', '-', '*', '/', '%', '^', '<', '>', '=', '!', '.', ',', '(', ')', '[', ']', '{', '}'];
 
 /** Einmalig erzeugte, dateisystemunabhaengige Pseudo2-Dienste. */
 const services = createPseudo2Services(EmptyFileSystem);

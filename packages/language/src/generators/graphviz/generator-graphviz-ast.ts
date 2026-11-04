@@ -8,12 +8,15 @@ import { AstUtils } from 'langium';
 import type { AstNode } from 'langium';
 import type { Program } from '../../generated/ast.js';
 import {
+  isAssignment,
   isAttSelection,
   isBoolLiteral,
   isExpr,
   isFunctionCall,
   isIntLiteral,
   isMethSelection,
+  isPostfixUpdate,
+  isPrefixUpdate,
   isStringLiteral,
   isStructAttDeclaration,
   isStructDeclaration,
@@ -129,6 +132,8 @@ function astNodeLabel(node: AstNode): string {
     label += `\n------\n${node.attref.ref?.ref?.name ?? 'unresolved'}`;
   } else if (isMethSelection(node)) {
     label += `\n------\n${node.methref.f?.ref?.name ?? 'unresolved'}()`;
+  } else if (isAssignment(node) || isPostfixUpdate(node) || isPrefixUpdate(node)) {
+    label += `\n------\n${isAssignment(node) ? node.operator : node.op}`;
   }
 
   return label;

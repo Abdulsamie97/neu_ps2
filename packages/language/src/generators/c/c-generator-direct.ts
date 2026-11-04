@@ -22,6 +22,7 @@ import {
   isFunctionDeclaration, isGrouping, isIfStatement, isIndexSelection,
   isIndentedBlock, isIntLiteral, isMethSelection, isMultiplication, isNeg,
   isNewExpr, isNot, isNullLiteral, isOr, isParameterDecl, isPrintCommand,
+  isPrefixUpdate, isPostfixUpdate,
   isResultExpr, isReturnStmt, isSpecConstantExpr, isSpecPredicateExpr,
   isStringLiteral, isStructAttDeclaration, isStructDeclaration, isThisExpr,
   isThrowCommand, isUndefinedSpecExpr, isVarDecl, isVarRef,
@@ -67,6 +68,7 @@ type OwnedArray = {
   contentTransferred?: boolean;
 };
 type EmitState = {
+  expressionTemps?: ReadonlyMap<Expr, string>;
   thisName?: string;
   returnType?: CType;
   heapInvariants?: string[];
@@ -161,7 +163,8 @@ class DirectCGenerator {
     this.hasAnnotations = allNodes.some(node =>
       isVerificationStatement(node) || node.$type === 'VerificationAnnotation' || node.$type === 'LoopAnnotation');
     const fractional = allNodes.find(node =>
-      (isMultiplication(node) && node.op.includes('/')) || isExponentiation(node) && node.right.length > 0);
+      (isMultiplication(node) && node.op.includes('/')) || isExponentiation(node) && node.right.length > 0 ||
+      isAssignment(node) && node.operator === '/=');
     this.verifiedIntegers = fractional === undefined;
     this.numberType = this.verifiedIntegers ? INTEGER : NUMBER;
     if (this.runtimeMode === 'contracts' && fractional) {
@@ -357,7 +360,8 @@ class DirectCGenerator {
     const value = this.unwrap(expr);
     if (value !== expr) return this.typeOfExpr(value);
     if (isEquality(expr) || isComparison(expr) || isOr(expr) || isAnd(expr) || isNot(expr)) return BOOLEAN;
-    if (isMultiplication(expr) || isExponentiation(expr) || isNeg(expr)) return this.numberType;
+    if (isMultiplication(expr) || isExponentiation(expr) || isNeg(expr) ||
+        isPrefixUpdate(expr) || isPostfixUpdate(expr)) return this.numberType;
     if (isAddition(expr) && expr.right.length > 0) {
       return [expr.left, ...expr.right].some(part => this.typeOfExpr(part)?.base === STRING.base) ? STRING : this.numberType;
     }
@@ -400,6 +404,7 @@ class DirectCGenerator {
     const globalVariables = top.filter(isVarDecl).filter(decl => referencedByFunction.has(decl));
     const needsStringRuntime = allNodes.some(node =>
       isAddition(node) && node.right.length > 0 && this.typeOfExpr(node)?.base === STRING.base ||
+      isAssignment(node) && node.operator === '+=' && this.typeOfExpr(node.sel)?.base === STRING.base ||
       isEquality(node) && [node.left, ...node.right].some(part => this.typeOfExpr(part)?.base === STRING.base) ||
       (isIfStatement(node) || isWhileLoop(node) || isDoWhileLoop(node)) &&
         this.typeOfExpr(node.condition)?.base === STRING.base ||
@@ -764,6 +769,7 @@ class DirectCGenerator {
     }
     if (isVarDecl(instruction)) return this.emitVarDecl(instruction, level, state, global);
     if (isAssignment(instruction)) {
+      if (instruction.operator !== '=') return this.emitCompoundAssignment(instruction, level, state);
       this.registerArrayStructElementAssignment(instruction, state);
       const targetType = this.typeOfExpr(instruction.sel);
       if (targetType) this.requireType(targetType, instruction.value);
@@ -781,11 +787,31 @@ class DirectCGenerator {
       if (targetType?.depth && this.isWholeArrayTarget(instruction.sel)) {
         return this.emitWholeArrayAssignment(instruction.sel, instruction.value, targetType, level, state);
       }
+      const targetHasUpdate = [instruction.sel, ...AstUtils.streamAllContents(instruction.sel)]
+        .some(node => isPrefixUpdate(node) || isPostfixUpdate(node));
+      const rhsHasUpdate = [instruction.value, ...AstUtils.streamAllContents(instruction.value)]
+        .some(node => isPrefixUpdate(node) || isPostfixUpdate(node));
+      const preparedTarget = targetHasUpdate || rhsHasUpdate
+        ? this.materializeUpdateIndexes(instruction.sel, state, i, true)
+        : { prefix: [] as string[], state };
+      const arrayElement = isVarRef(instruction.sel) && !!instruction.sel.index ||
+        isAttSelection(instruction.sel) && !!instruction.sel.attref.index || isIndexSelection(instruction.sel);
+      const slot = (targetHasUpdate || rhsHasUpdate) && !arrayElement ? this.temp('target_slot') : undefined;
+      const targetPrefix = slot && targetType && !targetType.depth
+        ? [`${i}${this.typeName(targetType)} *${slot} = &(${this.emitTarget(instruction.sel, preparedTarget.state)});`]
+        : [];
       const lowered = this.lowerRootExpression(instruction.value, state, i);
-      const assignment = `${i}${this.emitTarget(instruction.sel, state)} = ${lowered.expression};`;
+      const right = targetHasUpdate || rhsHasUpdate ? this.temp('assignment_value') : undefined;
+      const rightPrefix = right && targetType && !targetType.depth
+        ? [`${i}${this.typeName(targetType)} ${right} = ${lowered.expression};`]
+        : [];
+      const assignment = `${i}${targetPrefix.length ? `*${slot}` : this.emitTarget(instruction.sel, preparedTarget.state)} = ${rightPrefix.length ? right : lowered.expression};`;
       const defined = this.fieldDefinedTarget(instruction.sel, state);
       return [
+        ...preparedTarget.prefix,
+        ...targetPrefix,
         ...lowered.prefix,
+        ...rightPrefix,
         assignment,
         ...(defined ? [`${i}${defined} = true;`] : [])
       ].join('\n');
@@ -830,7 +856,11 @@ class DirectCGenerator {
     }
     if (isReturnStmt(instruction)) {
       if (instruction.retExpr && state.returnType) this.requireType(state.returnType, instruction.retExpr);
-      const loweredCall = instruction.retExpr ? this.materializeRootCall(instruction.retExpr, state, i) : undefined;
+      const loweredCall = instruction.retExpr
+        ? state.returnType?.depth
+          ? this.materializeRootCall(instruction.retExpr, state, i)
+          : this.lowerRootExpression(instruction.retExpr, state, i)
+        : undefined;
       const returnValue = instruction.retExpr
         ? loweredCall?.expression ?? this.expr(instruction.retExpr, state)
         : undefined;
@@ -880,6 +910,45 @@ class DirectCGenerator {
       return [...lowered.prefix, `${i}${lowered.expression};`].join('\n');
     }
     throw new DirectCGenerationError(`Anweisung '${instruction.$type}' nicht unterstuetzt.`, instruction);
+  }
+
+  /** Wertet Ziel, alten Wert und rechte Seite in dieser Reihenfolge genau einmal aus. */
+  private emitCompoundAssignment(assign: Assignment, level: number, state: EmitState): string {
+    const i = '  '.repeat(level);
+    const targetType = this.typeOfExpr(assign.sel);
+    if (!targetType || targetType.depth !== 0 ||
+        (targetType.base !== this.numberType.base && targetType.base !== STRING.base)) {
+      throw new DirectCGenerationError('Zusammengesetzte Zuweisung erwartet einen skalaren Zahlen- oder Stringwert.', assign);
+    }
+    if (this.nestedArrayAccess(assign.sel, state)) {
+      throw new DirectCGenerationError('Zusammengesetzte Zuweisung an verschachtelte Arrays ist im Direct-C-Modus nicht unterstuetzt.', assign);
+    }
+    if (targetType.base !== STRING.base) this.requireType(targetType, assign.value);
+    const rightType = this.typeOfExpr(assign.value);
+    if (!rightType) throw new DirectCGenerationError('Rechter Typ der zusammengesetzten Zuweisung ist unbekannt.', assign.value);
+    const arrayElement = isVarRef(assign.sel) && !!assign.sel.index ||
+      isAttSelection(assign.sel) && !!assign.sel.attref.index || isIndexSelection(assign.sel);
+    const slot = arrayElement ? undefined : this.temp('compound_slot');
+    const old = this.temp('compound_old');
+    const right = this.temp('compound_right');
+    const preparedTarget = this.materializeUpdateIndexes(assign.sel, state, i, true);
+    const lowered = this.lowerRootExpression(assign.value, state, i);
+    const operator = assign.operator.slice(0, -1);
+    const value = targetType.base === STRING.base
+      ? `ps2_concat_text(${this.textValue(old, targetType, assign.sel, state)}, ${this.textValue(right, rightType, assign.value, state)})`
+      : `(${old} ${operator} ${right})`;
+    const defined = this.fieldDefinedTarget(assign.sel, state);
+    if (targetType.base === STRING.base) this.trackNonNullStringAssignment(assign, state);
+    const target = this.emitTarget(assign.sel, preparedTarget.state);
+    return [
+      ...preparedTarget.prefix,
+      ...(slot ? [`${i}${this.typeName(targetType)} *${slot} = &(${target});`] : []),
+      `${i}${this.typeName(targetType)} ${old} = ${slot ? `*${slot}` : target};`,
+      ...lowered.prefix,
+      `${i}${this.typeName(rightType)} ${right} = ${lowered.expression};`,
+      `${i}${slot ? `*${slot}` : target} = ${value};`,
+      ...(defined ? [`${i}${defined} = true;`] : [])
+    ].join('\n');
   }
 
   /** Schreibt lokale oder globale native Arrays sowie skalare Variablen. */
@@ -1937,6 +2006,8 @@ class DirectCGenerator {
 
   /** Schreibt Werte, Zugriffe, Aufrufe und Operatoren direkt als C-Ausdruecke. */
   private expr(value: Expr, state: EmitState): string {
+    const materialized = state.expressionTemps?.get(value);
+    if (materialized) return materialized;
     if (isIntLiteral(value)) {
       return !this.verifiedIntegers && Number.isInteger(value.value)
         ? `${value.value}.0`
@@ -1963,6 +2034,15 @@ class DirectCGenerator {
     if (isThisExpr(value)) {
       if (!state.thisName) throw new DirectCGenerationError('this ausserhalb einer Methode.', value);
       return state.thisName;
+    }
+    if (isPrefixUpdate(value) || isPostfixUpdate(value)) {
+      const target = this.unwrap(value.target);
+      if (!isVarRef(target) || target.index || !target.ref?.ref || isStructAttDeclaration(target.ref.ref) ||
+          this.lengthParameterOwners.has(target.ref.ref)) {
+        throw new DirectCGenerationError('++ und -- erwarten eine veraenderbare numerische Variable.', value);
+      }
+      const name = this.name(target.ref.ref);
+      return isPrefixUpdate(value) ? `${value.op}${name}` : `${name}${value.op}`;
     }
     if (isVarRef(value)) {
       const decl = value.ref?.ref;
@@ -2123,7 +2203,7 @@ class DirectCGenerator {
     if (!isVarRef(target) || target.index || !target.ref?.ref) return;
     const type = this.variableTypes.get(target.ref.ref);
     if (type?.depth !== 0 || type.base !== STRING.base) return;
-    if (this.nonNullString(assignment.value, state)) state.nonNullStrings?.add(target.ref.ref);
+    if (assignment.operator === '+=' || this.nonNullString(assignment.value, state)) state.nonNullStrings?.add(target.ref.ref);
     else state.nonNullStrings?.delete(target.ref.ref);
   }
 
@@ -2193,10 +2273,55 @@ class DirectCGenerator {
     state: EmitState,
     indent: string
   ): { prefix: string[]; expression: string } {
-    return this.materializeRootCall(value, state, indent) ?? {
+    const updates = this.materializeRuntimeUpdates(value, state, indent);
+    const prepared = this.materializeUpdateIndexes(value, updates.state, indent);
+    const lowered = this.materializeRootCall(value, prepared.state, indent) ?? {
       prefix: [],
-      expression: this.expr(value, state)
+      expression: this.expr(value, prepared.state)
     };
+    const hasUpdate = [value, ...AstUtils.streamAllContents(value)]
+      .some(node => isPrefixUpdate(node) || isPostfixUpdate(node));
+    const type = hasUpdate ? this.typeOfExpr(value) : undefined;
+    if (type && type.depth === 0 && type.base !== VOID.base) {
+      const name = this.temp('updated_value');
+      return {
+        prefix: [...updates.prefix, ...prepared.prefix, ...lowered.prefix, `${indent}${this.typeName(type)} ${name} = ${lowered.expression};`],
+        expression: name
+      };
+    }
+    return { prefix: [...updates.prefix, ...prepared.prefix, ...lowered.prefix], expression: lowered.expression };
+  }
+
+  /** Materialisiert jedes Update vor seinem umgebenden skalaren C-Ausdruck. */
+  private materializeRuntimeUpdates(value: Expr, state: EmitState, indent: string): { prefix: string[]; state: EmitState } {
+    const expressionTemps = new Map(state.expressionTemps ?? []);
+    const prefix: string[] = [];
+    const orderedState = { ...state, expressionTemps };
+    for (const node of [value, ...AstUtils.streamAllContents(value)]) {
+      if (!isPrefixUpdate(node) && !isPostfixUpdate(node)) continue;
+      const name = this.temp('update');
+      prefix.push(`${indent}${this.numberType.base} ${name} = ${this.expr(node, orderedState)};`);
+      expressionTemps.set(node, name);
+    }
+    return { prefix, state: orderedState };
+  }
+
+  /** Zieht nebenwirkende Arrayindizes aus Funktionsargumenten heraus. */
+  private materializeUpdateIndexes(value: Expr, state: EmitState, indent: string, force = false): { prefix: string[]; state: EmitState } {
+    const expressionTemps = new Map(state.expressionTemps ?? []);
+    const prefix: string[] = [];
+    const orderedState = { ...state, expressionTemps };
+    for (const node of [value, ...AstUtils.streamAllContents(value)]) {
+      const index = isVarRef(node) ? node.index
+        : isAttSelection(node) ? node.attref.index
+          : isIndexSelection(node) ? node.index : undefined;
+      if (!index || expressionTemps.has(index)) continue;
+      if (!force && ![index, ...AstUtils.streamAllContents(index)].some(child => isPrefixUpdate(child) || isPostfixUpdate(child))) continue;
+      const name = this.temp('index');
+      prefix.push(`${indent}${this.numberType.base} ${name} = ${this.expr(index, orderedState)};`);
+      expressionTemps.set(index, name);
+    }
+    return { prefix, state: orderedState };
   }
 
   /** Verhindert implizite C-Zeigerarithmetik und Typwechsel im statischen Modus. */

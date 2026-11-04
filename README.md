@@ -19,6 +19,37 @@ beabsichtigte Sprachaenderung die Patchversion erhoeht. Nach jeder Aenderung
 muessen die Web-Bundles und die VS-Code-Erweiterung neu gebaut werden. Die
 Versionsnummer wird aktuell nicht in `.pseudo2`-Quelldateien gespeichert.
 
+## Veraendernde Operatoren
+
+Pseudo2 unterstuetzt Kurzzuweisungen an Variablen, Arrayelemente und
+Struct-Attribute: `x += 3`, `x -= 3`, `x *= 3` und `x /= 3`. Bei `+=` ist auch
+eine Stringverkettung wie `text += 2` moeglich. Das Zuweisungsziel und sein
+Arrayindex werden jeweils nur einmal ausgewertet.
+
+Fuer numerische Variablen gibt es Praefix- und Postfix-Updates:
+
+```pseudo2
+var cnt = 1
+var A = [0, 0]
+A[cnt++] = 7  // verwendet Index 1; cnt wird danach 2
+print ++cnt  // erhoeht auf 3 und gibt 3 aus
+print cnt--  // gibt 3 aus; danach ist cnt 2
+print --cnt  // verringert auf 1 und gibt 1 aus
+```
+
+`++` und `--` sind nicht fuer Arrayelemente, Struct-Attribute,
+Schleifeniteratoren oder VeriFast-Annotationen zugelassen. Die Operatoren
+funktionieren in JavaScript sowie im Runtime-basierten und direkten C-Generator.
+Mehrfachzugriffe auf dieselbe geaenderte Variable innerhalb eines Ausdrucks,
+etwa `cnt++ + cnt`, werden abgelehnt, weil C dort keine einheitliche
+Auswertungsreihenfolge garantiert. Auf getrennten Zeilen ist dies erlaubt.
+Auf der nur bedingt ausgefuehrten rechten Seite von `&&` und `||` sind
+Updates ebenfalls nicht erlaubt. Ebenso muss ein davor stehender Funktions-,
+Methoden- oder `new`-Aufruf im selben Ausdruck auf eine eigene Zeile, damit
+JavaScript und C dieselbe Auswertungsreihenfolge behalten.
+Die neuen C-Helfer besitzen VeriFast-Vertraege. Ein durchgaengig verifizierbares
+Beispiel steht in `examples/verifast/valid_update_operators.pseudo2`.
+
 ## Voraussetzungen
 
 - Node.js 20 oder neuer

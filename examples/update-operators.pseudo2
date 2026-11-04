@@ -1,0 +1,22 @@
+var cnt = 1
+var A = [0, 0]
+A[cnt++] = cnt
+print A[1]
+print cnt
+print cnt++
+print ++cnt
+print cnt
+print --cnt
+print cnt--
+print cnt
+
+var n = 2
+n += 3
+n *= 4
+n -= 2
+n /= 3
+print n
+
+var s = "a"
+s += 2
+print s

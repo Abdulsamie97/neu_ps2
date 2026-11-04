@@ -1,0 +1,8 @@
+func updateIndex()
+    var cnt = 1
+    var A = [0, 0]
+    A[cnt++] = cnt
+    //@ assert A[1] == 2
+    return A[1]
+
+print updateIndex()

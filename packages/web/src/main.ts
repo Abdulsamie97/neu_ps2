@@ -35,8 +35,11 @@ import {
     getSummaryFromCode,
     PSEUDO2_VERSION,
     Pseudo2GeneratorContext,
+    startObservedDebug,
+    type BrowserDebugSession,
     type CSourceMapEntry,
     type GeneratedArtifact,
+    type PausedExecutionStep,
     type Program,
     type VariableDefinition,
     type VariableValue
@@ -80,6 +83,18 @@ let lastVeriFastResult: VeriFastApiResult | undefined;
 let keywordDecorationDisposable: monaco.IDisposable | undefined;
 /** Aktualisiert die Variablenliste bei Quelltextaenderungen. */
 let variableChangeDisposable: monaco.IDisposable | undefined;
+/** @brief Monaco-Handler fuer Haltepunkte und die aktuelle Debug-Zeile. */
+let debugEditorDisposable: monaco.IDisposable | undefined;
+/** @brief Von Monaco verwaltete Haltepunkte, deren Zeilen bei Edits mitwandern. */
+let breakpointDecorationIds: string[] = [];
+/** @brief Dekoration der aktuell angehaltenen Pseudo2-Zeile. */
+let activeDebugLineDecorationIds: string[] = [];
+/** @brief Aktueller Worker-Debug-Lauf und dessen angehaltener Zustand. */
+let debugSession: BrowserDebugSession | undefined;
+let debugPaused: PausedExecutionStep | undefined;
+let debugPreparing = false;
+/** @brief Invalidiert Ergebnisse bereits ersetzter oder abgebrochener Debug-Läufe. */
+let debugEpoch = 0;
 /** Verwirft veraltete Analyse- und Ausfuehrungsergebnisse. */
 let variableRevision = 0;
 /** Noch nicht gestartete Analyse der Variablendeklarationen. */
@@ -247,12 +262,20 @@ const startEditor = async () => {
         // run editorApp
         await editorApp.start(htmlContainer);
         installPseudo2KeywordDecorations(editorApp.getEditor());
-        variableChangeDisposable = editorApp.getEditor()?.onDidChangeModelContent(scheduleVariableDefinitions);
+        debugEditorDisposable = installDebugEditor(editorApp.getEditor());
+        variableChangeDisposable = editorApp.getEditor()?.onDidChangeModelContent(() => {
+            const wasDebugging = debugPreparing || !!debugSession;
+            cancelDebugSession();
+            if (wasDebugging) setTextContent('#debug-status', 'Quelltext geaendert. Debug-Lauf beendet.');
+            scheduleVariableDefinitions();
+        });
         scheduleVariableDefinitions();
+        updateDebugControls();
     } catch (error) {
         disableElement('button-start', false);
         disableElement('button-dispose', true);
         setTextContent('#exespan', `Editor start failed:\n${formatError(error)}`);
+        updateDebugControls();
         console.error(error);
     }
 
@@ -269,21 +292,27 @@ const startEditor = async () => {
  * asynchron frei. Der abschließende Komponentenstatus wird zur Diagnose protokolliert.
  */
 const disposeEditor = async () => {
+    cancelDebugSession();
     disableElement('button-start', false);
     disableElement('button-dispose', true);
 
     lcWrapper.dispose();
     keywordDecorationDisposable?.dispose();
     keywordDecorationDisposable = undefined;
+    debugEditorDisposable?.dispose();
+    debugEditorDisposable = undefined;
     variableChangeDisposable?.dispose();
     variableChangeDisposable = undefined;
     variableRevision++;
     if (variableAnalysisTimer) clearTimeout(variableAnalysisTimer);
     setTextContent('#variable-list', 'Editor gestoppt.');
+    setTextContent('#debug-status', 'Editor gestoppt.');
 
     editorApp?.reportStatus();
     await editorApp?.dispose();
     console.log(editorApp?.reportStatus().join('\n'));
+    editorApp = undefined;
+    updateDebugControls();
 
 };
 
@@ -382,6 +411,10 @@ const saveCurrentCode = async () => {
  * zusammen mit bereits erzeugter Ausgabe sichtbar.
  */
 const updateExecution = async () => {
+    cancelDebugSession();
+    const revision = ++variableRevision;
+    if (variableAnalysisTimer) clearTimeout(variableAnalysisTimer);
+    setTextContent('#debug-status', 'Kein Debug-Lauf.');
     await showResultView('javascript');
     setTextContent('#exespan', 'Running...');
     setTextContent('#generatedspan', '');
@@ -399,7 +432,7 @@ const updateExecution = async () => {
 
     try {
         const { program, errors } = await parsePseudo2(currentCode);
-        if (currentCode !== getCurrentCode()) return;
+        if (revision !== variableRevision || currentCode !== getCurrentCode()) return;
         if (errors.length > 0 || !program) {
             setTextContent('#exespan', `Validation failed:\n${errors.join('\n')}`);
             return;
@@ -411,8 +444,6 @@ const updateExecution = async () => {
         const definitions = collectVariableDefinitions(program, context);
         const fieldNames = collectStructFieldNames(program, context);
         const values = new Map<string, VariableValue>();
-        const revision = ++variableRevision;
-        if (variableAnalysisTimer) clearTimeout(variableAnalysisTimer);
         renderVariables(definitions, values, 'Programm wird ausgefuehrt ...');
         let running = true;
         let refreshPending = false;
@@ -442,6 +473,138 @@ const updateExecution = async () => {
         setTextContent('#exespan', `Execution failed:\n${formatError(error)}`);
     }
 };
+
+/** @brief Beendet einen Debug-Lauf und invalidiert seine noch ausstehenden Worker-Antworten. */
+function cancelDebugSession(): void {
+    debugEpoch++;
+    const session = debugSession;
+    debugSession = undefined;
+    debugPaused = undefined;
+    debugPreparing = false;
+    session?.stop();
+    setDebugLine(undefined);
+    updateDebugControls();
+}
+
+/** @brief Aktiviert Debug-Buttons passend zum Worker- und Aufrufstapelzustand. */
+function updateDebugControls(): void {
+    const setDisabled = (selector: string, disabled: boolean) => {
+        const button = document.querySelector<HTMLButtonElement>(selector);
+        if (button) button.disabled = disabled;
+    };
+    setDisabled('#button-debug', !editorApp?.getEditor() || debugPreparing || !!debugSession);
+    setDisabled('#debug-continue', !debugPaused);
+    setDisabled('#debug-step', !debugPaused);
+    setDisabled('#debug-over', !debugPaused);
+    setDisabled('#debug-out', !debugPaused || debugPaused.frames.length <= 1);
+    setDisabled('#debug-stop', !debugPreparing && !debugSession);
+}
+
+/**
+ * @brief Generiert asynchrones, beobachtbares JavaScript und startet es in einem Worker.
+ *
+ * Der Lauf pausiert vor der ersten Anweisung. Jede Pause zeigt die Quellzeile,
+ * bisherige Ausgabe sowie globale und aufruflokale Variablen. Nur Antworten des
+ * unveraenderten Quelltexts und der aktuellen Sitzung duerfen die UI aktualisieren.
+ */
+const startDebugExecution = async () => {
+    cancelDebugSession();
+    const epoch = debugEpoch;
+    debugPreparing = true;
+    updateDebugControls();
+    await showResultView('javascript');
+    setTextContent('#debug-status', 'Debug-Lauf wird vorbereitet ...');
+    setTextContent('#exespan', '');
+
+    const source = getCurrentCode();
+    if (!editorApp?.getEditor() || source.trim().length === 0) {
+        setTextContent('#debug-status', 'Kein Pseudo2-Quelltext zum Debuggen.');
+        debugPreparing = false;
+        updateDebugControls();
+        return;
+    }
+
+    try {
+        const { program, errors } = await parsePseudo2(source);
+        if (epoch !== debugEpoch || source !== getCurrentCode()) return;
+        if (errors.length > 0 || !program) {
+            setTextContent('#debug-status', 'Validierung fehlgeschlagen.');
+            setTextContent('#exespan', `Validation failed:\n${errors.join('\n')}`);
+            return;
+        }
+
+        const context = Pseudo2GeneratorContext.fromProgram(program, true, false, true);
+        const executable = generateProgram(program, context);
+        const definitions = collectVariableDefinitions(program, context);
+        const fieldNames = collectStructFieldNames(program, context);
+        const revision = ++variableRevision;
+        if (variableAnalysisTimer) clearTimeout(variableAnalysisTimer);
+        renderVariables(definitions, new Map(), 'Noch nicht erreicht.');
+        const output: string[] = [];
+        const session = startObservedDebug(
+            executable,
+            fieldNames,
+            getBreakpointLines(),
+            step => {
+                if (epoch !== debugEpoch || session !== debugSession || revision !== variableRevision) return;
+                debugPaused = step;
+                setDebugLine(step.line);
+                renderDebugVariables(step);
+                const reason = step.reason === 'breakpoint' ? 'Haltepunkt'
+                    : step.reason === 'entry' ? 'Start'
+                    : step.reason === 'over' ? 'Darueber'
+                    : step.reason === 'out' ? 'Heraus' : 'Hinein';
+                setTextContent('#debug-status', `Zeile ${step.line} (${reason})`);
+                setTextContent('#exespan', output.join('') || '(no output)');
+                updateDebugControls();
+            },
+            () => {},
+            text => {
+                if (epoch !== debugEpoch || session !== debugSession) return;
+                output.push(text);
+                setTextContent('#exespan', output.join(''));
+            }
+        );
+        debugSession = session;
+        debugPreparing = false;
+        setTextContent('#debug-status', 'Programm laeuft ...');
+        updateDebugControls();
+
+        const execution = await session.completion;
+        if (epoch !== debugEpoch || session !== debugSession || revision !== variableRevision) return;
+        debugSession = undefined;
+        debugPaused = undefined;
+        setDebugLine(undefined);
+        const stopped = execution.error === 'Ausfuehrung gestoppt.';
+        setTextContent('#debug-status', stopped ? 'Debug-Lauf gestoppt.'
+            : execution.error ? 'Laufzeitfehler.' : 'Debug-Lauf abgeschlossen.');
+        const finalOutput = execution.output.join('') || '(no output)';
+        setTextContent('#exespan', stopped ? finalOutput
+            : execution.error ? `${finalOutput}\nRuntime error:\n${execution.error}` : finalOutput);
+        renderVariables(definitions, new Map(execution.variables.map(value => [value.id, value])),
+            execution.error ? 'Nicht erreicht.' : 'Nicht ausgefuehrt.');
+    } catch (error) {
+        if (epoch === debugEpoch) {
+            setTextContent('#debug-status', 'Debug-Lauf fehlgeschlagen.');
+            setTextContent('#exespan', `Execution failed:\n${formatError(error)}`);
+        }
+    } finally {
+        if (epoch === debugEpoch) {
+            debugPreparing = false;
+            updateDebugControls();
+        }
+    }
+};
+
+/** @brief Setzt einen pausierten Lauf mit der gewaehlten Schrittstrategie fort. */
+function resumeDebug(mode: 'continue' | 'step' | 'over' | 'out'): void {
+    if (!debugSession || !debugPaused) return;
+    debugPaused = undefined;
+    setDebugLine(undefined);
+    setTextContent('#debug-status', 'Programm laeuft ...');
+    updateDebugControls();
+    debugSession.resume(mode);
+}
 
 /**
  * @brief Erzeugt C-Code aus dem aktuellen Editorinhalt und startet danach VeriFast.
@@ -998,6 +1161,127 @@ function renderVariables(
             list.append(row);
         }
     }
+}
+
+/** @brief Zeigt bei einer Pause globale Werte und jeden aktiven Aufrufrahmen separat. */
+function renderDebugVariables(step: PausedExecutionStep): void {
+    const list = document.querySelector<HTMLElement>('#variable-list');
+    if (!list) return;
+    list.replaceChildren();
+    const heading = (label: string) => {
+        const element = document.createElement('div');
+        element.className = 'variable-group';
+        element.textContent = label;
+        list.append(element);
+    };
+    const valueRow = (observed: VariableValue) => {
+        const row = document.createElement('div');
+        row.className = 'variable-row';
+        const name = document.createElement('span');
+        name.className = 'variable-name';
+        name.textContent = observed.name;
+        const value = document.createElement('span');
+        value.className = 'variable-value';
+        value.textContent = observed.value;
+        const location = document.createElement('button');
+        location.type = 'button';
+        location.className = 'variable-location';
+        location.textContent = `Definiert Zeile ${observed.line}, zuletzt gesetzt Zeile ${observed.changedLine}`;
+        location.title = 'Zur Deklaration springen';
+        location.addEventListener('click', () => focusPseudo2SourceLine(observed.line));
+        row.append(name, value, location);
+        list.append(row);
+    };
+    const empty = (label: string) => {
+        const element = document.createElement('p');
+        element.className = 'debug-frame-empty';
+        element.textContent = label;
+        list.append(element);
+    };
+
+    heading('Global');
+    for (const value of step.globals) valueRow(value);
+    if (step.globals.length === 0) empty('Noch keine globalen Werte.');
+    heading('Aufrufstapel');
+    for (const [index, frame] of [...step.frames].reverse().entries()) {
+        const title = document.createElement('button');
+        title.type = 'button';
+        title.className = `debug-frame-heading${index === 0 ? ' current' : ''}`;
+        title.textContent = `${frame.name} - Zeile ${frame.line}${index === 0 ? ' (aktuell)' : ''}`;
+        title.title = 'Zur aktuellen Zeile dieses Aufrufs springen';
+        title.addEventListener('click', () => focusPseudo2SourceLine(frame.line));
+        list.append(title);
+        for (const value of frame.variables) valueRow(value);
+        if (frame.variables.length === 0) empty('Noch keine lokalen Werte.');
+    }
+}
+
+/** @brief Liest die von Monaco bei Texteingaben mitgefuehrten Haltepunktzeilen aus. */
+function getBreakpointLines(): number[] {
+    const model = editorApp?.getEditor()?.getModel();
+    if (!model) return [];
+    return breakpointDecorationIds.flatMap(id => {
+        const line = model.getDecorationRange(id)?.startLineNumber;
+        return line === undefined ? [] : [line];
+    });
+}
+
+/** @brief Markiert die vor der Ausfuehrung angehaltene Pseudo2-Zeile in Monaco. */
+function setDebugLine(line: number | undefined): void {
+    const editor = editorApp?.getEditor();
+    const model = editor?.getModel();
+    if (!editor || !model) {
+        activeDebugLineDecorationIds = [];
+        return;
+    }
+    const valid = line !== undefined && line >= 1 && line <= model.getLineCount();
+    activeDebugLineDecorationIds = editor.deltaDecorations(activeDebugLineDecorationIds, valid ? [{
+        range: new monaco.Range(line, 1, line, 1),
+        options: {
+            isWholeLine: true,
+            className: 'pseudo2-debug-active-line',
+            linesDecorationsClassName: 'pseudo2-debug-line-marker'
+        }
+    }] : []);
+    if (valid) editor.revealLineInCenter(line);
+}
+
+/** @brief Bindet Haltepunkte an den Monaco-Zeilenrand und verwaltet deren Dekorationen. */
+function installDebugEditor(editor: monaco.editor.IStandaloneCodeEditor | undefined): monaco.IDisposable | undefined {
+    if (!editor) return undefined;
+    editor.updateOptions({ glyphMargin: true });
+    const mouse = editor.onMouseDown(event => {
+        if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS
+            && event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
+        const line = event.target.position?.lineNumber;
+        const model = editor.getModel();
+        if (!line || !model) return;
+        const existing = breakpointDecorationIds.find(id => model.getDecorationRange(id)?.startLineNumber === line);
+        if (existing) {
+            editor.deltaDecorations([existing], []);
+            breakpointDecorationIds = breakpointDecorationIds.filter(id => id !== existing);
+        } else {
+            breakpointDecorationIds.push(...editor.deltaDecorations([], [{
+                range: new monaco.Range(line, 1, line, 1),
+                options: { glyphMarginClassName: 'pseudo2-breakpoint-glyph' }
+            }]));
+        }
+        debugSession?.setBreakpoints(getBreakpointLines());
+    });
+    const modelChange = editor.onDidChangeModel(() => {
+        cancelDebugSession();
+        breakpointDecorationIds = [];
+        activeDebugLineDecorationIds = [];
+    });
+    return {
+        dispose() {
+            mouse.dispose();
+            modelChange.dispose();
+            editor.deltaDecorations([...breakpointDecorationIds, ...activeDebugLineDecorationIds], []);
+            breakpointDecorationIds = [];
+            activeDebugLineDecorationIds = [];
+        }
+    };
 }
 
 /**
@@ -1886,6 +2170,19 @@ export const runDsl = async () => {
         document.querySelector('#button-code')?.addEventListener('click', updateCode);
         document.querySelector('#button-save')?.addEventListener('click', saveCurrentCode);
         document.querySelector('#button-execute')?.addEventListener('click', updateExecution);
+        document.querySelector('#button-debug')?.addEventListener('click', () => void startDebugExecution());
+        document.querySelector('#debug-continue')?.addEventListener('click', () => resumeDebug('continue'));
+        document.querySelector('#debug-step')?.addEventListener('click', () => resumeDebug('step'));
+        document.querySelector('#debug-over')?.addEventListener('click', () => resumeDebug('over'));
+        document.querySelector('#debug-out')?.addEventListener('click', () => resumeDebug('out'));
+        document.querySelector('#debug-stop')?.addEventListener('click', () => {
+            if (debugPreparing) {
+                cancelDebugSession();
+                setTextContent('#debug-status', 'Debug-Lauf gestoppt.');
+            } else {
+                debugSession?.stop();
+            }
+        });
         document.querySelector('#button-generate-c')?.addEventListener('click', updateCGeneration);
         document.querySelector('#c-mode-select')?.addEventListener('change', () => void changeCGeneratorMode());
         document.querySelector('#button-run-c')?.addEventListener('click', runCFromWeb);
@@ -1903,6 +2200,7 @@ export const runDsl = async () => {
         setTextContent('#verifastspan', '');
         setTextContent('#c-outputspan', '');
         clearVeriFastExecutionTree('Verify the generated C code to display its execution tree.');
+        updateDebugControls();
 
     } catch (e) {
         console.error(e);

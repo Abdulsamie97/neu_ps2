@@ -22,6 +22,7 @@
           <button type="button" id="generate-button">JavaScript</button>
           <button type="button" id="pretty-button">Pretty Print</button>
           <button type="button" id="run-button" class="primary">Ausfuehren</button>
+          <button type="button" id="debug-button">Debuggen</button>
           <button type="button" id="trace-button">Trace</button>
           <button type="button" id="save-button">Speichern</button>
         </div>
@@ -35,7 +36,7 @@
           </div>
           <div class="editor-stack">
             <div id="trace-line-highlight" class="trace-line-highlight" aria-hidden="true" hidden></div>
-            <pre id="line-numbers" aria-hidden="true">1</pre>
+            <pre id="line-numbers" aria-label="Zeilennummern und Haltepunkte">1</pre>
             <pre id="highlight-layer" class="editor-layer" aria-hidden="true"></pre>
             <textarea
               id="source-editor"
@@ -66,6 +67,7 @@
             <span id="result-heading">Ergebnis</span>
             <nav class="result-tabs" aria-label="Ergebnisansicht">
               <button type="button" class="tab-button active" data-result-tab="output">Ausgabe</button>
+              <button type="button" class="tab-button" data-result-tab="debug">Debug</button>
               <button type="button" class="tab-button" data-result-tab="trace">Trace</button>
               <button type="button" class="tab-button" data-result-tab="javascript">JavaScript</button>
               <button type="button" class="tab-button" data-result-tab="diagnostics">Diagnosen</button>
@@ -77,6 +79,14 @@
             <input id="trace-position" type="range" min="0" max="0" value="0" aria-label="Trace-Schritt">
             <button type="button" id="trace-next" title="Naechster Schritt" aria-label="Naechster Schritt">&#9654;</button>
             <span id="trace-counter" aria-live="polite"></span>
+          </div>
+          <div id="debug-controls" class="debug-controls" hidden>
+            <button type="button" id="debug-continue" title="Bis zum naechsten Haltepunkt fortsetzen" disabled>Weiter</button>
+            <button type="button" id="debug-step" title="In Aufrufe hinein bis zur naechsten Pseudo2-Anweisung" disabled>Hinein</button>
+            <button type="button" id="debug-over" title="Aufruf ausfuehren und danach anhalten" disabled>Darueber</button>
+            <button type="button" id="debug-out" title="Aktuelle Funktion verlassen und im Aufrufer anhalten" disabled>Heraus</button>
+            <button type="button" id="debug-stop" title="Debug-Lauf beenden">Stop</button>
+            <span id="debug-position" aria-live="polite"></span>
           </div>
           <pre id="result-content" tabindex="0" aria-live="polite">Noch nicht ausgefuehrt.</pre>
         </section>

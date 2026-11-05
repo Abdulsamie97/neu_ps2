@@ -21,14 +21,17 @@ import {
   MAX_TRACE_STEPS,
   PSEUDO2_VERSION,
   Pseudo2GeneratorContext,
+  startObservedDebug,
+  type BrowserDebugSession,
   type ExecutionStep,
+  type PausedExecutionStep,
   type Program,
   type VariableDefinition,
   type VariableValue
 } from 'pseudo2-language';
 
 /** Auswaehlbare Bereiche des Ergebnisfensters. */
-type ResultTab = 'output' | 'trace' | 'javascript' | 'diagnostics' | 'pretty';
+type ResultTab = 'output' | 'debug' | 'trace' | 'javascript' | 'diagnostics' | 'pretty';
 
 /** Normalisierte Diagnose fuer die browserseitige Darstellung. */
 interface StandaloneDiagnostic {
@@ -131,9 +134,15 @@ let traceError: string | undefined;
 let traceTruncated = false;
 let selectedTraceStep = 0;
 let activeTraceLine: number | undefined;
+/** Vom Benutzer gesetzte Haltepunkte und der aktuelle Worker-Debug-Lauf. */
+const breakpoints = new Set<number>();
+let debugSession: BrowserDebugSession | undefined;
+let debugPaused: PausedExecutionStep | undefined;
+let debugOutput: string[] = [];
 /** Letzter Inhalt jeder Ergebnisansicht. */
 const resultValues: Record<ResultTab, string> = {
   output: 'Noch nicht ausgefuehrt.',
+  debug: 'Noch kein Debug-Lauf gestartet.',
   trace: 'Noch kein Trace aufgezeichnet.',
   javascript: 'Noch nicht generiert.',
   diagnostics: 'Noch nicht validiert.',
@@ -158,6 +167,13 @@ const tracePosition = requireElement<HTMLInputElement>('#trace-position');
 const tracePrevious = requireElement<HTMLButtonElement>('#trace-previous');
 const traceNext = requireElement<HTMLButtonElement>('#trace-next');
 const traceCounter = requireElement<HTMLElement>('#trace-counter');
+const debugControls = requireElement<HTMLElement>('#debug-controls');
+const debugContinue = requireElement<HTMLButtonElement>('#debug-continue');
+const debugStep = requireElement<HTMLButtonElement>('#debug-step');
+const debugOver = requireElement<HTMLButtonElement>('#debug-over');
+const debugOut = requireElement<HTMLButtonElement>('#debug-out');
+const debugStop = requireElement<HTMLButtonElement>('#debug-stop');
+const debugPosition = requireElement<HTMLElement>('#debug-position');
 const actionButtons = [...document.querySelectorAll<HTMLButtonElement>('.toolbar-actions button')];
 
 /**
@@ -527,6 +543,145 @@ async function runCurrentSource(traceMode = false): Promise<void> {
   showResultTab(traceMode && traceSteps.length > 0 ? 'trace' : 'output');
 }
 
+/** Startet eine anhaltbare Pseudo2-Ausfuehrung mit Haltepunkten im Quelltext. */
+async function debugCurrentSource(): Promise<void> {
+  const analysis = await analyzeCurrentSource();
+  if (!analysis.program) return;
+
+  clearTrace();
+  const revision = sourceRevision;
+  const context = Pseudo2GeneratorContext.fromProgram(analysis.program, true, false, true);
+  const executable = generateProgram(analysis.program, context);
+  const fieldNames = collectStructFieldNames(analysis.program, context);
+  debugOutput = [];
+  debugPaused = undefined;
+  resultValues.debug = 'Debug-Lauf startet ...';
+  showResultTab('debug');
+
+  const session = startObservedDebug(
+    executable, fieldNames, breakpoints,
+    step => {
+      if (revision !== sourceRevision) return;
+      debugPaused = step;
+      const reason = step.reason === 'breakpoint' ? 'Haltepunkt' : step.reason === 'entry' ? 'Start'
+        : step.reason === 'over' ? 'Schritt darueber' : step.reason === 'out' ? 'Schritt heraus' : 'Schritt hinein';
+      resultValues.debug = `Angehalten in Zeile ${step.line} (${reason}).`
+        + `\n\nAusgabe bis hier:\n${debugOutput.join('') || '(keine Ausgabe)'}`;
+      showResultTab('debug');
+    },
+    () => {},
+    text => {
+      if (revision !== sourceRevision) return;
+      debugOutput.push(text);
+      if (!debugPaused) {
+        resultValues.debug = `Programm laeuft ...\n\n${debugOutput.join('')}`;
+        if (activeResultTab === 'debug') resultContent.textContent = resultValues.debug;
+      }
+    }
+  );
+  debugSession = session;
+  updateDebugControls();
+
+  const execution = await session.completion;
+  if (revision !== sourceRevision) return;
+  debugSession = undefined;
+  debugPaused = undefined;
+  executedRevision = sourceRevision;
+  const finalOutput = execution.output.join('');
+  const error = execution.error ? `\n\n${execution.error}` : '';
+  resultValues.debug = `${finalOutput || '(keine Ausgabe)'}${error}`;
+  showVariables(analysis.variables, new Map(execution.variables.map(variable => [variable.id, variable])),
+    execution.error ? 'Nicht erreicht.' : 'Nicht ausgefuehrt.');
+  showResultTab('debug');
+}
+
+/** Schaltet die Steuerung zwischen laufendem und angehaltenem Debug-Modus um. */
+function updateDebugControls(): void {
+  debugControls.hidden = activeResultTab !== 'debug' || !debugSession;
+  debugContinue.disabled = !debugPaused;
+  debugStep.disabled = !debugPaused;
+  debugOver.disabled = !debugPaused;
+  debugOut.disabled = !debugPaused || debugPaused.frames.length <= 1;
+  debugStop.disabled = !debugSession;
+  debugPosition.textContent = debugPaused ? `Zeile ${debugPaused.line}` : debugSession ? 'Laeuft' : '';
+}
+
+/** Laesst den aktuellen Worker bis zur naechsten Zeile oder zum Haltepunkt weiterlaufen. */
+function resumeDebug(mode: 'continue' | 'step' | 'over' | 'out'): void {
+  if (!debugSession || !debugPaused) return;
+  debugPaused = undefined;
+  resultValues.debug = `Programm laeuft ...\n\n${debugOutput.join('')}`;
+  showResultTab('debug');
+  debugSession.resume(mode);
+}
+
+/** Stellt globale Werte und aktive Funktionsaufrufe ohne vermischte Rekursion dar. */
+function showDebugVariables(step: PausedExecutionStep): void {
+  variableList.replaceChildren();
+  const globalHeading = document.createElement('div');
+  globalHeading.className = 'variable-group';
+  globalHeading.textContent = 'Global';
+  variableList.append(globalHeading);
+  for (const value of step.globals) appendDebugValue(value);
+  if (step.globals.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'debug-frame-empty';
+    empty.textContent = 'Noch keine globalen Werte.';
+    variableList.append(empty);
+  }
+
+  const stackHeading = document.createElement('div');
+  stackHeading.className = 'variable-group';
+  stackHeading.textContent = 'Aufrufstapel';
+  variableList.append(stackHeading);
+  for (const [index, frame] of [...step.frames].reverse().entries()) {
+    const heading = document.createElement('button');
+    heading.type = 'button';
+    heading.className = `debug-frame-heading${index === 0 ? ' current' : ''}`;
+    heading.textContent = `${frame.name} - Zeile ${frame.line}${index === 0 ? ' (aktuell)' : ''}`;
+    heading.title = 'Zur aktuellen Zeile dieses Aufrufs springen';
+    heading.addEventListener('click', () => revealSourceLine(frame.line));
+    variableList.append(heading);
+    for (const value of frame.variables) appendDebugValue(value);
+    if (frame.variables.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'debug-frame-empty';
+      empty.textContent = 'Noch keine lokalen Werte.';
+      variableList.append(empty);
+    }
+  }
+}
+
+/** Fuegt einen beobachteten Wert mit Sprung zur Deklaration hinzu. */
+function appendDebugValue(observed: VariableValue): void {
+  const row = document.createElement('div');
+  row.className = 'variable-row';
+  const name = document.createElement('span');
+  name.className = 'variable-name';
+  name.textContent = observed.name;
+  const value = document.createElement('span');
+  value.className = 'variable-value';
+  value.textContent = observed.value;
+  const location = document.createElement('button');
+  location.type = 'button';
+  location.className = 'variable-location';
+  location.textContent = `Definiert Zeile ${observed.line}, zuletzt gesetzt Zeile ${observed.changedLine}`;
+  location.title = 'Zur Deklaration springen';
+  location.addEventListener('click', () => revealSourceLine(observed.line));
+  row.append(name, value, location);
+  variableList.append(row);
+}
+
+/** Springt zu einer Pseudo2-Zeile und synchronisiert die Textebenen. */
+function revealSourceLine(line: number): void {
+  const offset = sourcePositionToOffset(sourceEditor.value, getLineStarts(sourceEditor.value), line, 1);
+  sourceEditor.focus();
+  sourceEditor.setSelectionRange(offset, offset);
+  const lineHeight = Number.parseFloat(window.getComputedStyle(sourceEditor).lineHeight) || 21.7;
+  sourceEditor.scrollTop = Math.max(0, (line - 1) * lineHeight - sourceEditor.clientHeight / 2);
+  syncEditorScroll();
+}
+
 /** Zeigt alle Deklarationen, zuletzt beobachtete Werte und die Quellposition. */
 function showVariables(
   definitions: VariableDefinition[],
@@ -568,14 +723,7 @@ function showVariables(
         + (observed && observed.changedLine !== definition.line ? `, zuletzt gesetzt Zeile ${observed.changedLine}` : '')
         + (observed && !global && pending !== 'Programm wird ausgefuehrt ...' ? ' (letzter Wert)' : '');
       location.title = 'Zur Deklaration springen';
-      location.addEventListener('click', () => {
-        const offset = sourcePositionToOffset(sourceEditor.value, getLineStarts(sourceEditor.value), definition.line, 1);
-        sourceEditor.focus();
-        sourceEditor.setSelectionRange(offset, offset);
-        const lineHeight = Number.parseFloat(window.getComputedStyle(sourceEditor).lineHeight) || 21.7;
-        sourceEditor.scrollTop = Math.max(0, (definition.line - 1) * lineHeight - sourceEditor.clientHeight / 2);
-        syncEditorScroll();
-      });
+      location.addEventListener('click', () => revealSourceLine(definition.line));
       row.append(label, value, location);
       variableList.append(row);
     }
@@ -792,8 +940,13 @@ function showResultTab(tab: ResultTab): void {
     button.classList.toggle('active', selected);
     button.setAttribute('aria-pressed', String(selected));
   }
+  updateDebugControls();
   traceControls.hidden = tab !== 'trace' || traceSteps.length === 0;
-  if (tab === 'trace' && traceSteps.length > 0) {
+  if (tab === 'debug' && debugPaused) {
+    resultContent.textContent = resultValues.debug;
+    showDebugVariables(debugPaused);
+    setTraceLine(debugPaused.line);
+  } else if (tab === 'trace' && traceSteps.length > 0) {
     renderTraceStep();
   } else {
     setTraceLine(undefined);
@@ -1108,7 +1261,11 @@ function renderLineNumbers(source: string, diagnostics: StandaloneDiagnostic[]):
       ? ` title="${escapeHtmlAttribute(lineDiagnostics.map(diagnostic => diagnostic.message).join('\n'))}"`
       : '';
     const dataLine = primary ? ` data-diagnostic-line="${line}"` : '';
-    return `<span class="line-number${className}"${dataLine}${title}>${line}</span>`;
+    const active = breakpoints.has(line);
+    const breakpointLabel = active ? 'Haltepunkt entfernen' : 'Haltepunkt setzen';
+    const toggle = `<button type="button" class="breakpoint-toggle${active ? ' active' : ''}" data-breakpoint-line="${line}"`
+      + ` aria-label="${breakpointLabel}, Zeile ${line}" title="${breakpointLabel}, Zeile ${line}"></button>`;
+    return `<span class="line-number${className}"${dataLine}${title}>${toggle}${line}</span>`;
   }).join('');
 }
 
@@ -1242,6 +1399,9 @@ document.querySelector('#pretty-button')?.addEventListener('click', () => {
 document.querySelector('#run-button')?.addEventListener('click', () => {
   void runBusyAction(runCurrentSource);
 });
+document.querySelector('#debug-button')?.addEventListener('click', () => {
+  void runBusyAction(debugCurrentSource);
+});
 document.querySelector('#trace-button')?.addEventListener('click', () => {
   void runBusyAction(() => runCurrentSource(true));
 });
@@ -1250,6 +1410,11 @@ document.querySelector('#save-button')?.addEventListener('click', saveCurrentSou
 tracePrevious.addEventListener('click', () => selectTraceStep(selectedTraceStep - 1));
 traceNext.addEventListener('click', () => selectTraceStep(selectedTraceStep + 1));
 tracePosition.addEventListener('input', () => selectTraceStep(Number(tracePosition.value)));
+debugContinue.addEventListener('click', () => resumeDebug('continue'));
+debugStep.addEventListener('click', () => resumeDebug('step'));
+debugOver.addEventListener('click', () => resumeDebug('over'));
+debugOut.addEventListener('click', () => resumeDebug('out'));
+debugStop.addEventListener('click', () => debugSession?.stop());
 
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-result-tab]')) {
   button.addEventListener('click', () => {
@@ -1261,8 +1426,13 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-result-
 }
 
 sourceEditor.addEventListener('input', () => {
+  debugSession?.stop();
+  debugSession = undefined;
   sourceRevision++;
   executedRevision = -1;
+  debugPaused = undefined;
+  debugOutput = [];
+  resultValues.debug = 'Quelltext geaendert. Debug-Lauf erneut starten.';
   clearTrace();
   editorDiagnostics = [];
   activeEditorDiagnostic = undefined;
@@ -1271,7 +1441,7 @@ sourceEditor.addEventListener('input', () => {
   showEditorDiagnostic(undefined);
   setStatus('Geaendert');
   showVariables([]);
-  if (activeResultTab === 'diagnostics' || activeResultTab === 'trace') {
+  if (activeResultTab === 'diagnostics' || activeResultTab === 'trace' || activeResultTab === 'debug') {
     showResultTab(activeResultTab);
   }
   scheduleLiveValidation();
@@ -1329,6 +1499,19 @@ sourceEditor.addEventListener('keydown', event => {
 });
 
 lineNumbers.addEventListener('click', event => {
+  const breakpointTarget = event.target instanceof Element
+    ? event.target.closest<HTMLElement>('[data-breakpoint-line]')
+    : undefined;
+  if (breakpointTarget) {
+    const breakpointLine = Number(breakpointTarget.dataset.breakpointLine);
+    if (Number.isInteger(breakpointLine)) {
+      if (breakpoints.has(breakpointLine)) breakpoints.delete(breakpointLine);
+      else breakpoints.add(breakpointLine);
+      debugSession?.setBreakpoints(breakpoints);
+      updateEditorPresentation();
+    }
+    return;
+  }
   const target = event.target instanceof Element
     ? event.target.closest<HTMLElement>('[data-diagnostic-line]')
     : undefined;

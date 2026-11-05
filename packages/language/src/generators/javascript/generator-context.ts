@@ -39,6 +39,8 @@ export class Pseudo2GeneratorContext {
   readonly traceVariables: boolean;
   /** Fuegt nur fuer die nachtraegliche Schrittansicht Quellzeilenmarken ein. */
   readonly traceSteps: boolean;
+  /** Erzeugt kooperativ anhaltbaren asynchronen JavaScript-Code. */
+  readonly liveDebug: boolean;
   /** Generierte Namen aller Variablen, Parameter und Struct-Attribute. */
   private readonly variableNames = new Map<Variable, string>();
   /** Generierte Namen globaler Funktionen und Methoden. */
@@ -59,9 +61,10 @@ export class Pseudo2GeneratorContext {
   private structFieldCounter = 0;
 
   /** @param traceVariables Aktiviert optionale Wertmeldungen fuer den Standalone-Editor. */
-  constructor(traceVariables = false, traceSteps = false) {
+  constructor(traceVariables = false, traceSteps = false, liveDebug = false) {
     this.traceVariables = traceVariables;
-    this.traceSteps = traceSteps;
+    this.traceSteps = traceSteps || liveDebug;
+    this.liveDebug = liveDebug;
   }
 
   /**
@@ -71,8 +74,8 @@ export class Pseudo2GeneratorContext {
    * @param traceVariables Fuegt beim Generieren Beobachtungsaufrufe ein.
    * @returns Vollständig initialisierter Generator-Kontext.
    */
-  static fromProgram(program: Program, traceVariables = false, traceSteps = false): Pseudo2GeneratorContext {
-    const context = new Pseudo2GeneratorContext(traceVariables, traceSteps);
+  static fromProgram(program: Program, traceVariables = false, traceSteps = false, liveDebug = false): Pseudo2GeneratorContext {
+    const context = new Pseudo2GeneratorContext(traceVariables, traceSteps, liveDebug);
     context.registerProgram(program);
     return context;
   }

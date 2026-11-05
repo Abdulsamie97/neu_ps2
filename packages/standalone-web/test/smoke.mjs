@@ -38,6 +38,13 @@ assert.match(html, /id="variable-list"/, 'The UI must contain the runtime variab
 assert.match(html, /id="trace-button"/, 'The standalone editor must offer an explicit step trace.');
 assert.match(html, /id="trace-position"/, 'The trace must have a step navigator.');
 assert.match(html, /id="trace-line-highlight"/, 'The current Pseudo2 source line must be marked.');
+assert.match(html, /id="debug-button"/, 'The editor must expose live debugging.');
+assert.match(html, /id="debug-continue"/, 'Live debugging must have a continue control.');
+assert.match(html, /id="debug-step"/, 'Live debugging must have a step control.');
+assert.match(html, /id="debug-over"/, 'Live debugging must have a step-over control.');
+assert.match(html, /id="debug-out"/, 'Live debugging must have a step-out control.');
+assert.match(html, /id="debug-stop"/, 'Live debugging must have a stop control.');
+assert.match(html, /data-breakpoint-line/, 'The source gutter must offer Pseudo2 breakpoints.');
 
 const source = `func square(value)
     return value * value
@@ -253,6 +260,186 @@ const errorResult = errorMessages.at(-1);
 assert.equal(errorResult.error, 'stop');
 assert.deepEqual(Array.from(errorResult.steps, step => step.line), [1, 2, null]);
 assert.equal(errorResult.steps.at(-1).status, 'error');
+
+const liveSource = `func increment(value)
+  return value + 1
+var count = 0
+while count < 2
+  count = increment(count)
+print count
+`;
+const liveDocument = services.shared.workspace.LangiumDocumentFactory.fromString(
+  liveSource, URI.parse('memory:/standalone-live-debug.pseudo2')
+);
+await services.shared.workspace.DocumentBuilder.build([liveDocument], { validation: true });
+assert.deepEqual((liveDocument.diagnostics ?? []).filter(item => item.severity === 1), []);
+const liveProgram = liveDocument.parseResult.value;
+const liveCode = generateProgram(liveProgram, Pseudo2GeneratorContext.fromProgram(liveProgram, true, false, true));
+const liveEvents = [];
+const pendingPauses = [];
+let resolvePause;
+const liveWorker = { postMessage: message => {
+  liveEvents.push(message);
+  if (message.type === 'paused') {
+    if (resolvePause) {
+      const resolve = resolvePause;
+      resolvePause = undefined;
+      resolve(message.step);
+    } else {
+      pendingPauses.push(message.step);
+    }
+  }
+} };
+const nextPause = () => pendingPauses.length > 0
+  ? Promise.resolve(pendingPauses.shift())
+  : new Promise(resolve => { resolvePause = resolve; });
+runInNewContext(OBSERVED_WORKER_SCRIPT, { self: liveWorker });
+const running = liveWorker.onmessage({ data: {
+  source: liveCode, fieldNames: {}, debugMode: true, breakpoints: []
+} });
+assert.equal((await nextPause()).line, 3, 'Debug execution must stop at the first source statement.');
+await liveWorker.onmessage({ data: { command: 'setBreakpoints', breakpoints: [5] } });
+await liveWorker.onmessage({ data: { command: 'step' } });
+assert.equal((await nextPause()).line, 4, 'Step must stop at the next loop condition.');
+await liveWorker.onmessage({ data: { command: 'continue' } });
+const firstBreakpoint = await nextPause();
+assert.equal(firstBreakpoint.line, 5);
+assert.equal(firstBreakpoint.variables.find(item => item.name === 'count').value, '0');
+await liveWorker.onmessage({ data: { command: 'step' } });
+const insideFunction = await nextPause();
+assert.equal(insideFunction.line, 2);
+assert.deepEqual(Array.from(insideFunction.frames, frame => frame.name), ['Programm', 'increment']);
+assert.equal(insideFunction.frames[1].variables.find(item => item.name === 'value').value, '0');
+await liveWorker.onmessage({ data: { command: 'out' } });
+const afterStepOut = await nextPause();
+assert.equal(afterStepOut.line, 4);
+assert.equal(afterStepOut.reason, 'out');
+assert.equal(afterStepOut.frames.length, 1);
+assert.equal(afterStepOut.globals.find(item => item.name === 'count').value, '1');
+await liveWorker.onmessage({ data: { command: 'continue' } });
+const secondBreakpoint = await nextPause();
+assert.equal(secondBreakpoint.line, 5);
+assert.equal(secondBreakpoint.variables.find(item => item.name === 'count').value, '1');
+await liveWorker.onmessage({ data: { command: 'over' } });
+const afterStepOver = await nextPause();
+assert.equal(afterStepOver.line, 4);
+assert.equal(afterStepOver.reason, 'over');
+assert.equal(afterStepOver.frames.length, 1);
+assert.equal(afterStepOver.globals.find(item => item.name === 'count').value, '2');
+await liveWorker.onmessage({ data: { command: 'continue' } });
+await running;
+assert.equal(liveEvents.at(-1).error, undefined);
+assert.equal(liveEvents.at(-1).output.join(''), '2\n');
+
+const asyncSource = `func next(value)
+  return value + 1
+var values[2] = next(1)
+var sum = values[1]
+sum += next(2)
+print sum
+`;
+const asyncDocument = services.shared.workspace.LangiumDocumentFactory.fromString(
+  asyncSource, URI.parse('memory:/standalone-live-array.pseudo2')
+);
+await services.shared.workspace.DocumentBuilder.build([asyncDocument], { validation: true });
+assert.deepEqual((asyncDocument.diagnostics ?? []).filter(item => item.severity === 1), []);
+const asyncProgram = asyncDocument.parseResult.value;
+const asyncEvents = [];
+const asyncWorker = { postMessage: message => asyncEvents.push(message) };
+runInNewContext(OBSERVED_WORKER_SCRIPT, { self: asyncWorker });
+const asyncRunning = asyncWorker.onmessage({ data: {
+  source: generateProgram(asyncProgram, Pseudo2GeneratorContext.fromProgram(asyncProgram, true, false, true)),
+  fieldNames: {}, debugMode: true, breakpoints: []
+} });
+for (let index = 0; index < 30; index++) {
+  const paused = asyncEvents.findLast(event => event.type === 'paused');
+  if (!paused) {
+    await Promise.resolve();
+    continue;
+  }
+  await asyncWorker.onmessage({ data: { command: 'continue' } });
+  break;
+}
+await asyncRunning;
+assert.equal(asyncEvents.at(-1).error, undefined);
+assert.equal(asyncEvents.at(-1).output.join(''), '5\n', 'Async calls in array initialization and += must keep their values.');
+
+const combinedSource = `struct Counter
+  num value
+  add(amount)
+    this.value += amount
+    return this.value
+func plus(value)
+  return value + 1
+func sum(A[1..n])
+  var total = 0
+  for i=1 to n
+    total += A[i]
+  return total
+var counter = new Counter
+counter.value = 1
+var nums = [plus(1), plus(2)]
+print counter.add(sum(nums))
+`;
+const combinedDocument = services.shared.workspace.LangiumDocumentFactory.fromString(
+  combinedSource, URI.parse('memory:/standalone-live-combined.pseudo2')
+);
+await services.shared.workspace.DocumentBuilder.build([combinedDocument], { validation: true });
+assert.deepEqual((combinedDocument.diagnostics ?? []).filter(item => item.severity === 1), []);
+const combinedProgram = combinedDocument.parseResult.value;
+const combinedOutput = [];
+const combinedConsole = { log: value => combinedOutput.push(`${value}\n`) };
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+await new AsyncFunction('console', '__ps2_trace', '__ps2_step', '__ps2_enter', '__ps2_leave', `"use strict";\n${generateProgram(
+  combinedProgram, Pseudo2GeneratorContext.fromProgram(combinedProgram, true, false, true)
+)}`)(combinedConsole, () => {}, async () => {}, () => 1, () => {});
+assert.equal(combinedOutput.join(''), '6\n', 'Debug mode must preserve methods, nested calls and array parameters.');
+
+const recursiveSource = `func down(n)
+  if n > 0
+    return down(n - 1)
+  return n
+print down(2)
+`;
+const recursiveDocument = services.shared.workspace.LangiumDocumentFactory.fromString(
+  recursiveSource, URI.parse('memory:/standalone-recursive-frames.pseudo2')
+);
+await services.shared.workspace.DocumentBuilder.build([recursiveDocument], { validation: true });
+assert.deepEqual((recursiveDocument.diagnostics ?? []).filter(item => item.severity === 1), []);
+const recursiveProgram = recursiveDocument.parseResult.value;
+const recursiveMessages = [];
+const recursivePauses = [];
+let resolveRecursivePause;
+const recursiveWorker = { postMessage: message => {
+  recursiveMessages.push(message);
+  if (message.type === 'paused') {
+    if (resolveRecursivePause) {
+      const resolve = resolveRecursivePause;
+      resolveRecursivePause = undefined;
+      resolve(message.step);
+    } else recursivePauses.push(message.step);
+  }
+} };
+const nextRecursivePause = () => recursivePauses.length > 0
+  ? Promise.resolve(recursivePauses.shift())
+  : new Promise(resolve => { resolveRecursivePause = resolve; });
+runInNewContext(OBSERVED_WORKER_SCRIPT, { self: recursiveWorker });
+const recursiveRunning = recursiveWorker.onmessage({ data: {
+  source: generateProgram(recursiveProgram, Pseudo2GeneratorContext.fromProgram(recursiveProgram, true, false, true)),
+  fieldNames: {}, debugMode: true, breakpoints: [2]
+} });
+assert.equal((await nextRecursivePause()).line, 5);
+await recursiveWorker.onmessage({ data: { command: 'continue' } });
+assert.equal((await nextRecursivePause()).frames[1].variables.find(item => item.name === 'n').value, '2');
+await recursiveWorker.onmessage({ data: { command: 'continue' } });
+assert.equal((await nextRecursivePause()).frames[2].variables.find(item => item.name === 'n').value, '1');
+await recursiveWorker.onmessage({ data: { command: 'continue' } });
+const deepest = await nextRecursivePause();
+assert.deepEqual(Array.from(deepest.frames, frame => frame.name), ['Programm', 'down', 'down', 'down']);
+assert.deepEqual(Array.from(deepest.frames.slice(1), frame => frame.variables.find(item => item.name === 'n').value), ['2', '1', '0']);
+await recursiveWorker.onmessage({ data: { command: 'continue' } });
+await recursiveRunning;
+assert.equal(recursiveMessages.at(-1).output.join(''), '0\n');
 
 const completionSource = 'var count = 5\nprint cou';
 const completionUri = URI.parse('memory:/standalone-completion-smoke-test.pseudo2');

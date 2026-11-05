@@ -574,6 +574,50 @@ body.is-resizing-workspace {
     flex: 0 0 auto;
 }
 
+/** @brief Haelt Debug-Steuerung auch bei schmalem Ergebnisbereich bedienbar. */
+.debug-controls {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+
+.debug-controls button {
+    flex: 0 0 auto;
+    padding: 5px 8px;
+}
+
+.debug-controls button:disabled {
+    cursor: default;
+    opacity: 0.45;
+}
+
+#debug-status {
+    color: #c5c5c5;
+    font-size: 12px;
+}
+
+/** @brief Markiert Monaco-Haltepunkte und die vor Ausfuehrung angehaltene Zeile. */
+.pseudo2-breakpoint-glyph::before {
+    background: #df3a43;
+    border: 1px solid #a51f29;
+    border-radius: 50%;
+    box-sizing: border-box;
+    content: '';
+    display: block;
+    height: 12px;
+    margin: 3px auto 0;
+    width: 12px;
+}
+
+.pseudo2-debug-active-line {
+    background: rgba(236, 74, 168, 0.13);
+}
+
+.pseudo2-debug-line-marker {
+    border-left: 3px solid #d91687;
+}
+
 pre {
     background-color: #101010;
     border: 1px solid #303036;
@@ -614,6 +658,35 @@ pre {
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
+}
+
+/** @brief Trennt aktive Aufrufrahmen in der Variablenansicht. */
+.debug-frame-heading {
+    background: #29292d;
+    border: 0;
+    border-left: 3px solid #707078;
+    border-radius: 0;
+    color: #eeeeee;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 11px;
+    margin-top: 8px;
+    padding: 6px 8px;
+    text-align: left;
+    width: 100%;
+}
+
+.debug-frame-heading.current {
+    border-left-color: #ec4aa8;
+}
+
+.debug-frame-heading:hover {
+    background: #39393e;
+}
+
+.debug-frame-empty {
+    color: #a0a0a0;
+    font-size: 11px;
+    margin: 4px 0 4px 8px;
 }
 
 .variable-row {

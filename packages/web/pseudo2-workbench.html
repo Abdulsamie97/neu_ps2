@@ -39,6 +39,7 @@
           <button type="button" id="button-dispose" disabled>Dispose</button>
           <button type="button" id="button-save">Save Pseudo2</button>
           <button type="button" id="button-execute">Run JavaScript</button>
+          <button type="button" id="button-debug">Debug JavaScript</button>
           <button type="button" id="button-generate-c">Generate &amp; Verify C</button>
           <button type="button" id="button-run-c">Run C</button>
           <button type="button" id="button-save-c">Save C</button>
@@ -93,6 +94,17 @@
             @brief Zeigt JavaScript-Programmausgabe, generierten Code, Programmzusammenfassung und Source-Echo.
           -->
           <div id="javascript-view" class="output-pane javascript-pane result-view" role="tabpanel" aria-labelledby="button-view-javascript">
+            <!--! @brief Steuert den im Browser-Worker angehaltenen JavaScript-Lauf. -->
+            <section class="output-section debug-section" aria-label="JavaScript debugger">
+              <div class="debug-controls">
+                <button type="button" id="debug-continue" title="Bis zum naechsten Haltepunkt fortsetzen" disabled>Weiter</button>
+                <button type="button" id="debug-step" title="In die naechste Pseudo2-Anweisung hineingehen" disabled>Hinein</button>
+                <button type="button" id="debug-over" title="Aufruf ausfuehren und danach anhalten" disabled>Darueber</button>
+                <button type="button" id="debug-out" title="Aktuelle Funktion verlassen" disabled>Heraus</button>
+                <button type="button" id="debug-stop" title="Debug-Lauf beenden" disabled>Stop</button>
+                <span id="debug-status" role="status" aria-live="polite">Kein Debug-Lauf.</span>
+              </div>
+            </section>
             <section class="output-section output-primary">
               <div class="pane-header">JavaScript Output</div>
               <pre id="exespan"></pre>

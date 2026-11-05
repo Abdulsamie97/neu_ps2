@@ -789,7 +789,8 @@ Falls der Port bereits belegt ist, meldet Vite den tatsaechlichen Port in der
 Konsole.
 
 Hinweis: `http://localhost:21002` oeffnet die Root-`index.html`, die als
-einfacherer Runner ohne alle C-/VeriFast-Controls aufgebaut ist. Fuer den
+einfacherer JavaScript-Runner mit Debugger, aber ohne C-/VeriFast-Controls
+aufgebaut ist. Fuer den
 vollstaendigen Workflow mit `Run C`, `Generate & Verify C` und `Verify C` die
 `/pseudo2-workbench`-Adresse verwenden. Die eigentliche HTML-Datei liegt unter
 `packages/web/pseudo2-workbench.html`.
@@ -797,7 +798,7 @@ vollstaendigen Workflow mit `Run C`, `Generate & Verify C` und `Verify C` die
 ### Statisches JavaScript-Bundle
 
 Die reduzierte Root-Seite kann als eigenstaendiges Browser-Bundle gebaut werden.
-Editor, Validierung, JavaScript-Generierung und JavaScript-Ausfuehrung benoetigen
+Editor, Validierung, JavaScript-Generierung, Ausfuehrung und Debugger benoetigen
 dabei kein Node-Backend auf dem Zielserver:
 
 ```powershell
@@ -817,6 +818,11 @@ Produktions-Webserver muss fuer diese Dateien ebenfalls die Header
 `Cross-Origin-Opener-Policy: same-origin` und
 `Cross-Origin-Embedder-Policy: require-corp` setzen. Die statische Root-Seite
 enthaelt bewusst keine serverseitige C-Ausfuehrung und keine VeriFast-Anbindung.
+Nach dem automatischen Editorstart setzt ein Klick auf die Zeilennummer einen
+Haltepunkt. `Debuggen` haelt vor der ersten ausfuehrbaren Pseudo2-Zeile; mit
+`Weiter`, `Hinein`, `Darueber`, `Heraus` und `Stop` wird der Lauf gesteuert.
+Die aktuelle Zeile und die Werte aktiver Aufrufrahmen erscheinen direkt auf der
+Root-Seite. Die Ausfuehrung erfolgt lokal in einem Browser-Worker.
 
 ### Einzeldatei-JavaScript-Runner
 
@@ -859,6 +865,18 @@ beobachteten Variablenwerte; die aktuelle Zeile wird im Editor markiert. Die
 Aufzeichnung ist auf 1000 Quellschritte begrenzt, das Programm laeuft danach
 normal weiter. Dies ist eine nachtraegliche Schrittansicht, kein interaktiver
 Haltepunkt- oder Stack-Debugger. `Ausfuehren` bleibt ohne Schrittaufzeichnung.
+
+Fuer einen interaktiven Lauf kann man im linken Rand des Einzeldatei-Editors
+Haltepunkte auf Pseudo2-Zeilen setzen und `Debuggen` starten. Der Worker haelt
+zuerst vor der ersten ausfuehrbaren Zeile. `Hinein` haelt vor der naechsten
+Pseudo2-Anweisung, auch in aufgerufenen Funktionen. `Darueber` fuehrt einen
+Funktionsaufruf aus und haelt danach im aktuellen Aufrufrahmen; `Heraus` laeuft
+bis zum Aufrufer. Haltepunkte unterbrechen auch `Darueber` und `Heraus`.
+`Weiter` laeuft bis zum naechsten Haltepunkt, `Stop` beendet den Lauf. Der
+Debug-Tab zeigt die bisherige Ausgabe. Die Variablenansicht trennt globale
+Werte von den lokalen Werten jedes aktiven Aufrufrahmens, auch bei Rekursion.
+Die Ausfuehrungszeit ist nur waehrend laufender Abschnitte auf fuenf Sekunden
+begrenzt, nicht waehrend einer Pause.
 
 Der Einzeldatei-Runner enthaelt bewusst nur browserfaehige Funktionen. C-Ausfuehrung
 und VeriFast bleiben in der vollstaendigen Workbench, weil dafuer native Prozesse
@@ -957,6 +975,18 @@ Der Server nutzt den repo-lokalen Standardpfad:
 15. Der vertikale Splitter zwischen Editor und Ergebnisbereich kann horizontal
     gezogen werden. Mit `Pfeil links/rechts` wird die Breite per Tastatur
     veraendert; ein Doppelklick setzt sie auf den Standardwert zurueck.
+
+Im Monaco-Editor setzt ein Klick auf eine Zeilennummer oder den linken Rand
+einen Haltepunkt; ein zweiter Klick entfernt ihn. `Debug JavaScript` startet
+einen separaten Worker-Lauf und haelt vor der ersten ausfuehrbaren Zeile.
+`Weiter` laeuft bis zum naechsten Haltepunkt, `Hinein` bis zur naechsten
+Pseudo2-Anweisung auch innerhalb eines Funktionsaufrufs, `Darueber` bis zur
+naechsten Anweisung im aktuellen Aufrufrahmen und `Heraus` bis zum Aufrufer.
+`Stop` beendet den Lauf. Die angehaltene Zeile wird im Editor markiert;
+`Variablen` zeigt globale Werte und die lokalen Werte jedes aktiven
+Aufrufrahmens getrennt. Eine Quelltextaenderung, `Run JavaScript` oder
+`Dispose` beendet einen laufenden Debug-Lauf. Haltepunkte wandern beim
+Einfuegen oder Loeschen von Zeilen mit dem Monaco-Text mit.
 
 Die Graphen werden lokal mit `@viz-js/viz` als SVG gerendert. Eine separate
 Graphviz-Systeminstallation ist fuer die Webansicht nicht erforderlich. Der

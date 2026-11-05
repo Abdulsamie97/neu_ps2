@@ -127,7 +127,7 @@ button.primary:hover {
 }
 
 .result-pane {
-  grid-template-rows: 38px auto minmax(0, 1fr);
+  grid-template-rows: 38px auto auto minmax(0, 1fr);
 }
 
 .result-pane,
@@ -303,10 +303,37 @@ button.primary:hover {
 
 .line-number {
   display: block;
+  position: relative;
   min-width: 100%;
   height: 1.55em;
   border-right: 3px solid transparent;
   padding-right: 3px;
+}
+
+.breakpoint-toggle {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 12px;
+  min-height: 12px;
+  height: 12px;
+  border: 1px solid #999;
+  border-radius: 50%;
+  padding: 0;
+  opacity: 0;
+  background: transparent;
+}
+
+.line-number:hover .breakpoint-toggle,
+.breakpoint-toggle:focus-visible,
+.breakpoint-toggle.active {
+  opacity: 1;
+}
+
+.breakpoint-toggle.active,
+.breakpoint-toggle.active:hover {
+  border-color: #ba1b35;
+  background: #d9273e;
 }
 
 .line-number[data-diagnostic-line] {
@@ -556,7 +583,8 @@ button.primary:hover {
   background: #2c2c2c;
 }
 
-.trace-controls {
+.trace-controls,
+.debug-controls {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -567,17 +595,24 @@ button.primary:hover {
   font-size: 12px;
 }
 
-.trace-controls[hidden] {
+.debug-controls {
+  flex-wrap: wrap;
+}
+
+.trace-controls[hidden],
+.debug-controls[hidden] {
   display: none;
 }
 
-.trace-controls button {
+.trace-controls button,
+.debug-controls button {
   flex: none;
   min-width: 32px;
   padding: 0 6px;
 }
 
-.trace-controls button:disabled {
+.trace-controls button:disabled,
+.debug-controls button:disabled {
   opacity: 0.45;
   cursor: default;
 }
@@ -592,6 +627,44 @@ button.primary:hover {
   min-width: 62px;
   text-align: right;
   white-space: nowrap;
+}
+
+#debug-position {
+  overflow: hidden;
+  color: #bbb;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.debug-frame-heading {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  margin-top: 8px;
+  border: 0;
+  border-left: 3px solid #666;
+  border-radius: 0;
+  padding: 5px 7px;
+  color: #ddd;
+  background: #242424;
+  text-align: left;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 11px;
+}
+
+.debug-frame-heading.current {
+  border-left-color: #ec4aa8;
+  color: #fff;
+}
+
+.debug-frame-heading:hover {
+  background: #303030;
+}
+
+.debug-frame-empty {
+  margin: 5px 0 0 10px;
+  color: #888;
+  font-size: 11px;
 }
 
 #result-content {
@@ -676,7 +749,7 @@ button.primary:hover {
   }
 
   .result-pane {
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
   }
 
   .footer-bar {

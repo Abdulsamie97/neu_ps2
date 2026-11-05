@@ -198,7 +198,8 @@ function buildExpandedCall(
 
   if (!params.some(p => p.isArray && p.len)) {
     const plainArgs = args.map(a => genExpr(a, context, state));
-    return `${callee}(${[...leadingArgs, ...plainArgs].join(', ')})`;
+    const call = `${callee}(${[...leadingArgs, ...plainArgs].join(', ')})`;
+    return context.liveDebug ? `(await ${call})` : call;
   }
 
   const tempNames = args.map(() => context.getAnonymousVarName('__arg'));
@@ -216,7 +217,8 @@ function buildExpandedCall(
     }
   }
 
-  return `((${tempNames.join(', ')}) => ${callee}(${expandedArgs.join(', ')}))(${tempValues.join(', ')})`;
+  const call = `(${context.liveDebug ? 'async ' : ''}(${tempNames.join(', ')}) => ${callee}(${expandedArgs.join(', ')}))(${tempValues.join(', ')})`;
+  return context.liveDebug ? `(await ${call})` : call;
 }
 
 /**
@@ -280,7 +282,9 @@ function generateInstructionCode(
 /** Meldet die Pseudo2-Zeile unmittelbar vor ihrer Ausfuehrung. */
 function stepCall(node: AstNode, context: Pseudo2GeneratorContext, indent = '', keyword?: string): string | undefined {
   const line = executableLine(node, keyword);
-  return context.traceSteps && line !== undefined ? `${indent}__ps2_step(${line + 1});` : undefined;
+  return context.traceSteps && line !== undefined
+    ? `${indent}${context.liveDebug ? 'await ' : ''}__ps2_step(${line + 1});`
+    : undefined;
 }
 
 /** Ueberspringt vorangestellte Verifikationsannotationen bei Schleifenknoten. */
@@ -362,7 +366,7 @@ function generateWhileLoop(
   const body = generateBlock(loop.body, context, indent, state);
   const line = executableLine(loop, 'while');
   const checked = context.traceSteps && line !== undefined
-    ? `(__ps2_step(${line + 1}), ${condition})`
+    ? `(${context.liveDebug ? 'await ' : ''}__ps2_step(${line + 1}), ${condition})`
     : condition;
   return `${indent}while (${checked}) ${body}`;
 }
@@ -395,7 +399,7 @@ function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent
   const line = executableLine(loop, 'for');
   const condition = `${iterName}.get() ${directionOp} ${endName}.get()`;
   const checked = context.traceSteps && line !== undefined
-    ? `(__ps2_step(${line + 1}), ${condition})`
+    ? `(${context.liveDebug ? 'await ' : ''}__ps2_step(${line + 1}), ${condition})`
     : condition;
 
   return [
@@ -494,7 +498,7 @@ function generateMethodDeclaration(
 ): string {
   const params = [METHOD_THIS_NAME, ...collectJsParams(fn, context)].join(', ');
   const body = generateFunctionBody(fn, context, indent, { thisName: METHOD_THIS_NAME });
-  return `${indent}function ${context.getFunctionName(fn)}(${params}) ${body}`;
+  return `${indent}${context.liveDebug ? 'async ' : ''}function ${context.getFunctionName(fn)}(${params}) ${body}`;
 }
 
 /**
@@ -512,7 +516,7 @@ function generateFunctionDeclaration(
 ): string {
   const params = collectJsParams(fn, context).join(', ');
   const body = generateFunctionBody(fn, context, indent, DEFAULT_STATE);
-  return `${indent}function ${context.getFunctionName(fn)}(${params}) ${body}`;
+  return `${indent}${context.liveDebug ? 'async ' : ''}function ${context.getFunctionName(fn)}(${params}) ${body}`;
 }
 
 /**
@@ -531,12 +535,23 @@ function generateFunctionBody(
   state = DEFAULT_STATE
 ): string {
   const body = fn.body.instructions ?? [];
-  const inner = `${indent}  `;
+  const inner = `${indent}${context.liveDebug ? '    ' : '  '}`;
   const prefix = generateParameterPrelude(fn, context, inner);
   const nested = [
     ...prefix,
     ...body.map(instruction => generateInstruction(instruction, context, inner, state))
   ].filter(Boolean);
+
+  if (context.liveDebug) {
+    const owningStruct = AstUtils.getContainerOfType(fn, isStructDeclaration);
+    const frameName = owningStruct ? `${owningStruct.name}.${fn.name}` : fn.name;
+    const line = (GrammarUtils.findNodeForProperty(fn.$cstNode, 'name')?.range.start.line
+      ?? fn.$cstNode?.range.start.line ?? 0) + 1;
+    const frameId = context.getAnonymousVarName('__frame');
+    return `${indent}{\n${indent}  const ${frameId} = __ps2_enter(${JSON.stringify(frameName)}, ${line});`
+      + `\n${indent}  try {\n${nested.join('\n')}\n${indent}  } finally {`
+      + `\n${indent}    __ps2_leave(${frameId});\n${indent}  }\n${indent}}`;
+  }
 
   if (nested.length === 0) {
     return `${indent}{}`;
@@ -730,7 +745,15 @@ function generateVarDecl(decl: VarDecl, context: Pseudo2GeneratorContext, indent
   if (decl.isArrayVariable) {
     const sizeExpr = decl.size ? genExpr(decl.size, context, state) : '0';
     const initExpr = decl.initializer ? genExpr(decl.initializer, context, state) : 'null';
-    declaration = `${indent}let ${name} = __ps2_array((${sizeExpr}), () => ${initExpr});`;
+    if (context.liveDebug) {
+      const items = context.getAnonymousVarName('__arrayItems');
+      const index = context.getAnonymousVarName('__arrayIndex');
+      declaration = `${indent}let ${name} = await (async () => { const ${items} = Array.from({ length: (${sizeExpr}) }); `
+        + `for (let ${index} = 0; ${index} < ${items}.length; ${index}++) ${items}[${index}] = ${initExpr}; `
+        + `return new ObservableArray(${items}); })();`;
+    } else {
+      declaration = `${indent}let ${name} = __ps2_array((${sizeExpr}), () => ${initExpr});`;
+    }
   } else if (decl.initializer) {
     declaration = `${indent}let ${name} = __ps2_wrapValue(${genExpr(decl.initializer, context, state)}, ${JSON.stringify(runtimeKindForExpr(decl.initializer))});`;
   } else {
@@ -840,9 +863,9 @@ function genCompoundAssignment(
   }
 
   const rhs = genExpr(assign.value, context, state);
-  return `(() => { ${before.join(' ')} const ${oldName} = ${read}; `
+  return `${context.liveDebug ? '(await (async () => {' : '(() => {'} ${before.join(' ')} const ${oldName} = ${read}; `
     + `const ${rightName} = ${rhs}; const ${nextName} = ${oldName} ${operator} ${rightName}; `
-    + `${write}; return ${nextName}; })()`;
+    + `${write}; return ${nextName}; })()${context.liveDebug ? ')' : ''}`;
 }
 
 /**

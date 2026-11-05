@@ -47,6 +47,30 @@ export interface ExecutionStep {
   status?: 'completed' | 'error';
 }
 
+/** Ein aktiver Pseudo2-Funktionsaufruf mit eigenem lokalen Wertesatz. */
+export interface DebugFrame {
+  id: number;
+  name: string;
+  line: number;
+  variables: VariableValue[];
+}
+
+/** Angehaltener Zustand eines interaktiven Debug-Laufs. */
+export interface PausedExecutionStep extends ExecutionStep {
+  line: number;
+  reason: 'entry' | 'step' | 'over' | 'out' | 'breakpoint';
+  globals: VariableValue[];
+  frames: DebugFrame[];
+}
+
+/** Steuerung eines im Browser-Worker laufenden Pseudo2-Debuggers. */
+export interface BrowserDebugSession {
+  completion: Promise<ObservedExecutionResult>;
+  resume(mode: 'continue' | 'step' | 'over' | 'out'): void;
+  setBreakpoints(lines: Iterable<number>): void;
+  stop(): void;
+}
+
 /** Obergrenze fuer gespeicherte Quellschritte je Programmlauf. */
 export const MAX_TRACE_STEPS = 1000;
 
@@ -146,31 +170,76 @@ function formatVariable(value, fieldNames, depth, path) {
   }
 }
 
-self.onmessage = function (event) {
+var resumeDebug;
+var debugBreakpoints = new Set();
+self.onmessage = async function (event) {
+  if (event.data.command) {
+    if (event.data.command === 'setBreakpoints') {
+      debugBreakpoints = new Set(event.data.breakpoints || []);
+    } else if (resumeDebug) {
+      var resume = resumeDebug;
+      resumeDebug = undefined;
+      resume(event.data.command);
+    }
+    return;
+  }
   var output = [];
   var traces = new Map();
   var traceCount = 0;
+  var debugMode = event.data.debugMode === true;
+  var debugModeState = 'step';
+  var firstPause = true;
+  var debugStepCount = 0;
+  var targetDepth = 0;
+  var nextFrameId = 1;
+  var globalValues = new Map();
+  var frameStack = [{ id: 0, name: 'Programm', line: 1, values: new Map() }];
+  debugBreakpoints = new Set(event.data.breakpoints || []);
   var stepLimit = Math.min(${MAX_TRACE_STEPS}, Math.max(0, Math.floor(Number(event.data.stepLimit) || 0)));
   var steps = [];
   var pendingSteps = [];
   var traceTruncated = false;
+  function writeOutput(value) {
+    output.push(value);
+    if (debugMode) self.postMessage({ type: 'output', text: value });
+  }
   var capturedConsole = {
-    log: function () { output.push(Array.from(arguments).map(formatValue).join(' ') + '\n'); },
-    warn: function () { output.push(Array.from(arguments).map(formatValue).join(' ') + '\n'); },
-    error: function () { output.push(Array.from(arguments).map(formatValue).join(' ') + '\n'); },
-    __ps2_write: function (value, ending) { output.push(formatValue(value) + String(ending)); }
+    log: function () { writeOutput(Array.from(arguments).map(formatValue).join(' ') + '\n'); },
+    warn: function () { writeOutput(Array.from(arguments).map(formatValue).join(' ') + '\n'); },
+    error: function () { writeOutput(Array.from(arguments).map(formatValue).join(' ') + '\n'); },
+    __ps2_write: function (value, ending) { writeOutput(formatValue(value) + String(ending)); }
   };
 
-  function currentVariables() {
-    return Array.from(traces.values()).map(function (entry) {
+  function snapshotValues(values) {
+    return Array.from(values.values()).map(function (entry) {
       return Object.assign({}, entry.metadata, {
         value: formatVariable(entry.value, event.data.fieldNames, 0, new Set())
       });
     });
   }
 
+  function currentVariables() { return snapshotValues(traces); }
+
+  function currentFrames() {
+    return frameStack.map(function (frame) {
+      return { id: frame.id, name: frame.name, line: frame.line, variables: snapshotValues(frame.values) };
+    });
+  }
+
+  function enterFrame(name, line) {
+    var id = nextFrameId++;
+    frameStack.push({ id: id, name: name, line: line, values: new Map() });
+    return id;
+  }
+
+  function leaveFrame(id) {
+    if (frameStack.length > 1 && frameStack[frameStack.length - 1].id === id) frameStack.pop();
+  }
+
   function trace(metadata, value) {
-    traces.set(metadata.id, { metadata: metadata, value: value });
+    var entry = { metadata: metadata, value: value };
+    traces.set(metadata.id, entry);
+    (metadata.global ? globalValues : frameStack[frameStack.length - 1].values).set(metadata.id, entry);
     traceCount++;
     if (traceCount <= 500 || traceCount % 5000 === 0) {
       try {
@@ -197,6 +266,37 @@ self.onmessage = function (event) {
   }
 
   function step(line) {
+    if (debugMode) {
+      frameStack[frameStack.length - 1].line = line;
+      var depth = frameStack.length;
+      var breakpoint = debugBreakpoints.has(line);
+      var shouldPause = firstPause || breakpoint || debugModeState === 'step'
+        || debugModeState === 'over' && depth <= targetDepth
+        || debugModeState === 'out' && depth < targetDepth;
+      if (!shouldPause) {
+        debugStepCount++;
+        if (debugStepCount % 200 === 0) {
+          return new Promise(function (resolve) { setTimeout(resolve, 0); });
+        }
+        return;
+      }
+      var reason = firstPause ? 'entry' : breakpoint ? 'breakpoint' : debugModeState === 'over'
+        ? 'over' : debugModeState === 'out' ? 'out' : 'step';
+      firstPause = false;
+      debugModeState = 'paused';
+      self.postMessage({ type: 'paused', step: {
+        line: line, outputCount: output.length, variables: currentVariables(), reason: reason,
+        globals: snapshotValues(globalValues), frames: currentFrames()
+      } });
+      return new Promise(function (resolve) {
+        resumeDebug = function (command) {
+          targetDepth = frameStack.length;
+          debugModeState = command === 'step' || command === 'over' || command === 'out'
+            ? command : 'continue';
+          resolve();
+        };
+      });
+    }
     if (stepLimit === 0) return;
     if (steps.length >= stepLimit) {
       traceTruncated = true;
@@ -212,7 +312,13 @@ self.onmessage = function (event) {
   }
 
   try {
-    new Function('console', '__ps2_trace', '__ps2_step', '"use strict";\n' + event.data.source)(capturedConsole, trace, step);
+    if (debugMode) {
+      var AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+      await new AsyncFunction('console', '__ps2_trace', '__ps2_step', '__ps2_enter', '__ps2_leave',
+        '"use strict";\n' + event.data.source)(capturedConsole, trace, step, enterFrame, leaveFrame);
+    } else {
+      new Function('console', '__ps2_trace', '__ps2_step', '"use strict";\n' + event.data.source)(capturedConsole, trace, step);
+    }
     finishTrace('completed');
     self.postMessage({ output: output, variables: currentVariables(), steps: steps, traceTruncated: traceTruncated });
   } catch (error) {
@@ -287,4 +393,84 @@ export function executeObservedJavaScript(
     });
     worker.postMessage({ source, fieldNames, stepLimit });
   });
+}
+
+/** Startet die interaktive, quellenorientierte Ausfuehrung in einem eigenen Web Worker. */
+export function startObservedDebug(
+  source: string,
+  fieldNames: Record<string, string>,
+  breakpoints: Iterable<number>,
+  onPause: (step: PausedExecutionStep) => void,
+  onVariable: (variable: VariableValue) => void,
+  onOutput: (text: string) => void,
+  timeoutMs = 5_000
+): BrowserDebugSession {
+  const workerUrl = URL.createObjectURL(new Blob([OBSERVED_WORKER_SCRIPT], { type: 'text/javascript' }));
+  const worker = new Worker(workerUrl);
+  const values = new Map<string, VariableValue>();
+  const output: string[] = [];
+  let resolveCompletion!: (result: ObservedExecutionResult) => void;
+  const completion = new Promise<ObservedExecutionResult>(resolve => { resolveCompletion = resolve; });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let finished = false;
+  let paused = false;
+
+  const finish = (result: ObservedExecutionResult) => {
+    if (finished) return;
+    finished = true;
+    if (timer) clearTimeout(timer);
+    worker.terminate();
+    URL.revokeObjectURL(workerUrl);
+    resolveCompletion(result);
+  };
+  const armTimeout = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => finish({
+      output, error: `Zeitlimit von ${timeoutMs / 1000} Sekunden ueberschritten.`, variables: [...values.values()]
+    }), timeoutMs);
+  };
+
+  worker.onmessage = event => {
+    const message = event.data as ObservedExecutionResult & {
+      type?: string; variable?: VariableValue; step?: PausedExecutionStep; text?: string;
+    };
+    if (message.type === 'variable' && message.variable) {
+      values.set(message.variable.id, message.variable);
+      onVariable(message.variable);
+    } else if (message.type === 'output' && typeof message.text === 'string') {
+      output.push(message.text);
+      onOutput(message.text);
+    } else if (message.type === 'paused' && message.step) {
+      paused = true;
+      if (timer) clearTimeout(timer);
+      onPause(message.step);
+    } else if (!message.type) {
+      finish({
+        output: Array.isArray(message.output) ? message.output.map(String) : output,
+        error: message.error,
+        variables: Array.isArray(message.variables) ? message.variables : [...values.values()]
+      });
+    }
+  };
+  worker.onerror = event => finish({
+    output, error: event.message || 'Unbekannter Worker-Fehler.', variables: [...values.values()]
+  });
+  armTimeout();
+  worker.postMessage({ source, fieldNames, debugMode: true, breakpoints: [...breakpoints] });
+
+  return {
+    completion,
+    resume(mode) {
+      if (finished || !paused) return;
+      paused = false;
+      armTimeout();
+      worker.postMessage({ command: mode });
+    },
+    setBreakpoints(lines) {
+      if (!finished) worker.postMessage({ command: 'setBreakpoints', breakpoints: [...lines] });
+    },
+    stop() {
+      finish({ output, error: 'Ausfuehrung gestoppt.', variables: [...values.values()] });
+    }
+  };
 }

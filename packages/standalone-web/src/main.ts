@@ -18,15 +18,17 @@ import {
   executeObservedJavaScript,
   generatePrettyPseudo2,
   generateProgram,
+  MAX_TRACE_STEPS,
   PSEUDO2_VERSION,
   Pseudo2GeneratorContext,
+  type ExecutionStep,
   type Program,
   type VariableDefinition,
   type VariableValue
 } from 'pseudo2-language';
 
 /** Auswaehlbare Bereiche des Ergebnisfensters. */
-type ResultTab = 'output' | 'javascript' | 'diagnostics' | 'pretty';
+type ResultTab = 'output' | 'trace' | 'javascript' | 'diagnostics' | 'pretty';
 
 /** Normalisierte Diagnose fuer die browserseitige Darstellung. */
 interface StandaloneDiagnostic {
@@ -120,9 +122,19 @@ let completionEnd = 0;
 let suppressNextCompletion = false;
 /** Editorversion, deren Werte zuletzt erfolgreich ausgefuehrt wurden. */
 let executedRevision = -1;
+/** Gespeicherte Schritte und Endwerte des letzten ausdruecklichen Trace-Laufs. */
+let traceSteps: ExecutionStep[] = [];
+let traceOutput: string[] = [];
+let traceDefinitions: VariableDefinition[] = [];
+let traceFinalValues = new Map<string, VariableValue>();
+let traceError: string | undefined;
+let traceTruncated = false;
+let selectedTraceStep = 0;
+let activeTraceLine: number | undefined;
 /** Letzter Inhalt jeder Ergebnisansicht. */
 const resultValues: Record<ResultTab, string> = {
   output: 'Noch nicht ausgefuehrt.',
+  trace: 'Noch kein Trace aufgezeichnet.',
   javascript: 'Noch nicht generiert.',
   diagnostics: 'Noch nicht validiert.',
   pretty: 'Noch nicht erzeugt.'
@@ -131,6 +143,7 @@ const resultValues: Record<ResultTab, string> = {
 const sourceEditor = requireElement<HTMLTextAreaElement>('#source-editor');
 const highlightLayer = requireElement<HTMLElement>('#highlight-layer');
 const lineNumbers = requireElement<HTMLElement>('#line-numbers');
+const traceLineHighlight = requireElement<HTMLElement>('#trace-line-highlight');
 const resultContent = requireElement<HTMLElement>('#result-content');
 const sourceStatus = requireElement<HTMLElement>('#source-status');
 const editorDiagnostic = requireElement<HTMLElement>('#editor-diagnostic');
@@ -140,6 +153,11 @@ const editorDiagnosticText = requireElement<HTMLElement>('#editor-diagnostic-tex
 const completionList = requireElement<HTMLElement>('#completion-list');
 const variableList = requireElement<HTMLElement>('#variable-list');
 const languageVersion = requireElement<HTMLElement>('#language-version');
+const traceControls = requireElement<HTMLElement>('#trace-controls');
+const tracePosition = requireElement<HTMLInputElement>('#trace-position');
+const tracePrevious = requireElement<HTMLButtonElement>('#trace-previous');
+const traceNext = requireElement<HTMLButtonElement>('#trace-next');
+const traceCounter = requireElement<HTMLElement>('#trace-counter');
 const actionButtons = [...document.querySelectorAll<HTMLButtonElement>('.toolbar-actions button')];
 
 /**
@@ -453,13 +471,14 @@ async function prettyPrintCurrentSource(): Promise<void> {
  * Generiert JavaScript und fuehrt es in einem isolierten Web Worker aus. Ausgabe,
  * Laufzeitfehler und Zeitlimit werden gemeinsam im Ausgabe-Tab dargestellt.
  */
-async function runCurrentSource(): Promise<void> {
+async function runCurrentSource(traceMode = false): Promise<void> {
   const analysis = await analyzeCurrentSource();
   if (!analysis.program) {
     return;
   }
 
-  const context = Pseudo2GeneratorContext.fromProgram(analysis.program, true);
+  clearTrace();
+  const context = Pseudo2GeneratorContext.fromProgram(analysis.program, true, traceMode);
   const javaScript = generateProgram(analysis.program);
   const fieldNames = collectStructFieldNames(analysis.program, context);
   const executable = generateProgram(analysis.program, context);
@@ -484,7 +503,7 @@ async function runCurrentSource(): Promise<void> {
         }
       });
     }
-  });
+  }, 5_000, traceMode ? MAX_TRACE_STEPS : 0);
   running = false;
   const output = execution.output.length > 0 ? execution.output.join('') : '(keine Ausgabe)';
   const errorSeparator = output.endsWith('\n\n') ? '' : output.endsWith('\n') ? '\n' : '\n\n';
@@ -495,8 +514,17 @@ async function runCurrentSource(): Promise<void> {
     executedRevision = sourceRevision;
     for (const variable of execution.variables ?? []) observed.set(variable.id, variable);
     showVariables(analysis.variables, observed, execution.error ? 'Nicht erreicht.' : 'Nicht ausgefuehrt.');
+    if (traceMode) {
+      traceSteps = execution.steps ?? [];
+      traceOutput = execution.output;
+      traceDefinitions = analysis.variables;
+      traceFinalValues = new Map(observed);
+      traceError = execution.error;
+      traceTruncated = execution.traceTruncated === true;
+      selectedTraceStep = 0;
+    }
   }
-  showResultTab('output');
+  showResultTab(traceMode && traceSteps.length > 0 ? 'trace' : 'output');
 }
 
 /** Zeigt alle Deklarationen, zuletzt beobachtete Werte und die Quellposition. */
@@ -764,7 +792,89 @@ function showResultTab(tab: ResultTab): void {
     button.classList.toggle('active', selected);
     button.setAttribute('aria-pressed', String(selected));
   }
-  resultContent.textContent = resultValues[activeResultTab];
+  traceControls.hidden = tab !== 'trace' || traceSteps.length === 0;
+  if (tab === 'trace' && traceSteps.length > 0) {
+    renderTraceStep();
+  } else {
+    setTraceLine(undefined);
+    resultContent.textContent = resultValues[tab];
+    if (traceSteps.length > 0 && executedRevision === sourceRevision) {
+      showVariables(traceDefinitions, traceFinalValues, traceError ? 'Nicht erreicht.' : 'Nicht ausgefuehrt.');
+    }
+  }
+}
+
+/** Verwirft einen Trace, sobald ein neuer Lauf oder Quelltext beginnt. */
+function clearTrace(): void {
+  traceSteps = [];
+  traceOutput = [];
+  traceDefinitions = [];
+  traceFinalValues = new Map();
+  traceError = undefined;
+  traceTruncated = false;
+  selectedTraceStep = 0;
+  resultValues.trace = 'Noch kein Trace aufgezeichnet.';
+  traceControls.hidden = true;
+  setTraceLine(undefined);
+}
+
+/** Zeigt einen gespeicherten Schritt samt Ausgabe und damaligen Variablenwerten. */
+function renderTraceStep(): void {
+  const step = traceSteps[selectedTraceStep];
+  if (!step) return;
+  const lastIndex = traceSteps.length - 1;
+  tracePosition.max = String(lastIndex);
+  tracePosition.value = String(selectedTraceStep);
+  tracePrevious.disabled = selectedTraceStep === 0;
+  traceNext.disabled = selectedTraceStep === lastIndex;
+  traceCounter.textContent = `${selectedTraceStep + 1} / ${traceSteps.length}`;
+
+  const lineText = step.line === null
+    ? step.status === 'error' ? 'Laufzeitfehler' : 'Programmende'
+    : `Zeile ${step.line}: ${sourceEditor.value.split(/\r?\n/)[step.line - 1]?.trim() ?? ''}`;
+  const output = traceOutput.slice(0, step.outputCount).join('');
+  const error = traceError && (step.status === 'error' || selectedTraceStep === lastIndex)
+    ? `\n\nLaufzeitfehler: ${traceError}` : '';
+  const limit = traceTruncated
+    ? `\n\nTrace auf ${MAX_TRACE_STEPS} Quellschritte begrenzt; das Programm lief weiter.` : '';
+  resultValues.trace = `${lineText}\n\nAusgabe bis hier:\n${output || '(keine Ausgabe)'}${error}${limit}`;
+  resultContent.textContent = resultValues.trace;
+  showVariables(traceDefinitions, new Map(step.variables.map(variable => [variable.id, variable])), 'Noch nicht erreicht.');
+  setTraceLine(step.line ?? undefined);
+}
+
+/** Waehlt einen vorhandenen Trace-Schritt und aktualisiert die aktive Ansicht. */
+function selectTraceStep(index: number): void {
+  if (traceSteps.length === 0) return;
+  selectedTraceStep = Math.max(0, Math.min(traceSteps.length - 1, index));
+  if (activeResultTab === 'trace') renderTraceStep();
+}
+
+/** Markiert und zentriert die aktuelle Quellzeile des aufgezeichneten Schritts. */
+function setTraceLine(line: number | undefined): void {
+  if (activeTraceLine !== undefined) {
+    lineNumbers.children[activeTraceLine - 1]?.classList.remove('line-number-trace');
+  }
+  activeTraceLine = line;
+  traceLineHighlight.hidden = line === undefined;
+  if (line === undefined) return;
+  lineNumbers.children[line - 1]?.classList.add('line-number-trace');
+  const lineHeight = Number.parseFloat(window.getComputedStyle(sourceEditor).lineHeight) || 21.7;
+  const targetTop = Number.parseFloat(window.getComputedStyle(sourceEditor).paddingTop) + (line - 1) * lineHeight;
+  if (targetTop < sourceEditor.scrollTop || targetTop + lineHeight > sourceEditor.scrollTop + sourceEditor.clientHeight) {
+    sourceEditor.scrollTop = Math.max(0, targetTop - sourceEditor.clientHeight / 2);
+  }
+  syncEditorScroll();
+}
+
+/** Haelt die Quellzeilenmarkierung beim Scrollen mit der Textebene synchron. */
+function positionTraceLine(): void {
+  if (activeTraceLine === undefined) return;
+  const style = window.getComputedStyle(sourceEditor);
+  const lineHeight = Number.parseFloat(style.lineHeight) || 21.7;
+  const paddingTop = Number.parseFloat(style.paddingTop) || 0;
+  traceLineHighlight.style.top = `${paddingTop + (activeTraceLine - 1) * lineHeight - sourceEditor.scrollTop}px`;
+  traceLineHighlight.style.height = `${lineHeight}px`;
 }
 
 /**
@@ -815,6 +925,7 @@ function syncEditorScroll(): void {
   highlightLayer.scrollTop = sourceEditor.scrollTop;
   highlightLayer.scrollLeft = sourceEditor.scrollLeft;
   lineNumbers.scrollTop = sourceEditor.scrollTop;
+  positionTraceLine();
 }
 
 /**
@@ -992,7 +1103,7 @@ function renderLineNumbers(source: string, diagnostics: StandaloneDiagnostic[]):
       .filter(diagnostic => diagnostic.line <= line && diagnostic.endLine >= line)
       .sort((left, right) => diagnosticPriority(left) - diagnosticPriority(right));
     const primary = lineDiagnostics[0];
-    const className = primary ? ` line-number-${diagnosticClass(primary)}` : '';
+    const className = `${primary ? ` line-number-${diagnosticClass(primary)}` : ''}${line === activeTraceLine ? ' line-number-trace' : ''}`;
     const title = lineDiagnostics.length > 0
       ? ` title="${escapeHtmlAttribute(lineDiagnostics.map(diagnostic => diagnostic.message).join('\n'))}"`
       : '';
@@ -1131,7 +1242,14 @@ document.querySelector('#pretty-button')?.addEventListener('click', () => {
 document.querySelector('#run-button')?.addEventListener('click', () => {
   void runBusyAction(runCurrentSource);
 });
+document.querySelector('#trace-button')?.addEventListener('click', () => {
+  void runBusyAction(() => runCurrentSource(true));
+});
 document.querySelector('#save-button')?.addEventListener('click', saveCurrentSource);
+
+tracePrevious.addEventListener('click', () => selectTraceStep(selectedTraceStep - 1));
+traceNext.addEventListener('click', () => selectTraceStep(selectedTraceStep + 1));
+tracePosition.addEventListener('input', () => selectTraceStep(Number(tracePosition.value)));
 
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-result-tab]')) {
   button.addEventListener('click', () => {
@@ -1145,6 +1263,7 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-result-
 sourceEditor.addEventListener('input', () => {
   sourceRevision++;
   executedRevision = -1;
+  clearTrace();
   editorDiagnostics = [];
   activeEditorDiagnostic = undefined;
   resultValues.diagnostics = 'Quelltext geaendert. Erneut validieren.';
@@ -1152,8 +1271,8 @@ sourceEditor.addEventListener('input', () => {
   showEditorDiagnostic(undefined);
   setStatus('Geaendert');
   showVariables([]);
-  if (activeResultTab === 'diagnostics') {
-    showResultTab('diagnostics');
+  if (activeResultTab === 'diagnostics' || activeResultTab === 'trace') {
+    showResultTab(activeResultTab);
   }
   scheduleLiveValidation();
   if (suppressNextCompletion) {

@@ -4,7 +4,7 @@
  * @author Abdul
  */
 
-import { AstUtils } from 'langium';
+import { AstUtils, GrammarUtils } from 'langium';
 import type { AstNode } from 'langium';
 import type {
   ArrayLiteral,
@@ -238,6 +238,23 @@ function generateInstruction(
   indent = '',
   state = DEFAULT_STATE
 ): string {
+  const generated = generateInstructionCode(instruction, context, indent, state);
+  if (!generated || !context.traceSteps || isTopLevelDeclaration(instruction)
+    || isBracedBlock(instruction) || isIndentedBlock(instruction)
+    || isWhileLoop(instruction) || isForLoop(instruction) || isDoWhileLoop(instruction)) {
+    return generated;
+  }
+  const step = stepCall(instruction, context, indent);
+  return step ? `${step}\n${generated}` : generated;
+}
+
+/** Generiert den Anweisungstext ohne die optionale Schrittmarke. */
+function generateInstructionCode(
+  instruction: Instruction,
+  context: Pseudo2GeneratorContext,
+  indent = '',
+  state = DEFAULT_STATE
+): string {
   if (isBracedBlock(instruction) || isIndentedBlock(instruction)) {
     return generateBlock(instruction, context, indent, state);
   }
@@ -260,6 +277,18 @@ function generateInstruction(
   throw new Error(`Unsupported instruction type: ${(instruction as AstNode).$type}`);
 }
 
+/** Meldet die Pseudo2-Zeile unmittelbar vor ihrer Ausfuehrung. */
+function stepCall(node: AstNode, context: Pseudo2GeneratorContext, indent = '', keyword?: string): string | undefined {
+  const line = executableLine(node, keyword);
+  return context.traceSteps && line !== undefined ? `${indent}__ps2_step(${line + 1});` : undefined;
+}
+
+/** Ueberspringt vorangestellte Verifikationsannotationen bei Schleifenknoten. */
+function executableLine(node: AstNode, keyword?: string): number | undefined {
+  return (keyword ? GrammarUtils.findNodeForKeyword(node.$cstNode, keyword)?.range.start.line : undefined)
+    ?? node.$cstNode?.range.start.line;
+}
+
 /**
  * Erzeugt einen JavaScript-Block mit rekursiv generierten Anweisungen.
  *
@@ -269,18 +298,23 @@ function generateInstruction(
  * @param state Aktueller Generatorzustand.
  * @returns Leerer oder mehrzeiliger JavaScript-Block.
  */
-function generateBlock(block: Block, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
+function generateBlock(
+  block: Block,
+  context: Pseudo2GeneratorContext,
+  indent = '',
+  state = DEFAULT_STATE,
+  prefix?: string
+): string {
   const body = block.instructions ?? [];
 
-  if (body.length === 0) {
+  if (body.length === 0 && !prefix) {
     return `${indent}{}`;
   }
 
   const inner = `${indent}  `;
-  const nested = body
+  const nested = [prefix, ...body
     .map(instruction => generateInstruction(instruction, context, inner, state))
-    .filter(Boolean)
-    .join('\n');
+  ].filter(Boolean).join('\n');
 
   return `${indent}{\n${nested}\n${indent}}`;
 }
@@ -326,7 +360,11 @@ function generateWhileLoop(
 ): string {
   const condition = genExpr(loop.condition, context, state);
   const body = generateBlock(loop.body, context, indent, state);
-  return `${indent}while (${condition}) ${body}`;
+  const line = executableLine(loop, 'while');
+  const checked = context.traceSteps && line !== undefined
+    ? `(__ps2_step(${line + 1}), ${condition})`
+    : condition;
+  return `${indent}while (${checked}) ${body}`;
 }
 
 /**
@@ -354,6 +392,11 @@ function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent
   const stepOp = loop.direction === 'to' ? '+' : '-';
   const trace = loop.iterator ? traceCall(loop.iterator, context, loop) : undefined;
   const update = `${iterName}.set(${iterName}.get() ${stepOp} ${stepName}.get())`;
+  const line = executableLine(loop, 'for');
+  const condition = `${iterName}.get() ${directionOp} ${endName}.get()`;
+  const checked = context.traceSteps && line !== undefined
+    ? `(__ps2_step(${line + 1}), ${condition})`
+    : condition;
 
   return [
     `${indent}let ${iterName} = new ObservableScalar(${from});`,
@@ -363,7 +406,7 @@ function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent
     `${indent}if (${stepName}.get() <= 0) {`,
     `${indent}  throw new Error("Invoked for-loop with negative step-size " + ${stepName}.get());`,
     `${indent}}`,
-    `${indent}for (${iterName}.get(); ${iterName}.get() ${directionOp} ${endName}.get(); ${trace ? `(${update}, ${trace})` : update}) ${body}`
+    `${indent}for (${iterName}.get(); ${checked}; ${trace ? `(${update}, ${trace})` : update}) ${body}`
   ].join('\n');
 }
 
@@ -382,7 +425,7 @@ function generateDoWhileLoop(
   indent = '',
   state = DEFAULT_STATE
 ): string {
-  const body = generateBlock(loop.body, context, indent, state);
+  const body = generateBlock(loop.body, context, indent, state, stepCall(loop, context, `${indent}  `, 'do'));
   const condition = genExpr(loop.condition, context, state);
   return `${indent}do ${body} while (${condition});`;
 }

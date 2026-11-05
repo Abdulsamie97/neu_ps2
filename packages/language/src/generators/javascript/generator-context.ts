@@ -37,6 +37,8 @@ function targetIdentifier(name: string): string {
 export class Pseudo2GeneratorContext {
   /** Fuegt nur fuer beobachtete Programmlaeufe Variablenmeldungen ein. */
   readonly traceVariables: boolean;
+  /** Fuegt nur fuer die nachtraegliche Schrittansicht Quellzeilenmarken ein. */
+  readonly traceSteps: boolean;
   /** Generierte Namen aller Variablen, Parameter und Struct-Attribute. */
   private readonly variableNames = new Map<Variable, string>();
   /** Generierte Namen globaler Funktionen und Methoden. */
@@ -57,8 +59,9 @@ export class Pseudo2GeneratorContext {
   private structFieldCounter = 0;
 
   /** @param traceVariables Aktiviert optionale Wertmeldungen fuer den Standalone-Editor. */
-  constructor(traceVariables = false) {
+  constructor(traceVariables = false, traceSteps = false) {
     this.traceVariables = traceVariables;
+    this.traceSteps = traceSteps;
   }
 
   /**
@@ -68,8 +71,8 @@ export class Pseudo2GeneratorContext {
    * @param traceVariables Fuegt beim Generieren Beobachtungsaufrufe ein.
    * @returns Vollständig initialisierter Generator-Kontext.
    */
-  static fromProgram(program: Program, traceVariables = false): Pseudo2GeneratorContext {
-    const context = new Pseudo2GeneratorContext(traceVariables);
+  static fromProgram(program: Program, traceVariables = false, traceSteps = false): Pseudo2GeneratorContext {
+    const context = new Pseudo2GeneratorContext(traceVariables, traceSteps);
     context.registerProgram(program);
     return context;
   }

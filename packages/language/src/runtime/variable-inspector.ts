@@ -35,7 +35,20 @@ export interface ObservedExecutionResult {
   output: string[];
   error?: string;
   variables: VariableValue[];
+  steps?: ExecutionStep[];
+  traceTruncated?: boolean;
 }
+
+/** Zustand unmittelbar vor einer Pseudo2-Zeile oder am Programmende. */
+export interface ExecutionStep {
+  line: number | null;
+  outputCount: number;
+  variables: VariableValue[];
+  status?: 'completed' | 'error';
+}
+
+/** Obergrenze fuer gespeicherte Quellschritte je Programmlauf. */
+export const MAX_TRACE_STEPS = 1000;
 
 /**
  * Sammelt Variablen, Parameter und Schleifeniteratoren mit stabiler Generator-ID.
@@ -137,6 +150,10 @@ self.onmessage = function (event) {
   var output = [];
   var traces = new Map();
   var traceCount = 0;
+  var stepLimit = Math.min(${MAX_TRACE_STEPS}, Math.max(0, Math.floor(Number(event.data.stepLimit) || 0)));
+  var steps = [];
+  var pendingSteps = [];
+  var traceTruncated = false;
   var capturedConsole = {
     log: function () { output.push(Array.from(arguments).map(formatValue).join(' ') + '\n'); },
     warn: function () { output.push(Array.from(arguments).map(formatValue).join(' ') + '\n'); },
@@ -166,14 +183,46 @@ self.onmessage = function (event) {
     }
   }
 
+  function flushSteps() {
+    if (pendingSteps.length > 0) {
+      self.postMessage({ type: 'steps', steps: pendingSteps });
+      pendingSteps = [];
+    }
+  }
+
+  function recordStep(entry) {
+    steps.push(entry);
+    pendingSteps.push(entry);
+    if (pendingSteps.length >= 25) flushSteps();
+  }
+
+  function step(line) {
+    if (stepLimit === 0) return;
+    if (steps.length >= stepLimit) {
+      traceTruncated = true;
+      return;
+    }
+    recordStep({ line: line, outputCount: output.length, variables: currentVariables() });
+  }
+
+  function finishTrace(status) {
+    if (stepLimit === 0) return;
+    recordStep({ line: null, outputCount: output.length, variables: currentVariables(), status: status });
+    flushSteps();
+  }
+
   try {
-    new Function('console', '__ps2_trace', '"use strict";\n' + event.data.source)(capturedConsole, trace);
-    self.postMessage({ output: output, variables: currentVariables() });
+    new Function('console', '__ps2_trace', '__ps2_step', '"use strict";\n' + event.data.source)(capturedConsole, trace, step);
+    finishTrace('completed');
+    self.postMessage({ output: output, variables: currentVariables(), steps: steps, traceTruncated: traceTruncated });
   } catch (error) {
+    finishTrace('error');
     self.postMessage({
       output: output,
       error: error instanceof Error ? error.name + ': ' + error.message : String(error),
-      variables: currentVariables()
+      variables: currentVariables(),
+      steps: steps,
+      traceTruncated: traceTruncated
     });
   }
 };`;
@@ -187,12 +236,14 @@ export function executeObservedJavaScript(
   source: string,
   fieldNames: Record<string, string>,
   onVariable: (variable: VariableValue) => void,
-  timeoutMs = 5_000
+  timeoutMs = 5_000,
+  stepLimit = 0
 ): Promise<ObservedExecutionResult> {
   return new Promise(resolve => {
     const workerUrl = URL.createObjectURL(new Blob([OBSERVED_WORKER_SCRIPT], { type: 'text/javascript' }));
     const worker = new Worker(workerUrl);
     const lastValues = new Map<string, VariableValue>();
+    const lastSteps: ExecutionStep[] = [];
     let settled = false;
 
     const finish = (result: ObservedExecutionResult) => {
@@ -201,13 +252,14 @@ export function executeObservedJavaScript(
       clearTimeout(timeout);
       worker.terminate();
       URL.revokeObjectURL(workerUrl);
-      resolve({ ...result, variables: result.variables ?? [...lastValues.values()] });
+      resolve({ ...result, variables: result.variables ?? [...lastValues.values()], steps: result.steps ?? lastSteps });
     };
 
     const timeout = setTimeout(() => finish({
       output: [],
       error: `Zeitlimit von ${timeoutMs / 1000} Sekunden ueberschritten.`,
-      variables: [...lastValues.values()]
+      variables: [...lastValues.values()],
+      steps: lastSteps
     }), timeoutMs);
 
     worker.onmessage = event => {
@@ -215,19 +267,24 @@ export function executeObservedJavaScript(
       if (result.type === 'variable' && result.variable) {
         lastValues.set(result.variable.id, result.variable);
         onVariable(result.variable);
+      } else if (result.type === 'steps' && Array.isArray(result.steps)) {
+        lastSteps.push(...result.steps);
       } else {
         finish({
           output: Array.isArray(result.output) ? result.output.map(String) : [],
           error: typeof result.error === 'string' ? result.error : undefined,
-          variables: Array.isArray(result.variables) ? result.variables : [...lastValues.values()]
+          variables: Array.isArray(result.variables) ? result.variables : [...lastValues.values()],
+          steps: Array.isArray(result.steps) ? result.steps : lastSteps,
+          traceTruncated: result.traceTruncated === true
         });
       }
     };
     worker.onerror = event => finish({
       output: [],
       error: event.message || 'Unbekannter Worker-Fehler.',
-      variables: [...lastValues.values()]
+      variables: [...lastValues.values()],
+      steps: lastSteps
     });
-    worker.postMessage({ source, fieldNames });
+    worker.postMessage({ source, fieldNames, stepLimit });
   });
 }

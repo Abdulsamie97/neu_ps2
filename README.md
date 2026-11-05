@@ -852,6 +852,14 @@ Ein Klick auf den Deklarationsort springt zur Quellzeile. Bei mehrfachen
 Funktionsaufrufen bleibt fuer lokale Variablen der Wert des letzten Aufrufs
 sichtbar; die Anzeige ist kein interaktiver Stack-Debugger.
 
+Im Einzeldatei-Runner startet `Trace` einen eigenen beobachteten Lauf. Der
+gleichnamige Ergebnis-Tab zeigt danach mit Pfeilschaltflaechen und Schieberegler die
+ausgefuehrten Pseudo2-Zeilen, die bis dahin erzeugte Ausgabe und die damals
+beobachteten Variablenwerte; die aktuelle Zeile wird im Editor markiert. Die
+Aufzeichnung ist auf 1000 Quellschritte begrenzt, das Programm laeuft danach
+normal weiter. Dies ist eine nachtraegliche Schrittansicht, kein interaktiver
+Haltepunkt- oder Stack-Debugger. `Ausfuehren` bleibt ohne Schrittaufzeichnung.
+
 Der Einzeldatei-Runner enthaelt bewusst nur browserfaehige Funktionen. C-Ausfuehrung
 und VeriFast bleiben in der vollstaendigen Workbench, weil dafuer native Prozesse
 auf dem Server gestartet werden muessen.

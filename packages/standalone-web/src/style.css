@@ -126,6 +126,10 @@ button.primary:hover {
   background: #fff;
 }
 
+.result-pane {
+  grid-template-rows: 38px auto minmax(0, 1fr);
+}
+
 .result-pane,
 .variables-pane {
   border-left: 1px solid #c7c7c7;
@@ -330,6 +334,26 @@ button.primary:hover {
   font-weight: 700;
 }
 
+.line-number-trace {
+  color: #075480;
+  background: #dff2ff;
+  box-shadow: inset 3px 0 #0879b8;
+  font-weight: 700;
+}
+
+.trace-line-highlight {
+  position: absolute;
+  z-index: 0;
+  right: 0;
+  left: 52px;
+  background: #e5f4ff;
+  pointer-events: none;
+}
+
+.trace-line-highlight[hidden] {
+  display: none;
+}
+
 #highlight-layer {
   z-index: 1;
   color: #202020;
@@ -532,6 +556,44 @@ button.primary:hover {
   background: #2c2c2c;
 }
 
+.trace-controls {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid #393939;
+  padding: 7px 12px;
+  color: #ddd;
+  background: #202020;
+  font-size: 12px;
+}
+
+.trace-controls[hidden] {
+  display: none;
+}
+
+.trace-controls button {
+  flex: none;
+  min-width: 32px;
+  padding: 0 6px;
+}
+
+.trace-controls button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.trace-controls input {
+  flex: 1;
+  min-width: 40px;
+  accent-color: #ec4aa8;
+}
+
+#trace-counter {
+  min-width: 62px;
+  text-align: right;
+  white-space: nowrap;
+}
+
 #result-content {
   min-width: 0;
   min-height: 0;
@@ -609,9 +671,12 @@ button.primary:hover {
   }
 
   .editor-pane,
-  .result-pane,
   .variables-pane {
     grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .result-pane {
+    grid-template-rows: auto auto minmax(0, 1fr);
   }
 
   .footer-bar {

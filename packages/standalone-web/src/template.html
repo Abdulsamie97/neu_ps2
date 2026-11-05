@@ -22,6 +22,7 @@
           <button type="button" id="generate-button">JavaScript</button>
           <button type="button" id="pretty-button">Pretty Print</button>
           <button type="button" id="run-button" class="primary">Ausfuehren</button>
+          <button type="button" id="trace-button">Trace</button>
           <button type="button" id="save-button">Speichern</button>
         </div>
       </header>
@@ -33,6 +34,7 @@
             <span id="source-status" class="status" aria-live="polite">Bereit</span>
           </div>
           <div class="editor-stack">
+            <div id="trace-line-highlight" class="trace-line-highlight" aria-hidden="true" hidden></div>
             <pre id="line-numbers" aria-hidden="true">1</pre>
             <pre id="highlight-layer" class="editor-layer" aria-hidden="true"></pre>
             <textarea
@@ -64,10 +66,17 @@
             <span id="result-heading">Ergebnis</span>
             <nav class="result-tabs" aria-label="Ergebnisansicht">
               <button type="button" class="tab-button active" data-result-tab="output">Ausgabe</button>
+              <button type="button" class="tab-button" data-result-tab="trace">Trace</button>
               <button type="button" class="tab-button" data-result-tab="javascript">JavaScript</button>
               <button type="button" class="tab-button" data-result-tab="diagnostics">Diagnosen</button>
               <button type="button" class="tab-button" data-result-tab="pretty">Pretty Print</button>
             </nav>
+          </div>
+          <div id="trace-controls" class="trace-controls" hidden>
+            <button type="button" id="trace-previous" title="Vorheriger Schritt" aria-label="Vorheriger Schritt">&#9664;</button>
+            <input id="trace-position" type="range" min="0" max="0" value="0" aria-label="Trace-Schritt">
+            <button type="button" id="trace-next" title="Naechster Schritt" aria-label="Naechster Schritt">&#9654;</button>
+            <span id="trace-counter" aria-live="polite"></span>
           </div>
           <pre id="result-content" tabindex="0" aria-live="polite">Noch nicht ausgefuehrt.</pre>
         </section>

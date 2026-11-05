@@ -35,6 +35,9 @@ assert.match(html, /diagnostic-range/, 'The standalone bundle must contain sourc
 assert.match(html, /data-diagnostic-line/, 'The standalone bundle must contain diagnostic line markers.');
 assert.match(html, /id="completion-list"/, 'The editor must contain its completion list.');
 assert.match(html, /id="variable-list"/, 'The UI must contain the runtime variable panel.');
+assert.match(html, /id="trace-button"/, 'The standalone editor must offer an explicit step trace.');
+assert.match(html, /id="trace-position"/, 'The trace must have a step navigator.');
+assert.match(html, /id="trace-line-highlight"/, 'The current Pseudo2 source line must be marked.');
 
 const source = `func square(value)
     return value * value
@@ -68,6 +71,7 @@ assert.ok(
 );
 
 const javaScript = generateProgram(document.parseResult.value);
+assert.equal(javaScript.includes('__ps2_step('), false, 'Normal JavaScript output must not contain debug hooks.');
 const output = [];
 const capturedConsole = {
   log: (...values) => output.push(values.map(String).join(' ')),
@@ -129,6 +133,27 @@ const workerResult = workerMessages.at(-1);
 assert.equal(workerResult.error, undefined, 'The shared worker script must execute generated JavaScript.');
 assert.equal(workerResult.variables.find(item => item.name === 'local').value, '6');
 assert.equal(workerResult.variables.find(item => item.name === 'number').changedLine, 6);
+assert.deepEqual(Array.from(workerResult.steps), [], 'A normal run must not record steps.');
+
+const stepJavaScript = generateProgram(tracedProgram, Pseudo2GeneratorContext.fromProgram(tracedProgram, true, true));
+assert.ok(stepJavaScript.includes('__ps2_step(5)'), 'Debug output must retain the Pseudo2 source line.');
+const stepMessages = [];
+const stepWorker = { postMessage: message => stepMessages.push(message) };
+runInNewContext(OBSERVED_WORKER_SCRIPT, { self: stepWorker });
+stepWorker.onmessage({ data: {
+  source: stepJavaScript,
+  fieldNames: collectStructFieldNames(tracedProgram, tracedContext),
+  stepLimit: 1000
+} });
+const stepResult = stepMessages.at(-1);
+assert.equal(stepResult.error, undefined);
+assert.deepEqual(Array.from(stepResult.steps, step => step.line), [5, 6, 7, 2, 3, 4, null]);
+assert.equal(stepResult.steps[1].variables.find(item => item.name === 'number').value, '1');
+assert.equal(stepResult.steps[2].variables.find(item => item.name === 'number').value, '5');
+assert.equal(stepResult.steps[4].variables.find(item => item.name === 'local').value, '5');
+assert.equal(stepResult.steps[5].variables.find(item => item.name === 'local').value, '6');
+assert.equal(stepResult.steps.at(-1).variables.find(item => item.name === 'answer').value, '6');
+assert.equal(stepResult.steps.at(-1).status, 'completed');
 
 const incomplete = services.shared.workspace.LangiumDocumentFactory.fromString(
   'var result = 5\nvar later = 2', URI.parse('memory:/standalone-incomplete-variables.pseudo2')
@@ -146,6 +171,88 @@ new Function('console', '__ps2_trace', `"use strict";\n${generateProgram(
   if (metadata.name === 'i') loopEvents.push(value.get());
 });
 assert.deepEqual(loopEvents, [1, 2, 3, 4, 5], 'The for-loop iterator must update after each assignment.');
+
+const loopStepMessages = [];
+const loopStepWorker = { postMessage: message => loopStepMessages.push(message) };
+runInNewContext(OBSERVED_WORKER_SCRIPT, { self: loopStepWorker });
+loopStepWorker.onmessage({ data: {
+  source: generateProgram(loopProgram, Pseudo2GeneratorContext.fromProgram(loopProgram, true, true)),
+  fieldNames: collectStructFieldNames(loopProgram, Pseudo2GeneratorContext.fromProgram(loopProgram)),
+  stepLimit: 4
+} });
+const loopStepResult = loopStepMessages.at(-1);
+assert.equal(loopStepResult.error, undefined);
+assert.equal(loopStepResult.steps.length, 5, 'The limit must retain four source steps and the terminal state.');
+assert.equal(loopStepResult.traceTruncated, true, 'Further loop iterations must be reported as truncated.');
+assert.equal(loopStepResult.steps.at(-1).status, 'completed');
+assert.equal(loopStepResult.output.join(''), '1\n4\n9\n16\n', 'Recording must not change program output.');
+
+const branchSource = `var count = 0
+while count < 2
+  count = count + 1
+do
+  count = count + 1
+while count < 3
+if count == 3
+  print count
+`;
+const branchDocument = services.shared.workspace.LangiumDocumentFactory.fromString(
+  branchSource, URI.parse('memory:/standalone-branch-trace.pseudo2')
+);
+await services.shared.workspace.DocumentBuilder.build([branchDocument], { validation: true });
+assert.deepEqual((branchDocument.diagnostics ?? []).filter(item => item.severity === 1), []);
+const branchProgram = branchDocument.parseResult.value;
+const branchMessages = [];
+const branchWorker = { postMessage: message => branchMessages.push(message) };
+runInNewContext(OBSERVED_WORKER_SCRIPT, { self: branchWorker });
+branchWorker.onmessage({ data: {
+  source: generateProgram(branchProgram, Pseudo2GeneratorContext.fromProgram(branchProgram, true, true)),
+  fieldNames: {},
+  stepLimit: 100
+} });
+const branchResult = branchMessages.at(-1);
+assert.equal(branchResult.error, undefined);
+assert.deepEqual(Array.from(branchResult.steps, step => step.line), [1, 2, 3, 2, 3, 2, 4, 5, 7, 8, null]);
+assert.equal(branchResult.steps[6].variables.find(item => item.name === 'count').value, '2');
+assert.equal(branchResult.steps[8].variables.find(item => item.name === 'count').value, '3');
+assert.equal(branchResult.steps.at(-1).outputCount, 1);
+
+const annotatedSource = 'var count = 0\n//@ invariant true\nwhile count < 1\n  count = count + 1\n';
+const annotatedDocument = services.shared.workspace.LangiumDocumentFactory.fromString(
+  annotatedSource, URI.parse('memory:/standalone-annotated-trace.pseudo2')
+);
+await services.shared.workspace.DocumentBuilder.build([annotatedDocument], { validation: true });
+assert.deepEqual((annotatedDocument.diagnostics ?? []).filter(item => item.severity === 1), []);
+const annotatedProgram = annotatedDocument.parseResult.value;
+const annotatedMessages = [];
+const annotatedWorker = { postMessage: message => annotatedMessages.push(message) };
+runInNewContext(OBSERVED_WORKER_SCRIPT, { self: annotatedWorker });
+annotatedWorker.onmessage({ data: {
+  source: generateProgram(annotatedProgram, Pseudo2GeneratorContext.fromProgram(annotatedProgram, true, true)),
+  fieldNames: {},
+  stepLimit: 100
+} });
+assert.deepEqual(Array.from(annotatedMessages.at(-1).steps, step => step.line), [1, 3, 4, 3, null]);
+
+const errorSource = 'var value = 1\nthrow "stop"\n';
+const errorDocument = services.shared.workspace.LangiumDocumentFactory.fromString(
+  errorSource, URI.parse('memory:/standalone-error-trace.pseudo2')
+);
+await services.shared.workspace.DocumentBuilder.build([errorDocument], { validation: true });
+assert.deepEqual((errorDocument.diagnostics ?? []).filter(item => item.severity === 1), []);
+const errorProgram = errorDocument.parseResult.value;
+const errorMessages = [];
+const errorWorker = { postMessage: message => errorMessages.push(message) };
+runInNewContext(OBSERVED_WORKER_SCRIPT, { self: errorWorker });
+errorWorker.onmessage({ data: {
+  source: generateProgram(errorProgram, Pseudo2GeneratorContext.fromProgram(errorProgram, true, true)),
+  fieldNames: {},
+  stepLimit: 100
+} });
+const errorResult = errorMessages.at(-1);
+assert.equal(errorResult.error, 'stop');
+assert.deepEqual(Array.from(errorResult.steps, step => step.line), [1, 2, null]);
+assert.equal(errorResult.steps.at(-1).status, 'error');
 
 const completionSource = 'var count = 5\nprint cou';
 const completionUri = URI.parse('memory:/standalone-completion-smoke-test.pseudo2');

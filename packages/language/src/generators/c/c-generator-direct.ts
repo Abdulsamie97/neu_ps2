@@ -17,7 +17,7 @@ import type {
 } from '../../generated/ast.js';
 import {
   isAddition, isAnd, isArrayLiteral, isAssignment, isAttSelection, isBoolLiteral,
-  isBracedBlock, isCallCommand, isComparison, isDoWhileLoop, isEquality,
+  isBracedBlock, isComparison, isDoWhileLoop, isEquality,
   isExponentiation, isExprStatement, isForLoop, isFunctionCall,
   isFunctionDeclaration, isGrouping, isIfStatement, isIndexSelection,
   isIndentedBlock, isIntLiteral, isMethSelection, isMultiplication, isNeg,
@@ -897,10 +897,6 @@ class DirectCGenerator {
     }
     if (isPrintCommand(instruction)) return this.emitPrint(instruction.param, level, state, instruction.ending);
     if (isThrowCommand(instruction)) return this.emitThrow(instruction.param, level, state);
-    if (isCallCommand(instruction)) {
-      const lowered = this.lowerRootExpression(instruction.param, state, i);
-      return [...lowered.prefix, `${i}${lowered.expression};`].join('\n');
-    }
     if (isExprStatement(instruction)) {
       const lowered = this.lowerRootExpression(instruction.expr, state, i);
       return [...lowered.prefix, `${i}${lowered.expression};`].join('\n');

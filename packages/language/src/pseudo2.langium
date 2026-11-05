@@ -343,7 +343,7 @@ interface ReturnStmt {
 }
 
 // ======================================================
-// print, throw and call
+// print and throw
 // ======================================================
 
 /** AST-Schnittstelle des globalen print-Kommandos. */
@@ -360,17 +360,10 @@ interface ThrowCommand {
   param: Expr
 }
 
-/** AST-Schnittstelle des expliziten call-Kommandos für wertlose Aufrufe. */
-interface CallCommand {
-  /** Als Anweisung auszuführender Funktions- oder Methodenaufruf. */
-  param: Expr
-}
-
-/** Wählt eines der drei globalen Kommandos print, throw oder call. */
+/** Wählt eines der beiden globalen Kommandos print oder throw. */
 GlobalCommand:
     PrintCommandRule
   | ThrowCommandRule
-  | CallCommandRule
 ;
 
 /** Liest ein print-Kommando mit Ausdruck und optionalem Abschlussstring. */
@@ -381,11 +374,6 @@ PrintCommandRule returns PrintCommand:
 /** Liest ein throw-Kommando mit genau einem Ausdruck. */
 ThrowCommandRule returns ThrowCommand:
   'throw' param=Expression
-;
-
-/** Liest ein call-Kommando mit genau einem aufrufbaren Ausdruck. */
-CallCommandRule returns CallCommand:
-  'call' param=Expression
 ;
 
 // ======================================================

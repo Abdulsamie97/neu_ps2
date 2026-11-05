@@ -16,13 +16,13 @@ var maxPoints = ringSizeToPoints(N)
 
 var places[3] = new Place
 for i=1 to 3
-	call places[i].init()
+	places[i].init()
 
 var r = new Ring // to get the type right
 for i=N downto 1 
 	r = new Ring
 	r.size = i
-	call places[1].s.push(r)
+	places[1].s.push(r)
 
 printAll()
 
@@ -44,7 +44,7 @@ func move(src, dest, help, no)
 	if no==0
 		return
 	move(src, help, dest, no-1)
-	call dest.s.push(src.s.pop())
+	dest.s.push(src.s.pop())
 	printAll()
 	move(help, dest, src, no-1)
 	
@@ -92,7 +92,7 @@ struct Place
 	RingStack s
 	init()
 		this.s = new RingStack
-		call this.s.init()
+		this.s.init()
 
 
 

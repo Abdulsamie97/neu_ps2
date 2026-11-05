@@ -350,7 +350,7 @@ describe('CLI generator', () => {
       'var A = [1, 2, 3]',
       'var counter = new Counter',
       'counter.value = 0',
-      'call counter.inc(sum(A))',
+      'counter.inc(sum(A))',
       'print counter.value',
       'print "done"',
       'if currentText() == "done"',

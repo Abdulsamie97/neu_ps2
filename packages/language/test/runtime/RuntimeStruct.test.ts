@@ -380,7 +380,7 @@ describe('RuntimeTestsStruct', () => {
     `, '3 9 9 2 2 3 3 4 4');
   });
 
-  test('call command invokes struct methods', async () => {
+  test('standalone expression invokes struct methods', async () => {
     await assertExecResult(`
       struct S
         num[] arr
@@ -393,7 +393,7 @@ describe('RuntimeTestsStruct', () => {
       var s = new S
       s.arr = [1,2,3,4]
 
-      call s.set(1,9)
+      s.set(1,9)
 
       func m(s1)
         print s1.get(3)
@@ -420,8 +420,8 @@ describe('RuntimeTestsStruct', () => {
       var s1 = new S1
       var s2 = new S2
 
-      call s1.m()
-      call s2.m()
+      s1.m()
+      s2.m()
     `, '1 2');
   });
 
@@ -491,10 +491,10 @@ describe('RuntimeTestsStruct', () => {
           this.ids = [1,2,4]
 
       var s1 = new S1
-      call s1.init1()
+      s1.init1()
       print s1.ids[2]
 
-      call s1.init2()
+      s1.init2()
       print s1.ids[2]
     `, '0 2');
   });
@@ -504,12 +504,12 @@ describe('RuntimeTestsStruct', () => {
       var N = 2
 
       var pl = new Place
-      call pl.init()
+      pl.init()
 
       var r = new Ring
       r.size = 1
 
-      call pl.s.push(r)
+      pl.s.push(r)
 
       print pl.s.pop().size
 
@@ -520,7 +520,7 @@ describe('RuntimeTestsStruct', () => {
         RingStack s
         init()
           this.s = new RingStack
-          call this.s.init()
+          this.s.init()
 
       struct RingStack
         Ring[] S
@@ -543,8 +543,8 @@ describe('RuntimeTestsStruct', () => {
       var r = new Ring
 
       var p = new Place
-      call p.init()
-      call p.s.push(r)
+      p.init()
+      p.s.push(r)
 
       print 2
       print "finished"
@@ -556,7 +556,7 @@ describe('RuntimeTestsStruct', () => {
         RingStack s
         init()
           this.s = new RingStack
-          call this.s.init()
+          this.s.init()
 
       struct RingStack
         Ring[] S

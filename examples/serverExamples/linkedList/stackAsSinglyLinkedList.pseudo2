@@ -13,13 +13,13 @@
 //################################################
 
 var s = new LLStack
-call s.init()
+s.init()
 
 print s.isEmpty()
 
-call s.push(4)
-call s.push(22)
-call s.push(8)
+s.push(4)
+s.push(22)
+s.push(8)
 
 print  s.pop()   // prints 8
 print  s.isEmpty()	

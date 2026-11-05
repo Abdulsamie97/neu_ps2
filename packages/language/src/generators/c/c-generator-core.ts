@@ -18,7 +18,6 @@ import type {
   Assignment,
   AttSelection,
   Block,
-  CallCommand,
   DoWhileLoop,
   Expr,
   ExprStatement,
@@ -49,7 +48,6 @@ import {
   isAttSelection,
   isBoolLiteral,
   isBracedBlock,
-  isCallCommand,
   isComparison,
   isDoWhileLoop,
   isEquality,
@@ -900,8 +898,6 @@ function generateInstruction(
     generated = generatePrintCommand(instruction, context, indent, state);
   } else if (isThrowCommand(instruction)) {
     generated = generateThrowCommand(instruction, context, indent, state);
-  } else if (isCallCommand(instruction)) {
-    generated = generateCallCommand(instruction, context, indent, state);
   } else if (isVerificationStatement(instruction)) {
     generated = generateVerificationStatement(instruction, context, indent, state);
   } else {
@@ -3072,12 +3068,6 @@ function generatePrintCommand(cmd: PrintCommand, context: Pseudo2GeneratorContex
 function generateThrowCommand(cmd: ThrowCommand, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
   const updates = materializeRuntimeUpdates(cmd.param, context, indent, state);
   return [...updates.prelude, `${indent}ps2_throw(${genExpr(cmd.param, context, updates.state)});`].join('\n');
-}
-
-/** @returns Als eigenständige C-Anweisung ausgegebener Ausdruck des Pseudo2-call-Kommandos. */
-function generateCallCommand(cmd: CallCommand, context: Pseudo2GeneratorContext, indent = '', state = DEFAULT_STATE): string {
-  const updates = materializeRuntimeUpdates(cmd.param, context, indent, state);
-  return [...updates.prelude, `${indent}${genExpr(cmd.param, context, updates.state)};`].join('\n');
 }
 
 /**

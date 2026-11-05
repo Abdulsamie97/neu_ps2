@@ -81,20 +81,20 @@ struct Stack
 
 
 var s1 = new Stack
-call s1.init()
+s1.init()
 var s2 = new Stack
-call s2.init()
+s2.init()
  
 // now we can use s1 and s2 in parallel 
  
 print s1.isEmpty() // true
-call s1.push(4)
-call s1.push(22)
+s1.push(4)
+s1.push(22)
 
-call s2.push(3)
-call s2.push(21)
+s2.push(3)
+s2.push(21)
 
-call s1.push(8)
+s1.push(8)
 
 print  s1.pop()   // prints 8
 print  s2.pop()   // prints 21

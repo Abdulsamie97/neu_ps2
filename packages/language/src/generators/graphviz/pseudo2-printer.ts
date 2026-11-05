@@ -9,7 +9,6 @@ import type {
   Assignment,
   AttSelection,
   Block,
-  CallCommand,
   DoWhileLoop,
   Expr,
   ExprStatement,
@@ -34,7 +33,6 @@ import {
   isAttSelection,
   isBoolLiteral,
   isBracedBlock,
-  isCallCommand,
   isComparison,
   isDoWhileLoop,
   isEquality,
@@ -124,7 +122,6 @@ export function printInstruction(instruction: Instruction): string {
   if (isReturnStmt(instruction)) return printReturn(instruction);
   if (isPrintCommand(instruction)) return printPrint(instruction);
   if (isThrowCommand(instruction)) return printThrow(instruction);
-  if (isCallCommand(instruction)) return printCall(instruction);
   if (isVerificationStatement(instruction)) return `@${instruction.kind} ${printExpr(instruction.condition)}`;
   if (isIfStatement(instruction)) return printIf(instruction);
   if (isWhileLoop(instruction)) return printWhile(instruction);
@@ -283,16 +280,6 @@ function printPrint(cmd: PrintCommand): string {
  */
 function printThrow(cmd: ThrowCommand): string {
   return `throw ${printExpr(cmd.param)}`;
-}
-
-/**
- * Druckt einen expliziten Pseudo2-Call-Befehl.
- *
- * @param cmd Call-Anweisung.
- * @returns Text der Form `call ausdruck`.
- */
-function printCall(cmd: CallCommand): string {
-  return `call ${printExpr(cmd.param)}`;
 }
 
 /**

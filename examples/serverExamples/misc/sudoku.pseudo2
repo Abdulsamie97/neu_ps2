@@ -217,13 +217,13 @@ func solve(b, r, c)
 		return solve(b, rr, cc)
 	else
 		for x=1 to NN
-			call b.s(r,c,x) // try x
+			b.s(r,c,x) // try x
 			if !conflictAny(b)
 				if solve(b, rr, cc)
 					return true
 		
 		// for no x we found a solution; backtracking
-		call b.s(r,c,0)
+		b.s(r,c,0)
 		return false	
 		
 

@@ -26,7 +26,6 @@ import {
   isAttSelection,
   isBoolLiteral,
   isBoolType,
-  isCallCommand,
   isComparison,
   isDoWhileLoop,
   isEquality,
@@ -148,10 +147,6 @@ function printInstruction(instruction: Instruction, level: number, ctx: PrettyCo
 
   if (isThrowCommand(instruction)) {
     return `${prefix}throw ${printExpr(instruction.param)}`;
-  }
-
-  if (isCallCommand(instruction)) {
-    return `${prefix}call ${printExpr(instruction.param)}`;
   }
 
   if (isVerificationStatement(instruction)) {

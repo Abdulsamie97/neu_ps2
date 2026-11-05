@@ -50,7 +50,6 @@ import {
 
   isPrintCommand,
   isThrowCommand,
-  isCallCommand,
   isVerificationAnnotation,
   isVerificationStatement,
   isLoopAnnotation
@@ -571,7 +570,7 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
    * Prüft, ob ein AST-Knoten in Pseudo2 als eigenständige Anweisung zählt.
    *
    * @param n Zu prüfender AST-Knoten.
-   * @returns `true` für unterstützte Instruktionstypen und freie Call-Anweisungen.
+   * @returns `true` für unterstützte Instruktionstypen und freie Aufrufanweisungen.
    */
   private isInstructionNode(n: AstNode): boolean {
     return (
@@ -587,7 +586,6 @@ export class Pseudo2ScopeProvider extends DefaultScopeProvider {
       isExprStatement(n) ||
       isPrintCommand(n) ||
       isThrowCommand(n) ||
-      isCallCommand(n) ||
       isVerificationStatement(n) ||
       (isFunctionCall(n) && this.isStandaloneFunctionCallInstruction(n))
     );

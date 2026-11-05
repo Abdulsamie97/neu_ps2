@@ -17,15 +17,15 @@
 var len = 10  // maximal length of queue
 
 var q = new Queue
-call q.init()
+q.init()
 
 print q.isEmpty()
-call q.enqueue(3)
-call q.enqueue(4)
-call q.enqueue(5)
+q.enqueue(3)
+q.enqueue(4)
+q.enqueue(5)
 print q.dequeue()
 print q.dequeue()
-call q.enqueue(27)
+q.enqueue(27)
 print q.isEmpty()
 print "tail is " + q.tail
 

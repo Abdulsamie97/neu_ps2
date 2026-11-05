@@ -3,7 +3,7 @@ func f() {
   print("hi")
 }
 
-call f()
+f()
 throw "oops"
 print(1 + 2)
 

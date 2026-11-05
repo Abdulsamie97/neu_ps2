@@ -944,7 +944,7 @@ function pseudo2ControlDescription(kind: Pseudo2ControlContext['kind']): string 
  */
 function collectPseudo2FunctionRanges(lines: string[]): Pseudo2FunctionRange[] {
   const candidates: Array<{ name: string; line: number; indent: number }> = [];
-  const reserved = /^(?:if|while|for|do|print|return|throw|call|var|struct)\b/;
+  const reserved = /^(?:if|while|for|do|print|return|throw|var|struct)\b/;
 
   for (let index = 0; index < lines.length; index++) {
     const text = lines[index].trim();

@@ -28,7 +28,7 @@ struct Person
 		if noYears < 1 
 			throw "gettingOlder(): argument should be greater-equal 1 "	
 		for i  = 1 to noYears
-			call this.birthday() // KNOWN RESTRICTION: this.birthday() DOES NOT WORK
+			this.birthday() // KNOWN RESTRICTION: this.birthday() DOES NOT WORK
 			print this.toString()
 							
 
@@ -44,8 +44,8 @@ p2.age = 28
 
 // time goes by for everybody the same way
 var timeInYears = 5
-call p1.gettingOlder(timeInYears)
-call p2.gettingOlder(timeInYears)
+p1.gettingOlder(timeInYears)
+p2.gettingOlder(timeInYears)
 
 
 print "finished"

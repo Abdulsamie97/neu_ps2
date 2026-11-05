@@ -89,7 +89,7 @@ describe('GraphvizArtifacts', () => {
           return this.value
 
       var s = new S
-      call s.set(4)
+      s.set(4)
       print s.value
     `);
 

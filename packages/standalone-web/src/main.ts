@@ -86,7 +86,7 @@ const COMPLETION_DELAY_MS = 120;
 
 /** Pseudo2-Schluesselwoerter und Spezifikationsbezeichner fuer das lokale Highlighting. */
 const KEYWORDS = new Set([
-  'assert', 'assume', 'bool', 'by', 'call', 'close', 'decreases', 'do', 'downto',
+  'assert', 'assume', 'bool', 'by', 'close', 'decreases', 'do', 'downto',
   'else', 'end', 'ensures', 'false', 'for', 'func', 'if', 'INT_MAX', 'INT_MIN', 'invariant',
   'leak', 'length', 'mod', 'new', 'null', 'num', 'open', 'print', 'requires', 'result',
   'return', 'string', 'struct', 'terminates', 'this', 'throw', 'to', 'true', 'undefined',

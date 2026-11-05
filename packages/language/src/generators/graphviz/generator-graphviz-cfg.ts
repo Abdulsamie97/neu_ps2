@@ -16,7 +16,6 @@ import type {
 import {
   isAssignment,
   isBlock,
-  isCallCommand,
   isDoWhileLoop,
   isExprStatement,
   isForLoop,
@@ -220,7 +219,6 @@ function connectStmt(ctx: ConnectContext, statement: Instruction): void {
     isVarDecl(statement) ||
     isAssignment(statement) ||
     isPrintCommand(statement) ||
-    isCallCommand(statement) ||
     isVerificationStatement(statement)
   ) {
     ctx.builder.addEdge(new CfgEdge(ctx.from, ctx.to, statement));

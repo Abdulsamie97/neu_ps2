@@ -41,7 +41,7 @@ describe('PrettyPseudo2Generator', () => {
       var values[3] = 0
       var literal = [1, 2, 3]
       var box = new Box
-      call box.inc(2)
+      box.inc(2)
       @assert true
       print "done"
     `);
@@ -83,7 +83,7 @@ describe('PrettyPseudo2Generator', () => {
       '',
       'var box = new Box',
       '',
-      'call box.inc(2)',
+      'box.inc(2)',
       '',
       '@assert true',
       '',

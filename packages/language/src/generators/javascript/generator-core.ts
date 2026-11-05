@@ -11,7 +11,6 @@ import type {
   Assignment,
   AttSelection,
   Block,
-  CallCommand,
   DoWhileLoop,
   Expr,
   ExprStatement,
@@ -43,7 +42,6 @@ import {
   isAttSelection,
   isBoolLiteral,
   isBracedBlock,
-  isCallCommand,
   isComparison,
   isDoWhileLoop,
   isEquality,
@@ -257,7 +255,6 @@ function generateInstruction(
   if (isExprStatement(instruction)) return generateExprStatement(instruction, context, indent, state);
   if (isPrintCommand(instruction)) return generatePrintCommand(instruction, context, indent, state);
   if (isThrowCommand(instruction)) return generateThrowCommand(instruction, context, indent, state);
-  if (isCallCommand(instruction)) return generateCallCommand(instruction, context, indent, state);
   if (isVerificationStatement(instruction)) return '';
 
   throw new Error(`Unsupported instruction type: ${(instruction as AstNode).$type}`);
@@ -667,24 +664,6 @@ function generateThrowCommand(
   state = DEFAULT_STATE
 ): string {
   return `${indent}throw ${genExpr(cmd.param, context, state)};`;
-}
-
-/**
- * Erzeugt einen expliziten Call-Befehl als Ausdrucksanweisung.
- *
- * @param cmd Pseudo2-Call-Anweisung.
- * @param context Namenskontext.
- * @param indent Aktuelle Einrückung.
- * @param state Aktueller Generatorzustand.
- * @returns JavaScript-Ausdruck mit Semikolon.
- */
-function generateCallCommand(
-  cmd: CallCommand,
-  context: Pseudo2GeneratorContext,
-  indent = '',
-  state = DEFAULT_STATE
-): string {
-  return `${indent}${genExpr(cmd.param, context, state)};`;
 }
 
 /**

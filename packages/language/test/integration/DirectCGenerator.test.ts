@@ -72,7 +72,7 @@ describe('Direct C generator', () => {
         inc(n)
           value = value + n
       var counter = new Counter
-      call counter.inc(2)
+      counter.inc(2)
       print counter.value
     `);
     expect(c).toContain('struct Counter {');

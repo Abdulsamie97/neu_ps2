@@ -108,7 +108,7 @@ struct Stack
 
 func processExample()
     var s = new Stack
-    call s.init()
+    s.init()
 
     addOpenTag("html", s)
     addOpenTag("head", s)
@@ -121,7 +121,7 @@ func processExample()
 
 
 func addOpenTag(tag, s)
-    call s.push(tag)
+    s.push(tag)
 
 func addCloseTag(tag, s)
     var expected = s.pop()

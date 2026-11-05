@@ -49,7 +49,6 @@ import type {
   ParameterDecl,
   PrintCommand,
   ThrowCommand,
-  CallCommand,
   Addition,
   Equality,
   Comparison,
@@ -240,7 +239,6 @@ export function registerValidationChecks(services: Pseudo2Services) {
 
     PrintCommand: validator.checkPrintCommand,
     ThrowCommand: validator.checkThrowCommand,
-    CallCommand: validator.checkCallCommand,
     
     Equality: validator.checkEquality,
     Comparison: validator.checkComparison,
@@ -643,7 +641,7 @@ export class Pseudo2Validator {
    * Bestimmt anhand der umgebenden AST-Knoten, ob ein Funktionsaufruf als eigenständige
    * Anweisung und nicht als benötigter Wert verwendet wird.
    * @param node Einzuordnender Funktionsaufruf.
-   * @returns `true` für Anweisungs- beziehungsweise `call`-Kontext, sonst `false`.
+   * @returns `true` für eigenständige Aufrufe, sonst `false`.
    */
   private isStatementFunctionCall(node: FunctionCall): boolean {
     let current: any = node.$container;
@@ -651,7 +649,6 @@ export class Pseudo2Validator {
     while (current) {
       if (
         current.$type === 'ExprStatement' ||
-        current.$type === 'CallCommand' ||
         isBracedBlock(current) ||
         isIndentedBlock(current) ||
         current.$type === 'Program'
@@ -1142,8 +1139,8 @@ export class Pseudo2Validator {
    * Validiert die innerhalb einer Methoden-Selection gespeicherte Methodenreferenz.
    *
    * Das Ziel muss aufgelöst und eine echte Struct-Methode ohne `func` sein.
-   * Wertlose Methoden sind nur im `call`-Kontext erlaubt. Abschließend werden
-   * Argumentanzahl und Argumenttypen gegen die Methodendeklaration geprüft.
+   * Wertlose Methoden dürfen nur als eigenständige Anweisung verwendet werden.
+   * Abschließend werden Argumentanzahl und Argumenttypen gegen die Methodendeklaration geprüft.
    *
    * @param node Zu prüfende Methodenreferenz mit Argumenten.
    * @param accept Empfänger für Auflösungs-, Kontext- und Argumentfehler.
@@ -1156,16 +1153,6 @@ export class Pseudo2Validator {
 
     const target = node.f?.ref;
     if (!target) return;
-
-    // Methoden ohne Rückgabewert dürfen nur per "call" als Instruktion benutzt werden
-    if (!this.hasReturnValue(target) && !this.isInsideCallCommand(node)) {
-      accept('error', `Methode '${target.name}' gibt keinen Wert zurück und darf nur mit 'call' als Instruktion verwendet werden.`, {
-        node,
-        property: 'f',
-        code: METHODCALLS_WO_RETURN_ONLY_AS_INSTRUCTION
-      });
-      return;
-    }
 
     // In Selections dürfen nur echte Methoden stehen, keine globalen Funktionen mit func
     if (target.keyword === true) {
@@ -1198,22 +1185,6 @@ export class Pseudo2Validator {
     }
 
     this.checkArgumentTypes(node, target, node.params ?? [], accept);
-  }
-
-  /**
-   * Sucht in der Containerkette nach einem expliziten `call`-Kommando.
-   * @param node Ausgangsknoten der Suche.
-   * @returns `true`, wenn der Knoten innerhalb eines CallCommand liegt.
-   */
-  private isInsideCallCommand(node: AstNode): boolean {
-    let current: AstNode | undefined = node;
-    while (current) {
-      if (current.$type === 'CallCommand') {
-        return true;
-      }
-      current = current.$container;
-    }
-    return false;
   }
 
   /**
@@ -1311,13 +1282,13 @@ export class Pseudo2Validator {
    * Unterscheidet eine als eigenständige Anweisung verwendete Methodenselektion von
    * einer Selektion, deren Ergebnis in einem Ausdruck benötigt wird.
    * @param node Einzuordnende Methodenselektion.
-   * @returns `true` im ExprStatement- oder CallCommand-Kontext, sonst `false`.
+   * @returns `true` im ExprStatement-Kontext, sonst `false`.
    */
   private isStatementMethodCall(node: MethSelection): boolean {
     let current: any = node.$container;
 
     while (current) {
-      if (current.$type === 'ExprStatement' || current.$type === 'CallCommand') {
+      if (current.$type === 'ExprStatement') {
         return true;
       }
 
@@ -1441,21 +1412,6 @@ export class Pseudo2Validator {
         node,
         property: 'param',
         code: INCOMPATIBLE_TYPES
-      });
-    }
-  }
-
-  /**
-   * Verlangt als Operand von `call` einen globalen Funktions- oder Methodenaufruf.
-   * Ausdruckshüllen werden vor der Klassifikation entfernt.
-   * @param node Zu prüfendes call-Kommando.
-   * @param accept Empfänger für nicht aufrufbare Ausdrücke.
-   */
-  checkCallCommand(node: CallCommand, accept: ValidationAcceptor): void {
-    if (!this.isCallableExpr(node.param)) {
-      accept('error', 'call erwartet einen aufrufbaren Ausdruck, z. B. f() oder obj.m().', {
-        node,
-        property: 'param'
       });
     }
   }
@@ -2154,16 +2110,6 @@ export class Pseudo2Validator {
   }
 
 
-  /**
-   * Klassifiziert den Kern eines Ausdrucks als globalen Funktions- oder Methodenaufruf.
-   * @param expr Zu klassifizierender Ausdruck einschließlich möglicher AST-Hüllen.
-   * @returns `true`, wenn der entpackte Ausdruck aufrufbar ist.
-   */
-  private isCallableExpr(expr: Expr): boolean {
-    const core = this.unwrapExpr(expr);
-    return isFunctionCall(core) || isMethSelection(core);
-  }
- 
   /**
    * Meldet alle nach einem direkten return im selben Block folgenden Anweisungen als unerreichbar.
    * Die tiefergehende Pfadanalyse von Verzweigungen erfolgt separat über `finishesByReturn`.

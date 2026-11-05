@@ -25,6 +25,7 @@ import type {
   DoWhileLoop,
   FunctionDeclaration,
   FunctionCall,
+  ExprStatement,
   ReturnStmt,
   VarDecl,
   Assignment,
@@ -83,6 +84,7 @@ import {
   isForLoop,
   isDoWhileLoop,
   isFunctionCall,
+  isExprStatement,
   isNewExpr,
   isMethSelection,
   isMethRef,
@@ -99,6 +101,8 @@ import {
   isStringLiteral,
   isArrayLiteral,
   isNullLiteral,
+  isPrefixUpdate,
+  isPostfixUpdate,
   isVerificationAnnotation,
   isVerificationStatement,
   isLoopAnnotation
@@ -214,6 +218,7 @@ export function registerValidationChecks(services: Pseudo2Services) {
 
     FunctionDeclaration: validator.checkFunctionDeclaration,
     FunctionCall: validator.checkFunctionCall,
+    ExprStatement: validator.checkExprStatement,
     ReturnStmt: validator.checkReturnStmt,
 
     VarDecl: validator.checkVarDecl,
@@ -638,38 +643,30 @@ export class Pseudo2Validator {
   }
 
   /**
-   * Bestimmt anhand der umgebenden AST-Knoten, ob ein Funktionsaufruf als eigenständige
-   * Anweisung und nicht als benötigter Wert verwendet wird.
+   * Bestimmt, ob ein Funktionsaufruf den gesamten eigenständigen Ausdruck bildet.
    * @param node Einzuordnender Funktionsaufruf.
-   * @returns `true` für eigenständige Aufrufe, sonst `false`.
+   * @returns `true` nur für einen direkt als Anweisung genutzten Aufruf.
    */
   private isStatementFunctionCall(node: FunctionCall): boolean {
-    let current: any = node.$container;
+    const statement = AstUtils.getContainerOfType(node, isExprStatement);
+    return statement !== undefined && this.unwrapExpr(statement.expr) === node;
+  }
 
-    while (current) {
-      if (
-        current.$type === 'ExprStatement' ||
-        isBracedBlock(current) ||
-        isIndentedBlock(current) ||
-        current.$type === 'Program'
-      ) {
-        return true;
-      }
-
-      if (
-        current.$type === 'VarDecl' ||
-        current.$type === 'Assignment' ||
-        current.$type === 'ReturnStmt' ||
-        current.$type === 'PrintCommand' ||
-        current.$type === 'ThrowCommand'
-      ) {
-        return false;
-      }
-
-      current = current.$container;
+  /**
+   * Erlaubt als eigenständige Ausdrücke nur Aufrufe und Update-Operatoren.
+   * Dadurch kann eine alte `call f()`-Zeile nicht als zwei gültige Anweisungen
+   * interpretiert werden, wenn `call` zufällig ein Variablenname ist.
+   * @param node Zu prüfende Ausdrucksanweisung.
+   * @param accept Empfänger für nicht ausführbare Ausdrücke.
+   */
+  checkExprStatement(node: ExprStatement, accept: ValidationAcceptor): void {
+    const core = this.unwrapExpr(node.expr);
+    if (!isFunctionCall(core) && !isMethSelection(core) && !isPrefixUpdate(core) && !isPostfixUpdate(core)) {
+      accept('error', 'Als eigenständige Anweisung sind nur Aufrufe sowie ++ und -- erlaubt.', {
+        node,
+        property: 'expr'
+      });
     }
-
-    return false;
   }
 
   /**
@@ -1279,33 +1276,13 @@ export class Pseudo2Validator {
   }
 
   /**
-   * Unterscheidet eine als eigenständige Anweisung verwendete Methodenselektion von
-   * einer Selektion, deren Ergebnis in einem Ausdruck benötigt wird.
+   * Prüft, ob die Methodenselektion den gesamten eigenständigen Ausdruck bildet.
    * @param node Einzuordnende Methodenselektion.
-   * @returns `true` im ExprStatement-Kontext, sonst `false`.
+   * @returns `true` nur für einen direkt als Anweisung genutzten Methodenaufruf.
    */
   private isStatementMethodCall(node: MethSelection): boolean {
-    let current: any = node.$container;
-
-    while (current) {
-      if (current.$type === 'ExprStatement') {
-        return true;
-      }
-
-      if (
-        current.$type === 'VarDecl' ||
-        current.$type === 'Assignment' ||
-        current.$type === 'ReturnStmt' ||
-        current.$type === 'PrintCommand' ||
-        current.$type === 'ThrowCommand'
-      ) {
-        return false;
-      }
-
-      current = current.$container;
-    }
-
-    return false;
+    const statement = AstUtils.getContainerOfType(node, isExprStatement);
+    return statement !== undefined && this.unwrapExpr(statement.expr) === node;
   }
 
   /**

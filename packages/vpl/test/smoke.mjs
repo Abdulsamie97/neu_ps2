@@ -92,6 +92,12 @@ print "fertig" end=""
   assert.match(invalidResult.stderr, /invalid\.pseudo2:1:\d+: Fehler:/);
   assert.match(invalidResult.stderr, /Could not resolve reference|resolve reference/i);
 
+  const chainedSourcePath = join(temporaryDirectory, 'chained.pseudo2');
+  await writeFile(chainedSourcePath, 'if 3 > 2 > 1\n    print "falsch"\n', 'utf8');
+  const chainedResult = await runBundle(['validate', chainedSourcePath]);
+  assert.equal(chainedResult.code, 2);
+  assert.match(chainedResult.stderr, /chained\.pseudo2:1:\d+: Fehler:/);
+
   const functionSourcePath = join(temporaryDirectory, 'function.pseudo2');
   await writeFile(functionSourcePath, `func square(value)
     return value * value

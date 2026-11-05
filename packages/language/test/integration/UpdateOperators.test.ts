@@ -19,7 +19,7 @@ import {
 
 let counter = 0;
 
-async function parse(source: string): Promise<{ program: Program; errors: string[] }> {
+async function parse(source: string): Promise<{ program: Program; errors: string[]; parserErrors: string[] }> {
   const services = createPseudo2Services(EmptyFileSystem);
   const document = services.shared.workspace.LangiumDocumentFactory.fromString(
     source, URI.parse(`memory:/operator-test-${counter++}.pseudo2`)
@@ -28,7 +28,8 @@ async function parse(source: string): Promise<{ program: Program; errors: string
   return {
     program: document.parseResult.value as Program,
     errors: (document.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1)
-      .map(diagnostic => diagnostic.message)
+      .map(diagnostic => diagnostic.message),
+    parserErrors: document.parseResult.parserErrors.map(error => error.message)
   };
 }
 
@@ -137,7 +138,9 @@ describe('Veraendernde Operatoren', () => {
     const loop = await parse('for i=1 to 2\n    i++');
     expect(loop.errors.some(error => error.includes('Schleifenvariable'))).toBe(true);
     const annotation = await parse('var n = 1\n//@ assert n++ == 1');
-    expect(annotation.errors.some(error => error.includes('Annotationen'))).toBe(true);
+    expect(annotation.parserErrors.length).toBeGreaterThan(0);
+    const prefixAnnotation = await parse('var n = 1\n//@ assert ++n == 1');
+    expect(prefixAnnotation.parserErrors.length).toBeGreaterThan(0);
     const length = await parse('func f(A[1..n])\n    n++');
     expect(length.errors.some(error => error.includes('Arraylaenge'))).toBe(true);
     const repeated = await parse('var cnt = 1\nprint cnt++ + cnt');

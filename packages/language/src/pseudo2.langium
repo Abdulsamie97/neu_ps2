@@ -10,6 +10,8 @@
  */
 grammar Pseudo2
 
+import './pseudo2-verifast'
+
 // ======================================================
 // Program structure
 // ======================================================
@@ -131,7 +133,7 @@ VarDeclaration returns VarDecl:
 
 /** Liest einfache und zusammengesetzte Zuweisungen an eine Selection. */
 Assignment:
-  sel=Selection operator=('=' | '+=' | '-=' | '*=' | '/=') value=Expression
+  sel=Selection<spec=false> operator=('=' | '+=' | '-=' | '*=' | '/=') value=Expression
 ;
 
 // ======================================================
@@ -288,51 +290,6 @@ StructTypeRule returns StructType:
 // ======================================================
 // Functions
 // ======================================================
-/** AST-Schnittstelle einer Funktionsvor- oder -nachbedingung beziehungsweise Terminierungsangabe. */
-interface VerificationAnnotation {
-  /** Art der Annotation: requires, ensures oder terminates. */
-  kind: string
-  /** Logische Bedingung; bei terminates nicht vorhanden. */
-  condition?: Expr
-}
-
-/** AST-Knoten einer in Spezifikationen und normalen Ausdrücken verwendbaren C-Ganzzahlgrenze. */
-interface SpecConstantExpr extends Expr {
-  /** Unterstützte Grenze aus limits.h. */
-  value: string
-}
-
-/** AST-Schnittstelle einer ausführungsnahen VeriFast-Anweisung. */
-interface VerificationStatement {
-  /** Art der Anweisung: assert, assume, open, close oder leak. */
-  kind: string
-  /** Zu prüfender oder zu manipulierender Spezifikationsausdruck. */
-  condition: Expr
-}
-
-/** AST-Schnittstelle einer Schleifeninvariante oder Abnahmeklausel. */
-interface LoopAnnotation {
-  /** Art der Annotation: invariant oder decreases. */
-  kind: string
-  /** Logischer Ausdruck der Schleifenannotation. */
-  condition: Expr
-}
-
-/** Liest requires, ensures und die parameterlose terminates-Annotation einer Funktion. */
-VerificationAnnotationRule returns VerificationAnnotation:
-    ('@' | '//@') kind=('requires' | 'ensures') condition=Expression
-  | ('@' | '//@') kind='terminates'
-;
-
-/** Liest eine eigenständige VeriFast-Anweisung mit ihrem Ausdruck. */
-VerificationStatementRule returns VerificationStatement:
-  ('@' | '//@') kind=('assert' | 'assume' | 'open' | 'close' | 'leak') condition=Expression
-;
-
-/** Liest eine vor einer Schleife stehende invariant- oder decreases-Annotation. */
-LoopAnnotationRule returns LoopAnnotation:
-  ('@' | '//@') kind=('invariant' | 'decreases') condition=Expression
-;
 
 /** AST-Schnittstelle für globale Funktionen und methodenartige Struct-Deklarationen. */
 interface FunctionDeclaration {
@@ -369,9 +326,9 @@ Parameter returns ParameterDecl:
 ;
 
 /** Löst einen globalen Funktionsnamen auf und liest die tatsächlichen Argumente. */
-FunctionCall:
+FunctionCall<spec>:
   f=[FunctionDeclaration:Identifier]
-  '(' (params+=Expression (',' params+=Expression)*)? ')'
+  '(' (params+=ModeExpression<spec> (',' params+=ModeExpression<spec>)*)? ')'
 ;
 
 /** Liest return mit optionalem Rückgabeausdruck. */
@@ -452,25 +409,25 @@ This returns ThisExpr:
 /** Referenziert eine sichtbare Variable und enthält optional einen direkten Arrayindex. */
 interface VarRef extends Expr { ref: @Variable index?: Expr }
 /** Löst einen Variablennamen auf und liest optional einen einsbasierten Indexausdruck. */
-VarRefRule returns VarRef:
-  {VarRef} ref=[Variable:Identifier] ('[' index=Expression ']')?
+VarRefRule<spec> returns VarRef:
+  {VarRef} ref=[Variable:Identifier] ('[' index=ModeExpression<spec> ']')?
 ;
 
 // Attribute ref: field or field[i]
 /** Referenziert ein Struct-Attribut und enthält optional dessen Arrayindex. */
 interface AttRef { ref: @StructAttDeclaration index?: Expr }
 /** Löst einen Attributnamen im Struct-Kontext auf und liest optional einen Index. */
-AttRefRule returns AttRef:
-  {AttRef} ref=[StructAttDeclaration:Identifier] ('[' index=Expression ']')?
+AttRefRule<spec> returns AttRef:
+  {AttRef} ref=[StructAttDeclaration:Identifier] ('[' index=ModeExpression<spec> ']')?
 ;
 
 // Method ref: method(args...)
 /** Referenziert eine Methode und speichert ihre tatsächlichen Argumente. */
 interface MethRef { f: @FunctionDeclaration params: Expr[] }
 /** Löst einen Methodennamen auf und liest dessen Argumentliste. */
-MethRefRule returns MethRef:
+MethRefRule<spec> returns MethRef:
   {MethRef} f=[FunctionDeclaration:Identifier]
-  '(' (params+=Expression (',' params+=Expression)*)? ')'
+  '(' (params+=ModeExpression<spec> (',' params+=ModeExpression<spec>)*)? ')'
 ;
 
 // Selection chain node types
@@ -491,14 +448,14 @@ interface PrefixUpdate extends Expr { target: Expr op: string }
  * Langium-Actions übernehmen jeweils den bisher gelesenen Ausdruck als Empfänger des
  * neu erzeugten IndexSelection-, AttSelection- oder MethSelection-Knotens.
  */
-Selection returns Expr:
-  (VarRefRule | This | ResultRule)
+Selection<spec> returns Expr:
+  (VarRefRule<spec> | This | ResultRule)
   (
-      ({IndexSelection.receiver=current} '[' index=Expression ']')
-    | ({AttSelection.receiver=current} '.' attref=AttRefRule)
-    | ({MethSelection.receiver=current} '.' methref=MethRefRule)
+      ({IndexSelection.receiver=current} '[' index=ModeExpression<spec> ']')
+    | ({AttSelection.receiver=current} '.' attref=AttRefRule<spec>)
+    | ({MethSelection.receiver=current} '.' methref=MethRefRule<spec>)
   )*
-  ({PostfixUpdate.target=current} op=('++' | '--'))?
+  (<!spec> {PostfixUpdate.target=current} op=('++' | '--'))?
 ;
 
 // ---- Primary literals etc ----
@@ -514,20 +471,14 @@ interface StringLiteral extends Expr { value: string }
 
 /** AST-Marker des Nullwerts. */
 interface NullLiteral extends Expr {}
-/** AST-Marker des VeriFast-Rückgabeplatzhalters `result`. */
-interface ResultExpr extends Expr {}
-/** Nur in Annotationen erlaubter Vergleichswert für ein nicht initialisiertes Struct-Feld. */
-interface UndefinedSpecExpr extends Expr {}
-/** AST-Knoten eines eingebauten Annotationsprädikats mit variabler Argumentliste. */
-interface SpecPredicateExpr extends Expr { kind: string args: Expr[] }
 /** AST-Knoten der Konstruktion einer referenzierten Struct-Deklaration. */
 interface NewExpr extends Expr { type: @StructDeclaration }
 /** AST-Knoten eines gegebenenfalls leeren Arrayliterals. */
 interface ArrayLiteral extends Expr { elems: Expr[] }
 
 /** Liest einen geklammerten Ausdruck und erhält die Gruppierung explizit im AST. */
-GroupingRule returns Grouping:
-  '(' value=Expression ')'
+GroupingRule<spec> returns Grouping:
+  '(' value=ModeExpression<spec> ')'
 ;
 
 /** Liest ein Ganzzahlliteral über das INT-Terminal. */
@@ -550,33 +501,14 @@ NullLit returns NullLiteral:
   {NullLiteral} 'null'
 ;
 
-/** Liest den ausschließlich in Funktionsnachbedingungen gültigen Platzhalter `result`. */
-ResultRule returns ResultExpr:
-  {ResultExpr} 'result'
-;
-
-/** Liest `undefined` als Pseudo2-Spezifikationsliteral. */
-UndefinedSpecRule returns UndefinedSpecExpr:
-  {UndefinedSpecExpr} 'undefined'
-;
-
-/**
- * Liest alle eingebauten VeriFast-Modellprädikate und ihre optionale Argumentliste.
- * Stelligkeit und prädikatspezifische Literalbedingungen werden semantisch validiert.
- */
-SpecPredicateRule returns SpecPredicateExpr:
-  {SpecPredicateExpr} kind=('length' | 'vf_value' | 'vf_number' | 'vf_integer' | 'vf_array' | 'vf_struct' | 'vf_len' | 'vf_int' | 'vf_real' | 'vf_ratio' | 'vf_bool' | 'vf_truthy' | 'vf_string' | 'vf_null' | 'vf_undefined' | 'vf_elem' | 'vf_field' | 'vf_in_bounds' | 'vf_same')
-  '(' (args+=Expression (',' args+=Expression)*)? ')'
-;
-
 /** Liest `new` und löst den folgenden Namen auf eine Struct-Deklaration auf. */
 NewRule returns NewExpr:
   {NewExpr} 'new' type=[StructDeclaration:Identifier]
 ;
 
 /** Liest ein leeres oder kommasepariertes Arrayliteral. */
-ArrayLiteralRule returns ArrayLiteral:
-  {ArrayLiteral} '[' (elems+=Expression (',' elems+=Expression)*)? ']'
+ArrayLiteralRule<spec> returns ArrayLiteral:
+  {ArrayLiteral} '[' (elems+=ModeExpression<spec> (',' elems+=ModeExpression<spec>)*)? ']'
 ;
 
 // ======================================================
@@ -588,9 +520,9 @@ interface Or extends Expr { left: Expr right: Expr[] }
 /** AST-Knoten einer UND-Kette mit erstem und nachfolgenden Operanden. */
 interface And extends Expr { left: Expr op: string[] right: Expr[] }
 
-/** AST-Knoten einer Gleichheitskette und ihrer Operatoren. */
+/** AST-Knoten eines optionalen Gleichheitsvergleichs. */
 interface Equality extends Expr { left: Expr op: string[] right: Expr[] }
-/** AST-Knoten einer ordnenden Vergleichskette und ihrer Operatoren. */
+/** AST-Knoten eines optionalen ordnenden Vergleichs. */
 interface Comparison extends Expr { left: Expr op: string[] right: Expr[] }
 /** AST-Knoten einer Additions-/Subtraktionskette. */
 interface Addition extends Expr { left: Expr op: string[] right: Expr[] }
@@ -604,9 +536,15 @@ interface Not extends Expr { value: Expr }
 /** AST-Knoten des unären numerischen Minus. */
 interface Neg extends Expr { value: Expr }
 
-/** Einstiegspunkt der Ausdrucksgrammatik auf der niedrigsten Präzedenzstufe. */
+/** Einstiegspunkt fuer normale Pseudo2-Ausdruecke ohne VeriFast-Operatoren. */
 Expression returns Expr:
   Or
+;
+
+/** Waehlt fuer verschachtelte Ausdruecke die passende Sprach- oder Annotationsgrammatik, ist einen Schalter zwi. verifast und pseudo2 */
+ModeExpression<spec> returns Expr:
+    <spec> VerificationExpression
+  | <!spec> Expression
 ;
 
 /** Liest linksassoziative logische ODER-Verknüpfungen. */
@@ -614,81 +552,76 @@ Or returns Or:
   left=And ( '||' right+=And )*
 ;
 
-/** Liest linksassoziative logische UND-Verknüpfungen. */
+/** Liest beliebig viele logische UND-Verknuepfungen, etwa `a && b && c`. */
 And returns And:
-  left=Equality ( op+=('&&' | '&*&') right+=Equality )*     //warum nicht ? anstatt von *   
+  left=Equality<spec=false> ( op+='&&' right+=Equality<spec=false> )*
 ;
 
-/** Parst auch Gleichheitsketten, damit der Validator sie gezielt ablehnen kann. */
-Equality returns Equality:
-  left=Comparison ( op+=('==' | '!=') right+=Comparison )*  //warum nicht ? anstatt von *
+/** Liest hoechstens einen Gleichheitsoperator; weitere sind Syntaxfehler. */
+Equality<spec> returns Equality:
+  left=Comparison<spec> ( op+=('==' | '!=') right+=Comparison<spec> )?
 ;
 
-/** Parst auch Ordnungsketten, damit der Validator sie gezielt ablehnen kann. */
-Comparison returns Comparison:
-  left=Addition ( op+=('<' | '<=' | '>' | '>=') right+=Addition )*
+/** Liest hoechstens einen Ordnungsoperator; weitere sind Syntaxfehler. */
+Comparison<spec> returns Comparison:
+  left=Addition<spec> ( op+=('<' | '<=' | '>' | '>=') right+=Addition<spec> )?
 ;
 
 /** Liest Additionen und Subtraktionen. */
-Addition returns Addition:
-  left=Multiplication ( op+=('+' | '-') right+=Multiplication )*
+Addition<spec> returns Addition:
+  left=Multiplication<spec> ( op+=('+' | '-') right+=Multiplication<spec> )*
 ;
 
 /** Liest Multiplikation, Division sowie `%` und `mod`. */
-Multiplication returns Multiplication:
-  left=Exponentiation ( op+=('*' | '/' | '%' | 'mod') right+=Exponentiation )*
+Multiplication<spec> returns Multiplication:
+  left=Exponentiation<spec> ( op+=('*' | '/' | '%' | 'mod') right+=Exponentiation<spec> )*
 ;
 
 /** Liest Potenzen oberhalb der multiplikativen Präzedenzstufe. */
-Exponentiation returns Exponentiation:
-  left=Unary ( op+=('^') right+=Unary )*
+Exponentiation<spec> returns Exponentiation:
+  left=Unary<spec> ( op+=('^') right+=Unary<spec> )*
 ;
 
 /** Wählt logische Negation, numerisches Vorzeichen oder einen Primärausdruck. */
-Unary returns Expr:
-    PrefixUpdateRule
-  | NotRule
-  | NegRule
-  | Primary
+Unary<spec> returns Expr:
+    <!spec> PrefixUpdateRule<spec>
+  | NotRule<spec>
+  | NegRule<spec>
+  | Primary<spec>
 ;
 
 /** Liest Praefix-Inkrement oder -Dekrement vor einer variablen Selection. */
-PrefixUpdateRule returns PrefixUpdate:
-  {PrefixUpdate} op=('++' | '--') target=Selection
+PrefixUpdateRule<spec> returns PrefixUpdate:
+  {PrefixUpdate} op=('++' | '--') target=Selection<spec>
 ;
 
 /** Liest eine rekursive logische Negation. */
-NotRule returns Not:
-  {Not} '!' value=Unary
+NotRule<spec> returns Not:
+  {Not} '!' value=Unary<spec>
 ;
 
 /** Liest ein rekursives unäres Minus. */
-NegRule returns Neg:
-  {Neg} '-' value=Unary
-;
-
-/** Liest die C-Ganzzahlgrenzen, die in natürlichen VeriFast-Verträgen verwendet werden können. */
-SpecConstantRule returns SpecConstantExpr:
-  {SpecConstantExpr} value=('INT_MAX' | 'INT_MIN')
+NegRule<spec> returns Neg:
+  {Neg} '-' value=Unary<spec>
 ;
 
 /**
  * Wählt Literale, Gruppierungen, Konstruktionen, Selektionen und globale Aufrufe als
  * atomare Ausdrücke der Präzedenzleiter.
  */
-Primary returns Expr:
-    GroupingRule
+Primary<spec> returns Expr:
+    GroupingRule<spec>
   | IntLit
   | BoolLit
   | StringLit
   | NullLit
   | UndefinedSpecRule
-  | SpecPredicateRule
+  | SpecPredicateRule<spec>
   | SpecConstantRule
   | NewRule
-  | ArrayLiteralRule
-  | Selection
-  | FunctionCall
+  | ArrayLiteralRule<spec>
+  | Selection<spec>
+  | FunctionCall<spec>
 ;
 
 
@@ -712,9 +645,6 @@ terminal DEDENT: 'synthetic:dedent';
 
 /** Verstecktes Terminal für mehrzeilige Kommentare, einschließlich Doxygen-Blöcken. */
 hidden terminal ML_COMMENT: /\/\*[\s\S]*?\*\//;
-/** Verstecktes Terminal für einzeilige Kommentare; `//@` bleibt als Annotation sichtbar. */
-hidden terminal SL_COMMENT: /\/\/(?!@)[^\n\r]*/;
-
 /** Ignoriert horizontale Leerzeichen; Zeilenumbrüche werden separat verarbeitet. */
 hidden terminal WS: /[\t ]+/;
 /** Ignoriert einen oder mehrere Windows- oder Unix-Zeilenumbrüche. */

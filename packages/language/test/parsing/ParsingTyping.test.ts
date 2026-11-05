@@ -49,8 +49,6 @@ import {
   INCOMPATIBLE_TYPES,
   INCOMPATIBLE_TYPES_EQ,
   INCOMPATIBLE_TYPES_PLUS,
-  CHAINED_COMPARISON,
-  CHAINED_EQUALITY,
   DIFFERENT_TYPES_OF_RETURNS
 } from '../../src/pseudo2-validator.js';
 
@@ -392,20 +390,22 @@ describe('ParsingTests_Typing', () => {
   test('equalityExp', async () => { await assertTypeExp('1 == 2', TYPE_BOOL); });
   test('noEqualityExp', async () => { await assertTypeExp('1 != 2', TYPE_BOOL); });
   test.each([
-    ['3 > 2 > 1', CHAINED_COMPARISON],
-    ['1 < 2 <= 3', CHAINED_COMPARISON],
-    ['1 == 1 == 1', CHAINED_EQUALITY],
-    ['true != false == true', CHAINED_EQUALITY]
-  ])('rejects ambiguous comparison chain %s', async (expression, code) => {
-    const { model, document } = await parseModel(`print ${expression}`);
-    expect(document.parseResult.parserErrors).toHaveLength(0);
-    const diagnostics = errorDiagnostics(document).filter(diagnostic => diagnostic.code === code);
-    expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0].range.start.line).toBe(0);
-    const comparison = code === CHAINED_COMPARISON
-      ? firstNodeOfType(model, isComparison)
-      : firstNodeOfType(model, isEquality);
-    expect(types.typeFor(comparison)).toBe(TYPE_UNKNOWN);
+    ['3 > 2 > 1', '>'],
+    ['1 < 2 <= 3', '<='],
+    ['1 == 1 == 1', '=='],
+    ['true != false == true', '==']
+  ])('rejects ambiguous comparison chain %s during parsing', async (expression, secondOperator) => {
+    const { document } = await parseModel(`print ${expression}`);
+    expect(document.parseResult.parserErrors.length).toBeGreaterThan(0);
+    expect(document.parseResult.parserErrors.some(error => error.token.image === secondOperator)).toBe(true);
+  });
+  test.each([
+    'print (3 > 2 > 1)',
+    'var valid = 1 == 1 == 1',
+    'func identity(value)\n  return value\nprint identity(3 > 2 > 1)'
+  ])('rejects nested comparison chains during parsing: %s', async source => {
+    const { document } = await parseModel(source);
+    expect(document.parseResult.parserErrors.length).toBeGreaterThan(0);
   });
   test('rejects an ambiguous chained comparison in an if condition', async () => {
     const { document } = await parseModel(`
@@ -414,15 +414,24 @@ describe('ParsingTests_Typing', () => {
       else
         print "uh, oh, ah!"
     `);
-    expect(document.parseResult.parserErrors).toHaveLength(0);
-    expect(errorDiagnostics(document).map(diagnostic => diagnostic.code)).toEqual([CHAINED_COMPARISON]);
+    expect(document.parseResult.parserErrors.length).toBeGreaterThan(0);
   });
   test('accepts explicit boolean composition instead of comparison chains', async () => {
     const { document } = await parseModel(`
       print (3 > 2) && (2 > 1)
       print (1 == 1) == true
+      print 1 < 2 && 2 < 3 && 3 < 4
+      print 1 + 2 + 3 == 6
     `);
     assertNoErrors(document);
+  });
+  test('rejects comparison chains inside VeriFast annotations during parsing', async () => {
+    const { document } = await parseModel(`
+      //@ requires 3 > 2 > 1
+      func check()
+        return 1
+    `);
+    expect(document.parseResult.parserErrors.length).toBeGreaterThan(0);
   });
   test('rejects a comparison between a boolean result and a number', async () => {
     await assertErrorOnNode('print (3 > 2) > 1', isComparison, INCOMPATIBLE_TYPES);

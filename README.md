@@ -50,6 +50,10 @@ JavaScript und C dieselbe Auswertungsreihenfolge behalten.
 Die neuen C-Helfer besitzen VeriFast-Vertraege. Ein durchgaengig verifizierbares
 Beispiel steht in `examples/verifast/valid_update_operators.pseudo2`.
 
+Vergleichsketten wie `3 > 2 > 1` und `a == b == c` sind Syntaxfehler.
+Einzelne Vergleiche lassen sich mit `&&` verknuepfen, etwa
+`(3 > 2) && (2 > 1)`.
+
 ## Voraussetzungen
 
 - Node.js 20 oder neuer
@@ -95,6 +99,8 @@ Wichtige Generator-Dateien:
 
 Weitere Quellcodegliederung:
 
+- `packages/language/src/pseudo2.langium`: Pseudo2-Kernsyntax und Einbettungspunkte fuer Verifikationsregeln.
+- `packages/language/src/pseudo2-verifast.langium`: VeriFast-Vertraege, Schleifenannotationen, Verifikationsanweisungen und Spezifikationsausdruecke. `&*&` ist nur in Annotationen erlaubt; normale Pseudo2-Ausdruecke verwenden `&&`. Beide Grammatikdateien importieren einander, weil sie die unteren Ausdrucksstufen gemeinsam verwenden.
 - `packages/language/src/runtime`: JavaScript-Runtime fuer Skalare, Arrays und Structs.
 - `packages/language/src/scoping`: Pseudo2-Namensaufloesung und Sichtbarkeitsregeln.
 - `packages/language/src/typing`: Typmodell und Typberechnung.

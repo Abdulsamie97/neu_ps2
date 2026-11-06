@@ -4,11 +4,9 @@
  * @author Abdul
  */
 
-import { Worker } from 'node:worker_threads';
 import * as vscode from 'vscode';
 import { EmptyFileSystem, URI } from 'langium';
 import {
-    OBSERVED_WORKER_SCRIPT,
     collectStructFieldNames,
     collectVariableDefinitions,
     createPseudo2Services,
@@ -19,6 +17,7 @@ import {
     type VariableDefinition,
     type VariableValue
 } from 'pseudo2-language';
+import { createObservedWorker } from './observed-worker.js';
 
 const services = createPseudo2Services(EmptyFileSystem);
 const RUN_TIMEOUT_MS = 5_000;
@@ -31,14 +30,7 @@ function runInWorker(
     onVariable: (value: VariableValue) => void
 ): Promise<ObservedExecutionResult> {
     return new Promise(resolve => {
-        const bootstrap = `const { parentPort } = require('node:worker_threads');\n`
-            + `const self = { postMessage: message => parentPort.postMessage(message) };\n`
-            + OBSERVED_WORKER_SCRIPT
-            + `\nparentPort.on('message', data => self.onmessage({ data }));`;
-        const worker = new Worker(bootstrap, {
-            eval: true,
-            resourceLimits: { maxOldGenerationSizeMb: 128 }
-        });
+        const worker = createObservedWorker();
         const lastValues = new Map<string, VariableValue>();
         let settled = false;
         const finish = (result: ObservedExecutionResult) => {

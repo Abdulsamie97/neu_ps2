@@ -4,7 +4,7 @@
  * @author Abdul
  */
 
-import { Worker } from 'node:worker_threads';
+import type { Worker } from 'node:worker_threads';
 import * as path from 'node:path';
 import {
     Breakpoint, ContinuedEvent, DebugSession, ExitedEvent, Handles, InitializedEvent,
@@ -13,10 +13,11 @@ import {
 import type { DebugProtocol } from '@vscode/debugprotocol';
 import { EmptyFileSystem, URI } from 'langium';
 import {
-    OBSERVED_WORKER_SCRIPT, collectStructFieldNames, createPseudo2Services,
+    collectStructFieldNames, createPseudo2Services,
     generateProgram, Pseudo2GeneratorContext,
     type ObservedExecutionResult, type PausedExecutionStep, type Program, type VariableValue
 } from 'pseudo2-language';
+import { createObservedWorker } from './observed-worker.js';
 
 const THREAD_ID = 1;
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -38,18 +39,6 @@ interface WorkerMessage extends ObservedExecutionResult {
 function sourceKey(sourcePath: string): string {
     const normalized = path.normalize(sourcePath);
     return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
-}
-
-/** Startet einen isolierten Node-Worker mit dem gemeinsam genutzten Beobachtungsskript. */
-function createDebugWorker(): Worker {
-    const bootstrap = `const { parentPort } = require('node:worker_threads');\n`
-        + `const self = { postMessage: message => parentPort.postMessage(message) };\n`
-        + OBSERVED_WORKER_SCRIPT
-        + `\nparentPort.on('message', data => self.onmessage({ data }));`;
-    return new Worker(bootstrap, {
-        eval: true,
-        resourceLimits: { maxOldGenerationSizeMb: 128 }
-    });
 }
 
 /**
@@ -166,7 +155,7 @@ export class Pseudo2DebugSession extends DebugSession {
 
     /** Leitet Worker-Zwischenmeldungen an Debug Console und VS-Code-Ansichten weiter. */
     private startWorker(javascript: string, fieldNames: Record<string, string>): void {
-        const worker = createDebugWorker();
+        const worker = createObservedWorker();
         this.worker = worker;
         worker.on('message', (message: WorkerMessage) => {
             if (this.finished) return;

@@ -58,7 +58,7 @@ export interface DebugFrame {
 /** Angehaltener Zustand eines interaktiven Debug-Laufs. */
 export interface PausedExecutionStep extends ExecutionStep {
   line: number;
-  reason: 'entry' | 'step' | 'over' | 'out' | 'breakpoint';
+  reason: 'entry' | 'step' | 'over' | 'out' | 'breakpoint' | 'pause';
   globals: VariableValue[];
   frames: DebugFrame[];
 }
@@ -172,10 +172,13 @@ function formatVariable(value, fieldNames, depth, path) {
 
 var resumeDebug;
 var debugBreakpoints = new Set();
+var pauseRequested = false;
 self.onmessage = async function (event) {
   if (event.data.command) {
     if (event.data.command === 'setBreakpoints') {
       debugBreakpoints = new Set(event.data.breakpoints || []);
+    } else if (event.data.command === 'pause') {
+      pauseRequested = true;
     } else if (resumeDebug) {
       var resume = resumeDebug;
       resumeDebug = undefined;
@@ -195,6 +198,7 @@ self.onmessage = async function (event) {
   var globalValues = new Map();
   var frameStack = [{ id: 0, name: 'Programm', line: 1, values: new Map() }];
   debugBreakpoints = new Set(event.data.breakpoints || []);
+  pauseRequested = false;
   var stepLimit = Math.min(${MAX_TRACE_STEPS}, Math.max(0, Math.floor(Number(event.data.stepLimit) || 0)));
   var steps = [];
   var pendingSteps = [];
@@ -270,7 +274,7 @@ self.onmessage = async function (event) {
       frameStack[frameStack.length - 1].line = line;
       var depth = frameStack.length;
       var breakpoint = debugBreakpoints.has(line);
-      var shouldPause = firstPause || breakpoint || debugModeState === 'step'
+      var shouldPause = firstPause || breakpoint || pauseRequested || debugModeState === 'step'
         || debugModeState === 'over' && depth <= targetDepth
         || debugModeState === 'out' && depth < targetDepth;
       if (!shouldPause) {
@@ -280,9 +284,10 @@ self.onmessage = async function (event) {
         }
         return;
       }
-      var reason = firstPause ? 'entry' : breakpoint ? 'breakpoint' : debugModeState === 'over'
+      var reason = firstPause ? 'entry' : pauseRequested ? 'pause' : breakpoint ? 'breakpoint' : debugModeState === 'over'
         ? 'over' : debugModeState === 'out' ? 'out' : 'step';
       firstPause = false;
+      pauseRequested = false;
       debugModeState = 'paused';
       self.postMessage({ type: 'paused', step: {
         line: line, outputCount: output.length, variables: currentVariables(), reason: reason,

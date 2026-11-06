@@ -8,7 +8,8 @@
         "vscode": "^1.67.0"
     },
     "categories": [
-        "Programming Languages"
+        "Programming Languages",
+        "Debuggers"
     ],
     "contributes": {
         "languages": [
@@ -36,6 +37,47 @@
                 "command": "pseudo2.inspectVariables",
                 "title": "Pseudo2: Ausfuehren und Variablen anzeigen",
                 "icon": "$(run)"
+            },
+            {
+                "command": "pseudo2.debug",
+                "title": "Pseudo2: Debuggen",
+                "icon": "$(debug-start)"
+            }
+        ],
+        "breakpoints": [
+            { "language": "pseudo2" }
+        ],
+        "debuggers": [
+            {
+                "type": "pseudo2",
+                "label": "Pseudo2",
+                "languages": ["pseudo2"],
+                "configurationAttributes": {
+                    "launch": {
+                        "required": ["program"],
+                        "properties": {
+                            "program": {
+                                "type": "string",
+                                "description": "Pfad zur Pseudo2-Datei.",
+                                "default": "${file}"
+                            },
+                            "timeoutMs": {
+                                "type": "number",
+                                "description": "Maximale Laufzeit pro Ausfuehrungsphase in Millisekunden.",
+                                "default": 5000,
+                                "minimum": 100
+                            }
+                        }
+                    }
+                },
+                "initialConfigurations": [
+                    {
+                        "type": "pseudo2",
+                        "request": "launch",
+                        "name": "Pseudo2 debuggen",
+                        "program": "${file}"
+                    }
+                ]
             }
         ],
         "views": {
@@ -48,6 +90,13 @@
             ]
         },
         "menus": {
+            "editor/title": [
+                {
+                    "command": "pseudo2.debug",
+                    "when": "editorLangId == pseudo2",
+                    "group": "navigation"
+                }
+            ],
             "view/title": [
                 {
                     "command": "pseudo2.inspectVariables",
@@ -60,6 +109,8 @@
     "activationEvents": [
         "onLanguage:pseudo2",
         "onCommand:pseudo2.inspectVariables",
+        "onCommand:pseudo2.debug",
+        "onDebugResolve:pseudo2",
         "onView:pseudo2.variables"
     ],
     "main": "./out/extension/main.cjs",
@@ -68,10 +119,13 @@
         "vscode:prepublish": "npm run build",
         "build:prepare": "shx mkdir -p ./syntaxes/ && shx cp -f ../language/syntaxes/pseudo2.tmLanguage.json ./syntaxes/pseudo2.tmLanguage.json",
         "build": "npm run build:prepare && tsc -b tsconfig.json && node esbuild.mjs",
+        "test": "node test/debugger.test.mjs",
         "build:clean": "npm run clean && npm run build",
         "watch": "npm run build:prepare && concurrently -n tsc,esbuild -c blue,yellow \"tsc -b tsconfig.json --watch\" \"node esbuild.mjs --watch\""
     },
     "dependencies": {
+        "@vscode/debugadapter": "~1.68.0",
+        "@vscode/debugprotocol": "~1.68.0",
         "pseudo2-language": "0.0.1",
         "vscode-languageclient": "~9.0.1",
         "vscode-languageserver": "~9.0.1"

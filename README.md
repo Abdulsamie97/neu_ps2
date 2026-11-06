@@ -894,6 +894,24 @@ unter `Global` und `Lokal`; die Programmausgabe steht im Ausgabekanal
 Aus Sicherheitsgruenden ist die Ausfuehrung nur in einem als vertrauenswuerdig
 markierten VS-Code-Workspace moeglich.
 
+Der Befehl `Pseudo2: Debuggen` startet die aktive gespeicherte `.pseudo2`-Datei
+im nativen VS-Code-Debugger. Haltepunkte setzt man im linken Editorrand; `F5`
+setzt fort, `F10` springt ueber Aufrufe, `F11` hinein und `Shift+F11` heraus.
+Die Debug-Ansicht zeigt den Pseudo2-Aufrufstapel sowie globale und lokale
+Variablen. `print` erscheint in der Debug Console. Das Programm laeuft in
+einem separaten Node-Worker mit einem Laufzeitlimit von standardmaessig fuenf
+Sekunden pro Ausfuehrungsphase; Pausen zaehlen nicht dazu. Alternativ kann
+`launch.json` eine Konfiguration mit `type: "pseudo2"`, `request: "launch"`,
+`program: "${file}"` und optional `timeoutMs` enthalten. Die Quelle wird
+vor dem Start validiert; der Debugger verwendet den aktuellen Editorinhalt.
+Hover und Watches koennen beobachtete Variablennamen anzeigen; beliebige
+Pseudo2-Ausdruecke werden in der Debug Console noch nicht ausgewertet.
+Zum lokalen Testen `npm run build --workspace packages/extension` ausfuehren,
+in VS Code die vorhandene Startkonfiguration `Run Extension` starten und im
+neuen Extension-Entwicklungsfenster eine `.pseudo2`-Datei oeffnen. Dort den
+Befehl `Pseudo2: Debuggen` waehlen oder eine Pseudo2-Startkonfiguration mit
+`F5` starten.
+
 ### Moodle VPL mit JavaScript
 
 Fuer automatische Pseudo2-Aufgaben in Moodle VPL gibt es ein separates

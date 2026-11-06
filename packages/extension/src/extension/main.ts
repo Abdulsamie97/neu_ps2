@@ -15,6 +15,7 @@ import * as path from 'node:path';
 import { LanguageClient, TransportKind } from 'vscode-languageclient/node.js';
 import { PSEUDO2_VERSION } from 'pseudo2-language/version';
 import { registerVariableInspector } from './variables.js';
+import { registerPseudo2Debugger } from './debugger.js';
 
 /** Aktuell laufender Pseudo2-Language-Client der Erweiterungsinstanz. */
 let client: LanguageClient;
@@ -26,6 +27,7 @@ let client: LanguageClient;
  */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     registerVariableInspector(context);
+    registerPseudo2Debugger(context);
     const versionItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     versionItem.name = 'Pseudo2-Sprachversion';
     versionItem.text = `Pseudo2 v${PSEUDO2_VERSION}`;

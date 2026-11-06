@@ -37,7 +37,7 @@
         "clean": "shx rm -fr *.tsbuildinfo out",
         "build": "npm run langium:generate && tsc -p tsconfig.src.json",
         "build:clean": "npm run clean && npm run build",
-        "langium:generate": "langium generate",
+        "langium:generate": "langium generate && node scripts/patch-textmate.mjs",
         "langium:watch": "langium generate --watch",
         "test": "npm run build && vitest run"
     },

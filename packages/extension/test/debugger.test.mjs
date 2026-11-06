@@ -5,14 +5,24 @@
  */
 
 import assert from 'node:assert/strict';
+import { access, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
 const extensionRoot = new URL('../', import.meta.url);
-const manifest = JSON.parse(await (await import('node:fs/promises')).readFile(new URL('package.json', extensionRoot), 'utf8'));
+const manifest = JSON.parse(await readFile(new URL('package.json', extensionRoot), 'utf8'));
 assert.ok(manifest.contributes.breakpoints.some(item => item.language === 'pseudo2'));
 assert.ok(manifest.contributes.debuggers.some(item => item.type === 'pseudo2'));
+assert.deepEqual(manifest.contributes.menus['editor/title'].map(item => item.command), [
+    'pseudo2.inspectVariables', 'pseudo2.debug'
+]);
+for (const command of manifest.contributes.commands.filter(item =>
+    item.command === 'pseudo2.inspectVariables' || item.command === 'pseudo2.debug'
+)) {
+    await access(new URL(command.icon.light, extensionRoot));
+    await access(new URL(command.icon.dark, extensionRoot));
+}
 
 const compiled = await build({
     entryPoints: [fileURLToPath(new URL('src/extension/debug-session.ts', extensionRoot))],

@@ -12,6 +12,15 @@
         "Debuggers"
     ],
     "contributes": {
+        "configurationDefaults": {
+            "[pseudo2]": {
+                "editor.quickSuggestions": {
+                    "other": true,
+                    "comments": false,
+                    "strings": false
+                }
+            }
+        },
         "languages": [
             {
                 "id": "pseudo2",
@@ -36,12 +45,18 @@
             {
                 "command": "pseudo2.inspectVariables",
                 "title": "Pseudo2: Ausfuehren und Variablen anzeigen",
-                "icon": "$(run)"
+                "icon": {
+                    "light": "icons/run-light.svg",
+                    "dark": "icons/run-dark.svg"
+                }
             },
             {
                 "command": "pseudo2.debug",
                 "title": "Pseudo2: Debuggen",
-                "icon": "$(debug-start)"
+                "icon": {
+                    "light": "icons/debug-light.svg",
+                    "dark": "icons/debug-dark.svg"
+                }
             }
         ],
         "breakpoints": [
@@ -92,9 +107,14 @@
         "menus": {
             "editor/title": [
                 {
+                    "command": "pseudo2.inspectVariables",
+                    "when": "editorLangId == pseudo2",
+                    "group": "navigation@1"
+                },
+                {
                     "command": "pseudo2.debug",
                     "when": "editorLangId == pseudo2",
-                    "group": "navigation"
+                    "group": "navigation@2"
                 }
             ],
             "view/title": [
@@ -117,9 +137,9 @@
     "scripts": {
         "clean": "shx rm -fr *.tsbuildinfo out syntaxes",
         "vscode:prepublish": "npm run build",
-        "build:prepare": "shx mkdir -p ./syntaxes/ && shx cp -f ../language/syntaxes/pseudo2.tmLanguage.json ./syntaxes/pseudo2.tmLanguage.json",
+        "build:prepare": "npm run langium:generate --workspace pseudo2-language && shx mkdir -p ./syntaxes/ && shx cp -f ../language/syntaxes/pseudo2.tmLanguage.json ./syntaxes/pseudo2.tmLanguage.json",
         "build": "npm run build:prepare && tsc -b tsconfig.json && node esbuild.mjs",
-        "test": "node test/debugger.test.mjs",
+        "test": "node test/debugger.test.mjs && node test/highlighting.test.mjs",
         "build:clean": "npm run clean && npm run build",
         "watch": "npm run build:prepare && concurrently -n tsc,esbuild -c blue,yellow \"tsc -b tsconfig.json --watch\" \"node esbuild.mjs --watch\""
     },

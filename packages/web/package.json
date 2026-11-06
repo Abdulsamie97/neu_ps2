@@ -91,6 +91,7 @@
     "clean": "shx rm -fr dist *.tsbuildinfo ./resources/vsix",
     "compile": "tsc --build tsconfig.json",
     "build:msg": "echo Building main examples:",
-    "build": "npm run build:msg   && npm run compile"
+    "build": "npm run build:msg   && npm run compile",
+    "test": "node test/root-debug-smoke.mjs"
   }
 }

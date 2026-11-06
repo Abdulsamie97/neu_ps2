@@ -19,6 +19,7 @@ import { IndentationAwareLexer, IndentationAwareTokenBuilder } from 'langium';
 
 // Scope provider
 import { Pseudo2ScopeProvider } from './scoping/pseudo2-scope.js';
+import { Pseudo2CompletionProvider } from './pseudo2-completion.js';
 
 /**
  * Declaration of custom services - add your own service classes here.
@@ -67,6 +68,11 @@ export const Pseudo2Module: Module<Pseudo2Services, PartialLangiumServices & Pse
   references: {
     /** Erstellt den Pseudo2-spezifischen ScopeProvider. */
     ScopeProvider: services => new Pseudo2ScopeProvider(services)
+  },
+
+  lsp: {
+    /** Schlaegt VeriFast-Woerter nur in Annotationszeilen vor. */
+    CompletionProvider: services => new Pseudo2CompletionProvider(services)
   },
 
   validation: {

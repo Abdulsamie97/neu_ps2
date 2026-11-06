@@ -18,6 +18,8 @@ import {
   executeObservedJavaScript,
   generatePrettyPseudo2,
   generateProgram,
+  isVerificationAnnotationLine,
+  isVerificationKeyword,
   MAX_TRACE_STEPS,
   PSEUDO2_VERSION,
   Pseudo2GeneratorContext,
@@ -777,6 +779,9 @@ function isInsideLiteralOrComment(beforeCaret: string): boolean {
     } else if (beforeCaret.startsWith('/*', index)) {
       blockComment = true;
       index++;
+    } else if (beforeCaret.startsWith('//@', index)
+      && beforeCaret.slice(beforeCaret.lastIndexOf('\n', index - 1) + 1, index).trim() === '') {
+      index += 2;
     } else if (beforeCaret.startsWith('//', index)) {
       const lineEnd = beforeCaret.indexOf('\n', index);
       if (lineEnd === -1) return true;
@@ -827,12 +832,14 @@ async function loadCompletion(
   }
 
   const normalized = prefix.toLowerCase();
+  const annotationLine = isVerificationAnnotationLine(source.slice(source.lastIndexOf('\n', caret - 1) + 1, caret));
   const filtered = suggestions.filter(item => (
     item.label.toLowerCase().startsWith(normalized) && item.label !== prefix
   ));
   if (filtered.length === 0 && !source.slice(0, start).endsWith('.')) {
     filtered.push(...[...KEYWORDS]
-      .filter(keyword => keyword.toLowerCase().startsWith(normalized) && keyword !== prefix)
+      .filter(keyword => (annotationLine || !isVerificationKeyword(keyword))
+        && keyword.toLowerCase().startsWith(normalized) && keyword !== prefix)
       .map(keyword => ({ label: keyword, insertText: keyword })));
   }
   const unique = new Map(filtered.map(item => [item.label, item]));

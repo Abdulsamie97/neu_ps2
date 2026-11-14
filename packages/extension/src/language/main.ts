@@ -10,7 +10,7 @@
 
 import { startLanguageServer } from 'langium/lsp';
 import { NodeFileSystem } from 'langium/node';
-import { createConnection, ProposedFeatures } from 'vscode-languageserver/node.js';
+import { createConnection, ProposedFeatures } from 'vscode-languageserver/node';
 import { createPseudo2Services } from 'pseudo2-language';
 
 // Create a connection to the client

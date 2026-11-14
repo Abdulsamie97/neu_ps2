@@ -84,13 +84,10 @@ export function generate(programAst: Program, filePath: string, options: Generat
  * @throws Error Wenn Verzeichnis oder Ausgabedatei nicht geschrieben werden können.
  */
 export function generatePretty(programAst: Program, filePath: string, destination?: string): string {
-  const data = extractDestinationAndName(filePath, destination);
-  const generatedFilePath = path.join(data.destination, `${data.name}.braced.pseudo2`);
-
-  if (!fs.existsSync(data.destination)) {
-    fs.mkdirSync(data.destination, { recursive: true });
-  }
-
-  fs.writeFileSync(generatedFilePath, generatePrettyPseudo2(programAst));
-  return generatedFilePath;
+  return generate(programAst, filePath, {
+    destination,
+    emitJavaScript: false,
+    emitGraphviz: false,
+    emitPrettyPseudo2: true
+  })[0];
 }

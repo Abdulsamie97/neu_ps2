@@ -117,6 +117,7 @@ export const upgradeWsServer = (runconfig: LanguageServerRunConfig,
         if (pathName === runconfig.pathName) {
             config.wss.handleUpgrade(request, socket, head, webSocket => {
                 const socket: IWebSocket = {
+                    $type: 'IWebSocket',
                     send: content => webSocket.send(content, error => {
                         if (error) {
                             throw error;

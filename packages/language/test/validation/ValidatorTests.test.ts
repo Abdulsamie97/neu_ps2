@@ -13,6 +13,7 @@ import { EmptyFileSystem, URI, type LangiumDocument } from 'langium';
 
 import type { Program } from '../../src/generated/ast.js';
 import { createPseudo2Services } from '../../src/pseudo2-module.js';
+import { getDiagnosticMessage } from '../../src/diagnostic-message.js';
 import {
   INCOMPATIBLE_TYPES,
   INCOMPATIBLE_TYPES_EQ,
@@ -112,21 +113,21 @@ describe('ValidatorTests', () => {
 
   // Prüft, dass eine Fehlermeldung einen bestimmten Text enthält.
   /*function assertHasErrorMessage(document: LangiumDocument, messagePart: string): void {
-    const messages = errorDiagnostics(document).map(d => d.message);
+    const messages = errorDiagnostics(document).map(getDiagnosticMessage);
     expect(messages.some(m => m.includes(messagePart))).toBe(true);
   }*/
 
   // Prüft, dass eine Warnung einen bestimmten Text enthält.
   /** @param document Validiertes Dokument. @param messagePart Erwarteter Teil einer Warnmeldung. */
   function assertHasWarningMessage(document: LangiumDocument, messagePart: string): void {
-    const messages = warningDiagnostics(document).map(d => d.message);
+    const messages = warningDiagnostics(document).map(getDiagnosticMessage);
     expect(messages.some(m => m.includes(messagePart))).toBe(true);
   }
 
   // Prüft auf eine typische Linking-/Unbekannt-Referenz-Fehlermeldung.
   /** @param document Dokument, das mindestens eine bekannte Linking-Diagnose enthalten muss. */
   function assertHasLinkingLikeError(document: LangiumDocument): void {
-    const messages = errorDiagnostics(document).map(d => d.message);
+    const messages = errorDiagnostics(document).map(getDiagnosticMessage);
     expect(
       messages.some(m =>
         m.includes('Could not resolve reference') ||

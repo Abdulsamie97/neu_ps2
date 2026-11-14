@@ -9,6 +9,8 @@
  */
 
 import { describe, expect, test } from 'vitest';
+import type { LangiumDocument } from 'langium';
+import { getDiagnosticMessage } from '../../src/diagnostic-message.js';
 
 import { generateGraphvizArtifacts } from '../../src/generators/generator-artifacts.js';
 import { generateGraphvizDep } from '../../src/generators/graphviz/generator-graphviz-dep.js';
@@ -144,7 +146,7 @@ function artifactCode(artifacts: Array<{ fileName: string; code: string }>, file
  * Erwartet, dass ein geparstes Dokument keine Diagnosen mit Fehlerseverity enthält.
  * @param document Dokumentähnliches Objekt mit optionalen Diagnosen.
  */
-function expectErrors(document: { diagnostics?: Array<{ severity?: number; message: string }> }): void {
+function expectErrors(document: LangiumDocument): void {
   const errors = (document.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1);
-  expect(errors.map(error => error.message).join('\n')).toBe('');
+  expect(errors.map(getDiagnosticMessage).join('\n')).toBe('');
 }

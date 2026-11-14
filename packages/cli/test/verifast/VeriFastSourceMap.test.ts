@@ -85,7 +85,11 @@ const validExamples = [
   'valid_stateful_struct_loop.pseudo2',
   'valid_stateful_struct_alias.pseudo2',
   'valid_terminates_and_assume.pseudo2',
-  'valid_top_level_assert.pseudo2'
+  'valid_top_level_assert.pseudo2',
+  'valid_update_array_index.pseudo2',
+  'valid_update_expression.pseudo2',
+  'valid_update_operators.pseudo2',
+  'valid_update_print.pseudo2'
 ];
 
 /** Beispiele, die gezielt einen Beweisfehler mit rückgemappter Pseudo2-Zeile erzeugen. */

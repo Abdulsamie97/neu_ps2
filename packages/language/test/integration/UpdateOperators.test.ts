@@ -14,6 +14,7 @@ import {
   generateGraphvizDep,
   generatePrettyPseudo2,
   generateProgram,
+  getDiagnosticMessage,
   type Program
 } from 'pseudo2-language';
 
@@ -28,7 +29,7 @@ async function parse(source: string): Promise<{ program: Program; errors: string
   return {
     program: document.parseResult.value as Program,
     errors: (document.diagnostics ?? []).filter(diagnostic => diagnostic.severity === 1)
-      .map(diagnostic => diagnostic.message),
+      .map(getDiagnosticMessage),
     parserErrors: document.parseResult.parserErrors.map(error => error.message)
   };
 }

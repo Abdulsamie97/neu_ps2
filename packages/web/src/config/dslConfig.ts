@@ -14,12 +14,14 @@ import getLocalizationServiceOverride from '@codingame/monaco-vscode-localizatio
 import getTextmateServiceOverride from '@codingame/monaco-vscode-textmate-service-override';
 import getThemeServiceOverride from '@codingame/monaco-vscode-theme-service-override';
 import { LogLevel } from '@codingame/monaco-vscode-api';
-import { MessageTransports } from 'vscode-languageclient';
 import { createDefaultLocaleConfiguration } from 'monaco-languageclient/vscodeApiLocales';
 import type { MonacoVscodeApiConfig } from 'monaco-languageclient/vscodeApiWrapper';
-import type { LanguageClientConfig } from 'monaco-languageclient/lcwrapper';
-import { configureDefaultWorkerFactory } from 'monaco-languageclient/workerFactory';
+import { LcWorker, type LanguageClientConfig } from 'monaco-languageclient/lcwrapper';
+import { useWorkerFactory, Worker as MonacoWorker } from 'monaco-languageclient/workerFactory';
 import type { CodeContent, EditorAppConfig } from 'monaco-languageclient/editorApp';
+import editorWorkerUrl from '@codingame/monaco-vscode-editor-api/esm/vs/editor/editor.worker.js?worker&url';
+import extensionHostWorkerUrl from '@codingame/monaco-vscode-api/workers/extensionHost.worker?worker&url';
+import textMateWorkerUrl from '@codingame/monaco-vscode-textmate-service-override/worker?worker&url';
 
 // cannot be imported with assert as json contains comments
 import languageConfig from './language-configuration.json?raw';
@@ -35,7 +37,7 @@ import type { ExampleAppConfig } from '../common/client/utils.js';
  * Language Client direkt mit dem angegebenen Web Worker. Der übergebene Quelltext
  * wird als veränderte Editorressource geöffnet.
  *
- * @param params Kennung, Editorinhalt, Worker, optionale Transporte und Editorcontainer.
+ * @param params Kennung, Editorinhalt, Worker-URL und Editorcontainer.
  * @return Konsistentes Konfigurationsbündel zum Start aller Workbench-Komponenten.
  */
 export const createLangiumGlobalConfig = (params: {
@@ -43,12 +45,8 @@ export const createLangiumGlobalConfig = (params: {
     languageServerId: string,
     /** @brief Anfangsinhalt und URI des im Editor zu öffnenden Pseudo2-Dokuments. */
     codeContent: CodeContent,
-    /** @brief Web Worker, in dem der Pseudo2-Language-Server läuft. */
-    worker: Worker,
-    /** @brief Optionaler expliziter MessagePort für die Worker-Verbindung. */
-    messagePort?: MessagePort,
-    /** @brief Optional bereits erzeugte Reader-/Writer-Transporte des Language Clients. */
-    messageTransports?: MessageTransports,
+    /** @brief URL des gebuendelten Pseudo2-Language-Server-Workers. */
+    workerUrl: URL,
     /** @brief Optionaler DOM-Container, in den der Monaco-Editor eingebettet wird. */
     htmlContainer?: HTMLElement
 }): ExampleAppConfig => {
@@ -63,11 +61,12 @@ export const createLangiumGlobalConfig = (params: {
         },
         connection: {
             options: {
-                $type: 'WorkerDirect',
-                worker: params.worker,
-                messagePort: params.messagePort,
-            },
-            messageTransports: params.messageTransports
+                $family: 'Worker',
+                realization: () => new LcWorker(),
+                workerUrl: params.workerUrl,
+                type: 'module',
+                workerName: 'Pseudo2 Language Server'
+            }
         },
         logLevel: LogLevel.Off
     };
@@ -86,7 +85,15 @@ export const createLangiumGlobalConfig = (params: {
             ...getLifecycleServiceOverride(),
             ...getLocalizationServiceOverride(createDefaultLocaleConfiguration()),
         },
-        monacoWorkerFactory: configureDefaultWorkerFactory,
+        // Resolve workers in Vite before dependency optimization can rebase their URLs.
+        monacoWorkerFactory: logger => useWorkerFactory({
+            logger,
+            workerLoaders: {
+                editorWorkerService: () => new MonacoWorker(editorWorkerUrl, { type: 'module' }),
+                extensionHostWorkerMain: () => new MonacoWorker(extensionHostWorkerUrl, { type: 'module' }),
+                TextMateWorker: () => new MonacoWorker(textMateWorkerUrl, { type: 'module' })
+            }
+        }),
         userConfiguration: {
             json: JSON.stringify({
                 // 'workbench.colorTheme': 'Default Dark Modern',

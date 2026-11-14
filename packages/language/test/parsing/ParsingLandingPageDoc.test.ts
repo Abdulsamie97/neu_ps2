@@ -18,6 +18,7 @@ import {
 } from '../../src/generated/ast.js';
 
 import { createPseudo2Services } from '../../src/pseudo2-module.js';
+import { getDiagnosticMessage } from '../../src/diagnostic-message.js';
 import {
   INCOMPATIBLE_TYPES
 } from '../../src/pseudo2-validator.js';
@@ -353,7 +354,7 @@ describe('ParsingTests_LandingPageDoc', () => {
 
     const warnings = (document.diagnostics ?? []).filter(d => d.severity === 2);
     expect(
-      warnings.some(w => w.message.includes('Doppelte lokale Variable'))
+      warnings.some(w => getDiagnosticMessage(w).includes('Doppelte lokale Variable'))
     ).toBe(true);
   });
 
@@ -374,7 +375,7 @@ describe('ParsingTests_LandingPageDoc', () => {
 
     const warnings = (document.diagnostics ?? []).filter(d => d.severity === 2);
     expect(
-      warnings.some(w => w.message.includes('Doppelte lokale Variable'))
+      warnings.some(w => getDiagnosticMessage(w).includes('Doppelte lokale Variable'))
     ).toBe(true);
   });
 

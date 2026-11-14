@@ -9,10 +9,11 @@
  * @author Abdul
  */
 
-import type { LanguageClientOptions, ServerOptions } from 'vscode-languageclient/node.js';
+import type { LanguageClientOptions, ServerOptions } from 'vscode-languageclient/node';
 import * as vscode from 'vscode';
 import * as path from 'node:path';
-import { LanguageClient, TransportKind } from 'vscode-languageclient/node.js';
+import { LanguageClient, TransportKind } from 'vscode-languageclient/node';
+import { getLineCommentEdits } from 'pseudo2-language';
 import { PSEUDO2_VERSION } from 'pseudo2-language/version';
 import { registerVariableInspector } from './variables.js';
 import { registerPseudo2Debugger } from './debugger.js';
@@ -28,6 +29,14 @@ let client: LanguageClient;
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     registerVariableInspector(context);
     registerPseudo2Debugger(context);
+    context.subscriptions.push(vscode.commands.registerTextEditorCommand('pseudo2.toggleLineComment', (editor, builder) => {
+        const { document } = editor;
+        if (document.languageId !== 'pseudo2') return;
+        const edits = getLineCommentEdits(editor.selections, line => document.lineAt(line).text);
+        for (const { range: { start, end }, newText } of edits) {
+            builder.replace(new vscode.Range(start.line, start.character, end.line, end.character), newText);
+        }
+    }));
     const versionItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     versionItem.name = 'Pseudo2-Sprachversion';
     versionItem.text = `Pseudo2 v${PSEUDO2_VERSION}`;

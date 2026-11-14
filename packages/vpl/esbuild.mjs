@@ -28,7 +28,7 @@ await esbuild.build({
   bundle: true,
   platform: 'node',
   format: 'esm',
-  target: ['node20.10'],
+  target: ['node22'],
   charset: 'utf8',
   minify: true,
   treeShaking: true,

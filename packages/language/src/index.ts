@@ -16,6 +16,8 @@ import {
 
 export * from './pseudo2-module.js';
 export * from './pseudo2-completion.js';
+export * from './pseudo2-line-comments.js';
+export * from './diagnostic-message.js';
 export * from './version.js';
 export * from './runtime/variable-inspector.js';
 export * from './pseudo2-validator.js';

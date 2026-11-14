@@ -7,11 +7,11 @@ VPL-Jail werden weder `npm` noch TypeScript, GCC oder VeriFast benoetigt.
 
 ## Voraussetzung
 
-- Node.js 20.10.0 oder neuer im VPL-Jail
+- Node.js 22.0.0 oder neuer im VPL-Jail
 - Moodle VPL mit aktiviertem Jail-Server
 
-Node.js 12 ist nicht kompatibel. Die Skripte verwenden zuerst
-`PSEUDO2_NODE`, danach `/opt/node20/bin/node` und zuletzt `node` aus `PATH`.
+Die Skripte verwenden zuerst `PSEUDO2_NODE`, danach `/opt/node22/bin/node`
+und zuletzt `node` aus `PATH`.
 
 ## Bundle bauen
 

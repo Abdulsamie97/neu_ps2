@@ -10,7 +10,7 @@
  * @author Abdul
  */
 
-import { EmptyFileSystem, URI } from 'langium';
+import { EmptyFileSystem, TextDocument, URI } from 'langium';
 import {
   collectStructFieldNames,
   collectVariableDefinitions,
@@ -18,6 +18,9 @@ import {
   executeObservedJavaScript,
   generatePrettyPseudo2,
   generateProgram,
+  getDiagnosticMessage,
+  getLineCommentEdits,
+  isLineCommentShortcut,
   isVerificationAnnotationLine,
   isVerificationKeyword,
   MAX_TRACE_STEPS,
@@ -232,7 +235,7 @@ async function analyzeSource(source: string, includeProgram = true): Promise<Ana
     column: diagnostic.range.start.character + 1,
     endLine: diagnostic.range.end.line + 1,
     endColumn: diagnostic.range.end.character + 1,
-    message: diagnostic.message
+    message: getDiagnosticMessage(diagnostic)
   }));
 
   const program = document.parseResult.value as Program;
@@ -1394,6 +1397,45 @@ function insertIndentation(): void {
   sourceEditor.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+/** Schaltet die Zeilenkommentare um und behaelt Auswahl, Scrollposition und Undo bei. */
+function toggleSelectedLineComments(): void {
+  const { value, selectionStart, selectionEnd, selectionDirection, scrollTop, scrollLeft } = sourceEditor;
+  const textDocument = TextDocument.create('memory:/editor.pseudo2', 'pseudo2', 0, value);
+  const lines = value.split('\n');
+  const edits = getLineCommentEdits([{
+    start: textDocument.positionAt(selectionStart),
+    end: textDocument.positionAt(selectionEnd)
+  }], line => lines[line]);
+  if (edits.length === 0) return;
+
+  const offsetAfterEdits = (offset: number): number => {
+    let delta = 0;
+    for (const { range, newText } of edits) {
+      const start = textDocument.offsetAt(range.start);
+      if (offset < start) break;
+      delta += newText.length - Math.min(offset - start, textDocument.offsetAt(range.end) - start);
+    }
+    return offset + delta;
+  };
+  const start = textDocument.offsetAt(edits[0].range.start);
+  const end = textDocument.offsetAt(edits.at(-1)!.range.end);
+  const updated = TextDocument.applyEdits(textDocument, edits);
+  const replacement = updated.slice(start, end + updated.length - value.length);
+
+  hideCompletion();
+  suppressNextCompletion = true;
+  const revision = sourceRevision;
+  sourceEditor.setSelectionRange(start, end);
+  // insertText behaelt den nativen Undo-Verlauf einer Textarea bei.
+  if (!document.execCommand?.(replacement ? 'insertText' : 'delete', false, replacement)) {
+    sourceEditor.setRangeText(replacement, start, end);
+  }
+  sourceEditor.setSelectionRange(offsetAfterEdits(selectionStart), offsetAfterEdits(selectionEnd), selectionDirection);
+  sourceEditor.scrollTop = scrollTop;
+  sourceEditor.scrollLeft = scrollLeft;
+  if (sourceRevision === revision) sourceEditor.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 document.querySelector('#validate-button')?.addEventListener('click', () => {
   void runBusyAction(validateCurrentSource);
 });
@@ -1469,6 +1511,11 @@ sourceEditor.addEventListener('click', () => {
 sourceEditor.addEventListener('keyup', updateActiveEditorDiagnostic);
 sourceEditor.addEventListener('select', updateActiveEditorDiagnostic);
 sourceEditor.addEventListener('keydown', event => {
+  if (isLineCommentShortcut(event)) {
+    event.preventDefault();
+    if (!event.repeat) toggleSelectedLineComments();
+    return;
+  }
   if ((event.ctrlKey || event.metaKey) && event.code === 'Space') {
     event.preventDefault();
     scheduleCompletion(true);

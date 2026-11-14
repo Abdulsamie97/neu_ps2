@@ -24,8 +24,8 @@ fi
 
 if [ -n "${PSEUDO2_NODE:-}" ]; then
     NODE_BIN="$PSEUDO2_NODE"
-elif [ -x /opt/node20/bin/node ]; then
-    NODE_BIN=/opt/node20/bin/node
+elif [ -x /opt/node22/bin/node ]; then
+    NODE_BIN=/opt/node22/bin/node
 else
     NODE_BIN="$(command -v node 2>/dev/null || true)"
 fi
@@ -34,8 +34,8 @@ if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
     echo "Pseudo2 kann nicht gestartet werden: Node.js wurde nicht gefunden." >&2
     exit 1
 fi
-if ! "$NODE_BIN" -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>20||(a===20&&b>=10)?0:1)' 2>/dev/null; then
-    echo "Pseudo2 benoetigt Node.js >= 20.10.0. Gefunden: $("$NODE_BIN" --version 2>/dev/null || echo unbekannt)" >&2
+if ! "$NODE_BIN" -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)' 2>/dev/null; then
+    echo "Pseudo2 benoetigt Node.js >= 22.0.0. Gefunden: $("$NODE_BIN" --version 2>/dev/null || echo unbekannt)" >&2
     exit 1
 fi
 if [ ! -f "$RUNNER_FILE" ]; then

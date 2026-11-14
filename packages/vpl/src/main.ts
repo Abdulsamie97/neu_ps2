@@ -161,14 +161,14 @@ Usage:
 Environment:
   PSEUDO2_TIMEOUT_MS  Timeout for "run" (${MIN_TIMEOUT_MS}-${MAX_TIMEOUT_MS} ms)
 
-Requires Node.js >= 20.10.0.`);
+Requires Node.js >= 22.0.0.`);
 }
 
 /** Prueft die fuer Langium erforderliche minimale Node-Version. */
 function requireSupportedNodeVersion(): void {
-  const [major = 0, minor = 0] = process.versions.node.split('.').map(Number);
-  if (major < 20 || (major === 20 && minor < 10)) {
-    throw new Error(`Node.js >= 20.10.0 ist erforderlich; gefunden wurde ${process.versions.node}.`);
+  const major = Number(process.versions.node.split('.')[0]);
+  if (major < 22) {
+    throw new Error(`Node.js >= 22.0.0 ist erforderlich; gefunden wurde ${process.versions.node}.`);
   }
 }
 

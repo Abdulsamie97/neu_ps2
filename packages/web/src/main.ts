@@ -8,11 +8,9 @@
  * @brief Steuert Lebenszyklus, Generatoren, Programmausführung, VeriFast, Graphviz und Layout der Pseudo2-Workbench.
  */
 
-import { LogLevel } from '@codingame/monaco-vscode-api';
-import { ConsoleLogger } from 'monaco-languageclient/common';
 import { EditorApp } from 'monaco-languageclient/editorApp';
-import { BrowserMessageReader, BrowserMessageWriter } from 'vscode-languageclient/browser.js';
 import text from '../resources/default.input?raw';
+import { installLineCommentShortcut } from './common/client/line-comments.js';
 import { disableElement } from './common/client/utils.js';
 import { createLangiumGlobalConfig } from './config/dslConfig.js';
 import workerUrl from './worker/dsl-server?worker&url';
@@ -25,6 +23,7 @@ import {
     collectStructFieldNames,
     collectVariableDefinitions,
     createPseudo2Services,
+    getDiagnosticMessage,
     executeObservedJavaScript,
     generateCProgram,
     generateCProgramWithSourceMap,
@@ -56,7 +55,7 @@ import {
 /** @brief Aktive Editor-Anwendung; vor dem Start und nach dem Dispose ist sie nicht gesetzt. */
 let editorApp: EditorApp | undefined;
 /** @brief Aktiver Language-Client-Wrapper für die Kommunikation mit dem Pseudo2-Worker. */
-let lcWrapper: LanguageClientWrapper;
+let lcWrapper: LanguageClientWrapper | undefined;
 /** @brief Liefert eindeutige In-Memory-URIs für unabhängig gebaute Ausführungsdokumente. */
 let executionDocCounter = 0;
 /** @brief Wiederverwendete, dateisystemunabhängige Langium-Dienste für Generierung und Ausführung. */
@@ -222,17 +221,6 @@ const startEditor = async () => {
     disableElement('button-dispose', false);
 
     try {
-
-
-        const worker = loadWorkerRegular();
-        const reader = new BrowserMessageReader(worker);
-        const writer = new BrowserMessageWriter(worker);
-        const logger = new ConsoleLogger(LogLevel.Off);
-        reader.listen((message) => {
-            logger.info('Received message from worker:', message);
-        });
-
-
         const htmlContainer = document.getElementById('monaco-editor-root')!;
         // the configuration does not contain any text content
         const appConfig = createLangiumGlobalConfig({
@@ -242,8 +230,7 @@ const startEditor = async () => {
                 uri: '/workspace/example.pseudo2',   //TBC  (suffix might be important)
                 enforceLanguageId: 'pseudo2'
             },
-            worker,
-            messageTransports: { reader, writer },
+            workerUrl: new URL(workerUrl, window.location.href),
             htmlContainer
         });
 
@@ -261,9 +248,11 @@ const startEditor = async () => {
 
         // run editorApp
         await editorApp.start(htmlContainer);
-        installPseudo2KeywordDecorations(editorApp.getEditor());
-        debugEditorDisposable = installDebugEditor(editorApp.getEditor());
-        variableChangeDisposable = editorApp.getEditor()?.onDidChangeModelContent(() => {
+        const editor = editorApp.getEditor();
+        if (editor) installLineCommentShortcut(editor);
+        installPseudo2KeywordDecorations(editor);
+        debugEditorDisposable = installDebugEditor(editor);
+        variableChangeDisposable = editor?.onDidChangeModelContent(() => {
             const wasDebugging = debugPreparing || !!debugSession;
             cancelDebugSession();
             if (wasDebugging) setTextContent('#debug-status', 'Quelltext geaendert. Debug-Lauf beendet.');
@@ -296,7 +285,8 @@ const disposeEditor = async () => {
     disableElement('button-start', false);
     disableElement('button-dispose', true);
 
-    lcWrapper.dispose();
+    await lcWrapper?.dispose();
+    lcWrapper = undefined;
     keywordDecorationDisposable?.dispose();
     keywordDecorationDisposable = undefined;
     debugEditorDisposable?.dispose();
@@ -1912,7 +1902,7 @@ async function parsePseudo2(code: string): Promise<{
         .map(diagnostic => {
             const line = diagnostic.range.start.line + 1;
             const character = diagnostic.range.start.character + 1;
-            return `Line ${line}, column ${character}: ${diagnostic.message}`;
+            return `Line ${line}, column ${character}: ${getDiagnosticMessage(diagnostic)}`;
         });
 
     if (errors.length > 0) {
@@ -2209,19 +2199,5 @@ export const runDsl = async () => {
 
 /** @brief Öffentlicher, fachlich benannter Alias zum Starten der Pseudo2-Workbench. */
 export const runPseudo2 = runDsl;
-
-
-/**
- * @brief Erzeugt den dedizierten Modul-Worker des Pseudo2-Language-Servers.
- * @return Noch nicht anderweitig verwendete Workerinstanz mit lesbarem Debugnamen.
- */
-const loadWorkerRegular = () => {
-    // Language Server preparation
-    console.log(`Langium worker URL: ${workerUrl}`);
-    return new Worker(workerUrl, {
-        type: 'module',
-        name: 'Pseudo2 Server Regular',  //TBC
-    });
-};
 
 

@@ -29,8 +29,8 @@ fi
 
 if [ -n "${PSEUDO2_NODE:-}" ]; then
     NODE_BIN="$PSEUDO2_NODE"
-elif [ -x /opt/node20/bin/node ]; then
-    NODE_BIN=/opt/node20/bin/node
+elif [ -x /opt/node22/bin/node ]; then
+    NODE_BIN=/opt/node22/bin/node
 else
     NODE_BIN="$(command -v node 2>/dev/null || true)"
 fi
@@ -43,10 +43,10 @@ if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
     echo "Grade :=>>0"
     exit 1
 fi
-if ! "$NODE_BIN" -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>20||(a===20&&b>=10)?0:1)' 2>/dev/null; then
+if ! "$NODE_BIN" -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)' 2>/dev/null; then
     echo "Comment :=>>Pseudo2-Konfigurationsfehler"
     echo '<|--'
-    echo "Node.js >= 20.10.0 ist erforderlich. Gefunden: $("$NODE_BIN" --version 2>/dev/null || echo unbekannt)"
+    echo "Node.js >= 22.0.0 ist erforderlich. Gefunden: $("$NODE_BIN" --version 2>/dev/null || echo unbekannt)"
     echo '--|>'
     echo "Grade :=>>0"
     exit 1

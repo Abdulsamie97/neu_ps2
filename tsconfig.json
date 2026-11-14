@@ -13,6 +13,7 @@
       "DOM",
       "DOM.Iterable"
     ],
+    "types": ["node"],
     "sourceMap": true,
     "strict": true,
     "noUnusedLocals": true,

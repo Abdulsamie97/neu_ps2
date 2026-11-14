@@ -9,6 +9,7 @@ import chalk from 'chalk';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { URI } from 'langium';
+import { getDiagnosticMessage } from 'pseudo2-language';
 
 /**
  * @brief Lädt eine Pseudo2-Datei als vollständig aufgebautes und validiertes Langium-Dokument.
@@ -42,7 +43,7 @@ export async function extractDocument(fileName: string, services: LangiumCoreSer
         console.error(chalk.red('There are validation errors:'));
         for (const validationError of validationErrors) {
             console.error(chalk.red(
-                `line ${validationError.range.start.line + 1}: ${validationError.message} [${document.textDocument.getText(validationError.range)}]`
+                `line ${validationError.range.start.line + 1}: ${getDiagnosticMessage(validationError)} [${document.textDocument.getText(validationError.range)}]`
             ));
         }
         process.exit(1);

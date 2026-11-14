@@ -4,6 +4,10 @@
   "version": "0.0.1",
   "type": "module",
   "private": true,
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0",
+    "npm": ">=10.2.3"
+  },
   "scripts": {
     "clean": "npm run clean --workspaces",
     "compile": "tsc -b tsconfig.build.json",
@@ -21,15 +25,19 @@
     "test:direct-c-corpus": "npm run build --workspace pseudo2-language && vitest run packages/language/test/integration/DirectCXtextExamples.test.ts packages/cli/test/generator/DirectCXtextCorpus.test.ts"
   },
   "devDependencies": {
-    "@types/node": "~20.17.48",
+    "@types/node": "~22.20.5",
     "shx": "~0.4.0",
-    "typescript": "~5.8.3",
-    "@codingame/esbuild-import-meta-url-plugin": "~1.0.3",
-    "@codingame/monaco-vscode-rollup-vsix-plugin": "^23.0.0"
+    "typescript": "~7.0.2",
+    "vite": "~8.3.8"
+  },
+  "overrides": {
+    "dompurify@3.4.15": "^3.4.17",
+    "katex@0.16.45": "^0.19.1",
+    "minimatch@^10.2.6": "^11.0.1"
   },
   "volta": {
-    "node": "20.19.2",
-    "npm": "10.8.2"
+    "node": "22.23.5",
+    "npm": "11.18.0"
   },
   "workspaces": [
     "packages/extension",

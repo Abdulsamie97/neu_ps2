@@ -89,6 +89,7 @@ import {
 import { C_RUNTIME_CONTRACTS } from './runtime/c-runtime-contracts.js';
 import { C_RUNTIME_IMPLEMENTATION } from './runtime/c-runtime-implementation.js';
 import { generateCUpdateHelpers } from './c-update-helpers.js';
+import { sourceMapped, stripSourceMapMarkers, type GeneratedCProgram } from './c-source-map.js';
 import { Pseudo2GeneratorContext } from '../javascript/generator-context.js';
 import { canonicalSpecPredicateKind } from '../../spec-predicates.js';
 import { Pseudo2TypeComputer } from '../../typing/pseudo2-type-computer.js';
@@ -162,10 +163,6 @@ const DEFAULT_STATE: CGeneratorState = {
 };
 /** Expliziter erster Parameter jeder aus einer Struct-Methode erzeugten C-Funktion. */
 const METHOD_THIS_NAME = 'mythis';
-/** Erkennt den Beginn eines temporären Pseudo2-Quellzeilenbereichs. */
-const SOURCE_MAP_MARKER_RE = /^\/\*@@pseudo2-source-line:(\d+)\*\/$/;
-/** Beendet den zuletzt begonnenen temporären Pseudo2-Quellzeilenbereich. */
-const SOURCE_MAP_END_MARKER = '/*@@pseudo2-source-line:end*/';
 /** Gemeinsame Typberechnung für Heap- und Ausdrucksklassifikationen. */
 const TYPES = new Pseudo2TypeComputer();
 
@@ -179,21 +176,7 @@ export type GenerateCProgramOptions = {
   checkIntegerOverflow?: boolean;
 };
 
-/** Ordnet eine Zeile des bereinigten C-Codes ihrer Pseudo2-Ausgangszeile zu. */
-export type CSourceMapEntry = {
-  /** Einsbasierte Zeilennummer im erzeugten C-Code. */
-  generatedLine: number;
-  /** Einsbasierte Zeilennummer im Pseudo2-Dokument. */
-  sourceLine: number;
-};
-
-/** Ergebnis der C-Erzeugung einschließlich Quellabbildung. */
-export type GeneratedCProgram = {
-  /** Vollständiger C-Code ohne interne Source-Map-Marker. */
-  code: string;
-  /** Zuordnungen aller markierten C-Zeilen zu Pseudo2-Zeilen. */
-  sourceMap: CSourceMapEntry[];
-};
+export type { CSourceMapEntry, GeneratedCProgram } from './c-source-map.js';
 
 /**
  * Erzeugt vollständigen C-Code ohne separate Quellabbildung.
@@ -465,10 +448,6 @@ function collectArrayLiteralArities(program: Program): number[] {
  * @returns C-Helferdeklarationen oder -implementierungen.
  */
 function generateArrayLiteralHelpers(arities: number[], runtime: 'contracts' | 'implementation'): string {
-  if (arities.length === 0) {
-    return '';
-  }
-
   return arities
     .map(arity => runtime === 'implementation'
       ? generateArrayLiteralImplementation(arity)
@@ -615,10 +594,6 @@ function generateArrayLiteralImplementation(arity: number): string {
  * @returns C-Helferverträge oder -implementierungen.
  */
 function generateArrayFillHelpers(arities: number[], runtime: 'contracts' | 'implementation'): string {
-  if (arities.length === 0) {
-    return '';
-  }
-
   return arities
     .map(arity => runtime === 'implementation'
       ? generateArrayFillImplementation(arity)
@@ -666,68 +641,6 @@ function generateArrayFillImplementation(arity: number): string {
     '  return array_value;',
     '}'
   ].join('\n');
-}
-
-/**
- * Entfernt interne Bereichsmarker und baut daraus eine Zeilenabbildung auf.
- * Verschachtelte Marker werden über einen Stack behandelt, sodass auch generierter
- * Code innerhalb bereits markierter Anweisungen korrekt der innersten Quelle folgt.
- * @param markedCode C-Code mit temporären Quellzeilenmarkern.
- * @returns Markerfreier Code und Zuordnung seiner markierten Zeilen.
- */
-function stripSourceMapMarkers(markedCode: string): GeneratedCProgram {
-  const codeLines: string[] = [];
-  const sourceMap: CSourceMapEntry[] = [];
-  const sourceLineStack: number[] = [];
-
-  for (const line of markedCode.split(/\r?\n/)) {
-    const marker = line.match(SOURCE_MAP_MARKER_RE);
-    if (marker) {
-      sourceLineStack.push(Number(marker[1]));
-      continue;
-    }
-    if (line === SOURCE_MAP_END_MARKER) {
-      sourceLineStack.pop();
-      continue;
-    }
-
-    codeLines.push(line);
-
-    const currentSourceLine = sourceLineStack[sourceLineStack.length - 1];
-    if (currentSourceLine !== undefined) {
-      sourceMap.push({
-        generatedLine: codeLines.length,
-        sourceLine: currentSourceLine
-      });
-    }
-  }
-
-  return {
-    code: codeLines.join('\n'),
-    sourceMap
-  };
-}
-
-/**
- * Umschließt erzeugten Code bei aktivierter Source Map mit Markern des AST-Knotens.
- * @param node Pseudo2-Knoten, dem der C-Abschnitt zugeordnet wird.
- * @param code Erzeugter C-Abschnitt.
- * @param state Aktueller Generatorzustand.
- * @returns Unveränderter oder markierter Code.
- */
-function sourceMapped(node: AstNode, code: string, state: CGeneratorState): string {
-  const sourceLine = sourceLineFor(node);
-  if (!state.sourceMap || sourceLine === undefined || code.length === 0) {
-    return code;
-  }
-
-  return `/*@@pseudo2-source-line:${sourceLine}*/\n${code}\n${SOURCE_MAP_END_MARKER}`;
-}
-
-/** @param node AST-Knoten mit optionalem CST-Bereich. @returns Einsbasierte Quellzeile oder `undefined`. */
-function sourceLineFor(node: AstNode): number | undefined {
-  const line = node.$cstNode?.range.start.line;
-  return line === undefined ? undefined : line + 1;
 }
 
 /** @param instruction Pseudo2-Anweisung. @returns `true` für globale Struct- und Funktionsdeklarationen. */

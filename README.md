@@ -56,8 +56,8 @@ Einzelne Vergleiche lassen sich mit `&&` verknuepfen, etwa
 
 ## Voraussetzungen
 
-- Node.js 20 oder neuer
-- npm 10 oder neuer
+- Node.js 22 ab 22.12, Node.js 24 oder Node.js ab 26 fuer Build und Tests
+- npm 10.2.3 oder neuer
 - VeriFast im Repo unter `verifast-26.01`
 - Fuer die C-Ausfuehrung: GCC, Clang oder Visual Studio C++ Build Tools
 
@@ -885,7 +885,7 @@ auf dem Server gestartet werden muessen.
 ### VS-Code-Editor
 
 Die Erweiterung unter `packages/extension` zeigt fuer aktive `.pseudo2`-Dateien
-im Explorer die Ansicht `Pseudo2-Variablen`. Deklarationen werden beim Tippen
+ab VS Code 1.107 im Explorer die Ansicht `Pseudo2-Variablen`. Deklarationen werden beim Tippen
 aktualisiert. Der Befehl `Pseudo2: Ausfuehren und Variablen anzeigen` (auch ueber
 das Startsymbol der Ansicht erreichbar) validiert und startet das aktuelle
 Programm mit einem Zeitlimit von fuenf Sekunden. Danach erscheinen die Werte
@@ -912,6 +912,17 @@ neuen Extension-Entwicklungsfenster eine `.pseudo2`-Datei oeffnen. Dort den
 Befehl `Pseudo2: Debuggen` waehlen oder eine Pseudo2-Startkonfiguration mit
 `F5` starten.
 
+### Zeilen auskommentieren
+
+Im JavaScript-Runner, in der Workbench, im Einzeldatei-Runner und in der
+VS-Code-Erweiterung schaltet `Strg+/` die Zeilenkommentare um (`Cmd+/` auf macOS).
+Auf einer deutschen Tastatur entspricht das `Strg+Umschalt+7` bzw.
+`Cmd+Umschalt+7`. Der Befehl gilt fuer die markierten Zeilen oder, ohne
+Auswahl, fuer die aktuelle Zeile. Ein zweiter Druck entfernt die zusaetzliche
+Kommentar-Ebene. Aktive `//@`- und `@`-Annotationen lassen sich so ebenfalls
+voruebergehend deaktivieren und wiederherstellen. In VS Code ist der Befehl
+auch als `Pseudo2: Zeilenkommentar umschalten` in der Befehlspalette verfuegbar.
+
 ### Moodle VPL mit JavaScript
 
 Fuer automatische Pseudo2-Aufgaben in Moodle VPL gibt es ein separates
@@ -925,7 +936,7 @@ Die auszuliefernden Dateien stehen danach in `packages/vpl/dist`. Der zentrale
 Runner `pseudo2-vpl.mjs` enthaelt Parser, Linker, Validator, JavaScript-Generator
 und Runtime. Im VPL-Jail werden deshalb weder das Repository noch TypeScript,
 `npm`, GCC oder VeriFast benoetigt. Erforderlich ist ausschliesslich Node.js
-20.10.0 oder neuer.
+22.0.0 oder neuer.
 
 `vpl_run.sh` erzeugt einen interaktiven Programmlauf. `vpl_evaluate.sh` liest
 `assignment.json`, fuehrt oeffentliche und versteckte Tests mit separatem

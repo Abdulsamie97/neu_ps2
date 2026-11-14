@@ -51,7 +51,8 @@ const FRACTIONAL_CONTRACT_EXAMPLES = [
   'serverExamples/searching/binarySearch.pseudo2',
   'serverExamples/sorting/mergeSort.pseudo2',
   'test.pseudo2',
-  'test2.pseudo2'
+  'test2.pseudo2',
+  'update-operators.pseudo2'
 ].sort((left, right) => left.localeCompare(right));
 
 /** Beschreibt einen fehlgeschlagenen Verarbeitungsschritt fuer genau eine Beispieldatei. */
@@ -66,7 +67,7 @@ type CorpusFailure = {
 describe('Direct C Xtext and regular example corpus', () => {
   test('discovers the complete ported example inventory', () => {
     expect(PORTED_XTEXT_EXAMPLES).toHaveLength(87);
-    expect(REGULAR_EXAMPLES).toHaveLength(91);
+    expect(REGULAR_EXAMPLES).toHaveLength(92);
   });
 
   test('generates executable native C for every ported example', async () => {

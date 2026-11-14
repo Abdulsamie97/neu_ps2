@@ -10,10 +10,10 @@
     "test": "npm run build && node test/smoke.mjs"
   },
   "dependencies": {
-    "langium": "~4.1.0",
+    "langium": "~4.4.0",
     "pseudo2-language": "0.0.1"
   },
   "devDependencies": {
-    "esbuild": "~0.25.5"
+    "esbuild": "~0.28.2"
   }
 }

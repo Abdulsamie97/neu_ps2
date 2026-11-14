@@ -30,7 +30,7 @@ import {
 } from '../../generated/ast.js';
 import { Pseudo2TypeComputer } from '../../typing/pseudo2-type-computer.js';
 import type { Pseudo2Type } from '../../typing/pseudo2-type.js';
-import type { CSourceMapEntry } from './c-generator-core.js';
+import { markInlineSource, stripInlineSourceMapMarkers, type GeneratedCProgram } from './c-source-map.js';
 import { directCStringRuntime, type DirectCStringRuntimeMode } from './direct-runtime/c-direct-string-runtime.js';
 import { directCArrayRuntime, type DirectCArrayRuntimeType } from './direct-runtime/c-direct-array-runtime.js';
 import {
@@ -132,12 +132,13 @@ export function generateDirectCProgram(program: Program, options: DirectCGenerat
 export function generateDirectCProgramWithSourceMap(
   program: Program,
   options: DirectCGeneratorOptions = {}
-): { code: string; sourceMap: CSourceMapEntry[] } {
+): GeneratedCProgram {
   return new DirectCGenerator(program, options).generate();
 }
 
 /** Haelt Typ-, Namens- und Arraylaengeninformationen fuer einen Generierungslauf. */
 class DirectCGenerator {
+  private readonly nodes: AstNode[];
   private readonly variableTypes = new Map<Variable, CType>();
   private readonly functionTypes = new Map<FunctionDeclaration, CType>();
   private readonly arrayLengths = new Map<Variable, string>();
@@ -159,7 +160,8 @@ class DirectCGenerator {
 
   constructor(private readonly program: Program, options: DirectCGeneratorOptions) {
     this.runtimeMode = options.runtime ?? 'contracts';
-    const allNodes = [...AstUtils.streamAllContents(program)];
+    this.nodes = [...AstUtils.streamAllContents(program)];
+    const allNodes = this.nodes;
     this.hasAnnotations = allNodes.some(node =>
       isVerificationStatement(node) || node.$type === 'VerificationAnnotation' || node.$type === 'LoopAnnotation');
     const fractional = allNodes.find(node =>
@@ -209,7 +211,7 @@ class DirectCGenerator {
 
   /** Ordnet Quellnamen nur bei C-Kollisionen einen Praefix zu. */
   private prepareNames(): void {
-    const nodes = [...AstUtils.streamAllContents(this.program)];
+    const nodes = this.nodes;
     for (const node of nodes) {
       if (isStructDeclaration(node)) {
         this.structNames.set(node, this.uniqueGlobal(node.name));
@@ -236,7 +238,7 @@ class DirectCGenerator {
 
   /** Leitet Parameter, Variablen und Rueckgaben iterativ aus Deklarationen und Aufrufen ab. */
   private inferTypes(): void {
-    const nodes = [...AstUtils.streamAllContents(this.program)];
+    const nodes = this.nodes;
     for (const node of nodes) {
       if (isStructAttDeclaration(node)) {
         this.variableTypes.set(node, this.fromPseudoType(TYPES.typeForTypeRef(node.type)) ?? this.numberType);
@@ -393,15 +395,16 @@ class DirectCGenerator {
   }
 
   /** Schreibt Includes, Structs, Prototypen, globale Variablen und main in C-Reihenfolge. */
-  generate(): { code: string; sourceMap: CSourceMapEntry[] } {
+  generate(): GeneratedCProgram {
     const top = this.program.instructions ?? [];
-    const allNodes = [...AstUtils.streamAllContents(this.program)];
+    const allNodes = this.nodes;
     const structs = top.filter(isStructDeclaration);
     const functions = top.filter(isFunctionDeclaration);
+    const topVariables = top.filter(isVarDecl);
     const methods = structs.flatMap(struct => (struct.children ?? []).filter(isFunctionDeclaration));
     const referencedByFunction = new Set([...functions, ...methods].flatMap(fn =>
       [...AstUtils.streamAllContents(fn.body)].filter(isVarRef).map(ref => ref.ref?.ref)));
-    const globalVariables = top.filter(isVarDecl).filter(decl => referencedByFunction.has(decl));
+    const globalVariables = topVariables.filter(decl => referencedByFunction.has(decl));
     const needsStringRuntime = allNodes.some(node =>
       isAddition(node) && node.right.length > 0 && this.typeOfExpr(node)?.base === STRING.base ||
       isAssignment(node) && node.operator === '+=' && this.typeOfExpr(node.sel)?.base === STRING.base ||
@@ -428,7 +431,7 @@ class DirectCGenerator {
     if (optionalPrintKinds.length) {
       lines.push(directCOptionalPrintRuntime(optionalPrintKinds, this.runtimeMode), '');
     }
-    if ([...AstUtils.streamAllContents(this.program)].some(node => isVarDecl(node) && node.isArrayVariable)) {
+    if (allNodes.some(node => isVarDecl(node) && node.isArrayVariable)) {
       lines.push(
         '/*@',
         'lemma void ps2_all_eq_append<t>(list<t> values, t value)',
@@ -507,10 +510,12 @@ class DirectCGenerator {
     };
     for (const instruction of top) {
       if (isStructDeclaration(instruction) || isFunctionDeclaration(instruction)) continue;
-      lines.push(this.mapped(instruction, this.emitInstruction(instruction, 1, mainState, isVarDecl(instruction) && globalVariables.includes(instruction))));
+      const code = this.emitInstruction(instruction, 1, mainState,
+        isVarDecl(instruction) && globalVariables.includes(instruction));
+      lines.push(markInlineSource(instruction, code));
     }
     lines.push(...this.cleanupOwnedHeap(mainState, '  '));
-    for (const decl of top.filter(isVarDecl)) {
+    for (const decl of topVariables) {
       const heapAllocated = decl.initializer && isNewExpr(this.unwrap(decl.initializer));
       if (!heapAllocated) continue;
       const overwritten = top.some(node => isAssignment(node) && isVarRef(node.sel) && !node.sel.index && node.sel.ref?.ref === decl);
@@ -518,10 +523,12 @@ class DirectCGenerator {
         if (this.hasAnnotations) throw new DirectCGenerationError(`Heapvariable '${decl.name}' wird neu zugewiesen; eine sichere Freigabe ist ohne Ownership-Tracking nicht beweisbar.`, decl);
         continue;
       }
-      lines.push(this.mapped(decl, `  free(${this.name(decl)});`));
+      lines.push(markInlineSource(decl, `  free(${this.name(decl)});`));
     }
     lines.push('  return 0;', '}');
-    return this.finish(lines.filter((line, index, all) => line !== '' || all[index - 1] !== '').join('\n').trimEnd() + '\n');
+    const markedCode = lines.filter((line, index, all) => line !== '' || all[index - 1] !== '')
+      .join('\n').trimEnd() + '\n';
+    return stripInlineSourceMapMarkers(markedCode);
   }
 
   /** Schreibt ein natives C-Struct mit unveraenderten Feldnamen. */
@@ -685,10 +692,10 @@ class DirectCGenerator {
     state.loopAliases = ownership.invariantAliases;
     state.specAliases = this.copySpecAliases(ownership.invariantAliases);
     for (const p of fn.params ?? []) if (p.isArray) this.arrayLengths.set(p, `${this.name(p)}.length`);
-    const body = fn.body.instructions.map(i => this.mapped(i, this.emitInstruction(i, 1, state)));
+    const body = fn.body.instructions.map(i => markInlineSource(i, this.emitInstruction(i, 1, state)));
     const fallsThrough = this.functionTypes.get(fn) === VOID && !isReturnStmt(fn.body.instructions.at(-1));
     return [
-      this.mapped(fn, this.signature(fn)),
+      markInlineSource(fn, this.signature(fn)),
       ...this.contracts(fn.annotations ?? [], state, ownership),
       '{',
       ...body,
@@ -738,7 +745,7 @@ class DirectCGenerator {
     const invariantStart = state.heapInvariants?.length ?? 0;
     const previousLoopAliases = this.copySpecAliases(state.loopAliases);
     const previousSpecAliases = this.copySpecAliases(state.specAliases);
-    const body = block.instructions.map(i => this.mapped(i, this.emitInstruction(i, level + 1, state))).filter(Boolean);
+    const body = block.instructions.map(i => markInlineSource(i, this.emitInstruction(i, level + 1, state))).filter(Boolean);
     const localArrays = state.ownedArrays?.slice(arrayStart) ?? [];
     const localStructs = state.ownedStructs?.slice(structStart) ?? [];
     const last = block.instructions.at(-1);
@@ -1189,7 +1196,7 @@ class DirectCGenerator {
 
   /** Sammelt statische einsbasierte Indizes, fuer die nach einer Füllschleife Inhaltsfakten gebraucht werden. */
   private staticArrayIndexes(variable: VarDecl): number[] {
-    const indexes = [...AstUtils.streamAllContents(this.program)].flatMap(node => {
+    const indexes = this.nodes.flatMap(node => {
       if (!isVarRef(node) || node.ref?.ref !== variable || !node.index) return [];
       const index = this.unwrap(node.index);
       return isIntLiteral(index) && index.value >= 1 ? [index.value] : [];
@@ -1213,9 +1220,9 @@ class DirectCGenerator {
       const specState = { ...state, specAliases: aliases };
       const clauses = [...automatic, ...matches.map(a => this.specCondition(a.condition!, specState))];
       const spec = clauses.map(clause => `(${clause})`).join(' &*& ') || 'true';
-      return this.mapped(matches[0], `//@ ${kind} ${spec};`);
+      return markInlineSource(matches[0], `//@ ${kind} ${spec};`);
     };
-    return [line('requires'), line('ensures'), ...parts('terminates').map(a => this.mapped(a, '//@ terminates;'))];
+    return [line('requires'), line('ensures'), ...parts('terminates').map(a => markInlineSource(a, '//@ terminates;'))];
   }
 
   /** Platziert explizite Invarianten und Abnahmeklauseln vor dem C-Schleifenrumpf. */
@@ -1226,8 +1233,8 @@ class DirectCGenerator {
     const clauses = [...(state.heapInvariants ?? []), ...additional, ...invariants.map(a => this.specCondition(a.condition, specState))];
     const invariant = clauses.map(clause => `(${clause})`).join(' &*& ') || 'true';
     return [
-      this.mapped(invariants[0], `${indent}//@ invariant ${invariant};`),
-      ...decreases.map(a => this.mapped(a, `${indent}//@ decreases ${this.specExpr(a.condition, state)};`))
+      markInlineSource(invariants[0], `${indent}//@ invariant ${invariant};`),
+      ...decreases.map(a => markInlineSource(a, `${indent}//@ decreases ${this.specExpr(a.condition, state)};`))
     ].join('\n') + '\n';
   }
 
@@ -1823,25 +1830,6 @@ class DirectCGenerator {
       list = `cons((char)${bytes[index]}, ${list})`;
     }
     return list;
-  }
-
-  /** Setzt eine voruebergehende Quellmarke, die vor der Ausgabe wieder entfernt wird. */
-  private mapped(node: AstNode | undefined, code: string): string {
-    if (!code || !node?.$cstNode) return code;
-    return `/*__ps2_line_${node.$cstNode.range.start.line + 1}__*/${code}`;
-  }
-
-  /** Entfernt Quellmarken und sammelt die C-zu-Pseudo2-Zeilenabbildung. */
-  private finish(markedCode: string): { code: string; sourceMap: CSourceMapEntry[] } {
-    const sourceMap: CSourceMapEntry[] = [];
-    let sourceLine: number | undefined;
-    const code = markedCode.split('\n').map((line, index) => {
-      const matches = [...line.matchAll(/\/\*__ps2_line_(\d+)__\*\//g)];
-      if (matches.length) sourceLine = Number(matches[matches.length - 1][1]);
-      if (sourceLine !== undefined) sourceMap.push({ generatedLine: index + 1, sourceLine });
-      return line.replace(/\/\*__ps2_line_\d+__\*\//g, '');
-    }).join('\n');
-    return { code, sourceMap };
   }
 
   /**
@@ -2601,7 +2589,7 @@ class DirectCGenerator {
   /** Bestimmt fuer jedes Arrayfeld eines transferierten Structs die zuletzt zugewiesene Arraywurzel. */
   private transferredStructArrayRoots(structRoot: Variable): Set<Variable> {
     const latest = new Map<Variable, Variable>();
-    for (const assignment of [...AstUtils.streamAllContents(this.program)].filter(isAssignment)) {
+    for (const assignment of this.nodes.filter(isAssignment)) {
       const target = this.unwrap(assignment.sel);
       if (!isAttSelection(target) || target.attref.index || !target.attref.ref?.ref) continue;
       const receiver = this.unwrap(target.receiver);

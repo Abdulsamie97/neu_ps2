@@ -14,6 +14,7 @@ import { AstUtils, EmptyFileSystem, URI, type AstNode, type LangiumDocument } fr
 import type { Program } from '../../src/generated/ast.js';
 import { isVarRef } from '../../src/generated/ast.js';
 import { createPseudo2Services } from '../../src/pseudo2-module.js';
+import { getDiagnosticMessage } from '../../src/diagnostic-message.js';
 
 /** Parsing-Suite für projektspezifische Syntax- und Diagnosefälle. */
 describe('ParsingTests_CustomTests', () => {
@@ -190,7 +191,6 @@ describe('ParsingTests_CustomTests', () => {
     const { document } = await parseModel(`
       func a(a[1..n])
         var k = 1
-        n = 4
         a[1] = 1 * n
     `);
 
@@ -228,7 +228,7 @@ describe('ParsingTests_CustomTests', () => {
     `);
 
     const errors = (document.diagnostics ?? []).filter(d => d.severity === 1);
-    const messages = errors.map(d => d.message);
+    const messages = errors.map(getDiagnosticMessage);
 
     expect(
       messages.some(m =>
@@ -299,7 +299,6 @@ describe('ParsingTests_CustomTests', () => {
       func max( A[1..n] )
         for i = 2 to n
           print "" + i + n + A[1]
-          n = 2
           A[i] = 2 * n * i
           var k = 2 * n + A[2 * n]
         return 2

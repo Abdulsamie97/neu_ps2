@@ -19,19 +19,17 @@ import { defineConfig, type Plugin } from 'vite';
 import fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import importMetaUrlPlugin from '@codingame/esbuild-import-meta-url-plugin';
-import vsixPlugin from '@codingame/monaco-vscode-rollup-vsix-plugin';
 import { runCSource } from './packages/cli/src/execution/c-runner.js';
 import { runVeriFast, type VeriFastResult } from './packages/cli/src/execution/verifast.js';
 
-/// <reference lib="rolldown-vite/config" />
+const projectRoot = import.meta.dirname;
 
 /** Repositorylokaler VeriFast-Pfad, der unabhängig von externen Umgebungsvariablen verwendet wird. */
-const DEFAULT_VERIFAST_EXE = path.resolve(__dirname, 'verifast-26.01', 'bin', 'verifast.exe');
+const DEFAULT_VERIFAST_EXE = path.resolve(projectRoot, 'verifast-26.01', 'bin', 'verifast.exe');
 /** Konkrete C-Runtimes, die vor jedem Runtime-C-Beweis aus der Weboberfläche geprüft werden. */
 const VERIFIED_RUNTIME_FILES = [
-    path.resolve(__dirname, 'runtime', 'c', 'pseudo2_heap_runtime.c'),
-    path.resolve(__dirname, 'runtime', 'c', 'pseudo2_scalar_runtime.c')
+    path.resolve(projectRoot, 'runtime', 'c', 'pseudo2_heap_runtime.c'),
+    path.resolve(projectRoot, 'runtime', 'c', 'pseudo2_scalar_runtime.c')
 ];
 /** Maximale Größe eines JSON-Anfragekörpers für lokale Werkzeugendpunkte. */
 const MAX_VERIFAST_BODY_BYTES = 5 * 1024 * 1024;
@@ -48,29 +46,12 @@ let cRunInProgress = false;
 /** Vollständige Vite-Konfiguration für Mehrseiten-Build, Entwicklungsserver und lokale APIs. */
 export const definedViteConfig = defineConfig({
     build: {
-        rollupOptions: {
+        rolldownOptions: {
             input: {
-                index: path.resolve(__dirname, 'index.html'),
-                pseudo2Workbench: path.resolve(__dirname, 'packages/web/pseudo2-workbench.html'),
-                // json_classic: path.resolve(__dirname, 'packages/examples/json_classic.html'),
-                // json: path.resolve(__dirname, 'packages/examples/json.html'),
-                // browser: path.resolve(__dirname, 'packages/examples/browser.html'),
-                // langium_extended: path.resolve(__dirname, 'packages/examples/langium_extended.html'),
-                // python: path.resolve(__dirname, 'packages/examples/python.html'),
-                // groovy: path.resolve(__dirname, 'packages/examples/groovy.html'),
-                // clangd: path.resolve(__dirname, 'packages/examples/clangd.html'),
-                // appPlayground: path.resolve(__dirname, 'packages/examples/appPlayground.html'),
-                // twoLangaugeClients: path.resolve(__dirname, 'packages/examples/two_langauge_clients.html'),
-                // reactAppPlayground: path.resolve(__dirname, 'packages/examples/react_appPlayground.html'),
-                // reactStatemachine: path.resolve(__dirname, 'packages/examples/react_statemachine.html'),
-                // reactPython: path.resolve(__dirname, 'packages/examples/react_python.html'),
-                // tsExtHost: path.resolve(__dirname, 'packages/examples/tsExtHost.html')
+                index: path.resolve(projectRoot, 'index.html'),
+                pseudo2Workbench: path.resolve(projectRoot, 'packages/web/pseudo2-workbench.html')
             }
         }
-    },
-    resolve: {
-        // not needed here, see https://github.com/TypeFox/monaco-languageclient#vite-dev-server-troubleshooting
-        // dedupe: ['vscode']
     },
     server: {
         port: 21002,
@@ -92,44 +73,22 @@ export const definedViteConfig = defineConfig({
         exclude: [
             '@codingame/monaco-vscode-textmate-service-override'
         ],
-        esbuildOptions: {
-            plugins: [
-                importMetaUrlPlugin
-            ]
-        },
-        // TB: no idea what is really needed here        
         include: [
-            // '@codingame/monaco-vscode-standalone-languages',
-            // '@codingame/monaco-vscode-standalone-css-language-features',
-            // '@codingame/monaco-vscode-standalone-html-language-features',
-            // '@codingame/monaco-vscode-standalone-json-language-features',
-            // '@codingame/monaco-vscode-standalone-typescript-language-features',
-            // '@testing-library/react',
             'langium',
             'langium/lsp',
             'langium/grammar',
             'vscode/localExtensionHost',
             'vscode-jsonrpc',
-            'vscode-languageclient',
-            'vscode-languageserver',
-            'vscode-languageserver/browser.js',
-            'vscode-languageserver-protocol',
-            'vscode-oniguruma',
-            'vscode-textmate'
+            'vscode-languageclient/browser',
+            'vscode-languageserver/browser',
+            'vscode-languageserver-protocol/browser'
         ]
     },
     plugins: [
         pseudo2WorkbenchRoutePlugin(),
         pseudo2VeriFastApiPlugin(),
-        pseudo2CRunApiPlugin(),
-        vsixPlugin()  // Enable to load VS Code extensions packaged as .vsix files,
-        //    react()
+        pseudo2CRunApiPlugin()
     ],
-    define: {
-        rootDirectory: JSON.stringify(__dirname),
-        // Server-provided Content-Length header may be gzipped, get the real size in build time
-        // __WASM_SIZE__: fs.existsSync(clangdWasmLocation) ? fs.statSync(clangdWasmLocation).size : 0
-    },
     worker: {
         format: 'es'
     }

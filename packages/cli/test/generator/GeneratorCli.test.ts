@@ -12,17 +12,21 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 
 import { generateAction, generateCAction, generatePrettyAction } from '../../src/main.js';
 import { resolveCCompiler, runCSource } from '../../src/execution/c-runner.js';
 import { applyCSourceMapToVeriFastResult, runVeriFast, type CSourceMapFile } from '../../src/execution/verifast.js';
 
+const repoRoot = fileURLToPath(new URL('../../../..', import.meta.url));
+const verifastExe = path.join(repoRoot, 'verifast-26.01', 'bin', 'verifast.exe');
+
 /** Integrationssuite der programmatisch aufgerufenen CLI-Generatoraktionen. */
 describe('CLI generator', () => {
   test('update operators run identically in runtime C and direct C', async () => {
     if (!resolveCCompiler()) return;
-    const sourcePath = path.join(process.cwd(), 'examples', 'update-operators.pseudo2');
+    const sourcePath = path.join(repoRoot, 'examples', 'update-operators.pseudo2');
     const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-update-c-'));
     const expected = ['2', '2', '2', '4', '4', '3', '3', '2', '6', 'a2'].join('\n');
     for (const direct of [false, true]) {
@@ -35,11 +39,10 @@ describe('CLI generator', () => {
   }, 60_000);
 
   test('VeriFast verifies prefix, postfix and compound updates in both C generators', async () => {
-    const verifastExe = path.join(process.cwd(), 'verifast-26.01', 'bin', 'verifast.exe');
     if (!fs.existsSync(verifastExe)) return;
     const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-update-vf-'));
     for (const example of ['valid_update_operators', 'valid_update_array_index', 'valid_update_print', 'valid_update_expression']) {
-      const sourcePath = path.join(process.cwd(), 'examples', 'verifast', `${example}.pseudo2`);
+      const sourcePath = path.join(repoRoot, 'examples', 'verifast', `${example}.pseudo2`);
       for (const direct of [false, true]) {
         await generateCAction(sourcePath, { destination, direct });
         const file = path.join(destination, direct ? `${example}.direct.c` : `${example}.c`);
@@ -206,7 +209,6 @@ describe('CLI generator', () => {
   }, 60_000);
 
   test('verifies native integer, array, struct and string contracts with the repo-local VeriFast', async () => {
-    const verifastExe = path.join(process.cwd(), 'verifast-26.01', 'bin', 'verifast.exe');
     if (!fs.existsSync(verifastExe)) return;
     const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-direct-verifast-'));
     for (const name of [
@@ -223,7 +225,7 @@ describe('CLI generator', () => {
       'direct-c-filled-array',
       'direct-c-do-while'
     ]) {
-      const sourcePath = path.join(process.cwd(), 'examples', `${name}.pseudo2`);
+      const sourcePath = path.join(repoRoot, 'examples', `${name}.pseudo2`);
       await generateCAction(sourcePath, { destination, direct: true });
       const cPath = path.join(destination, `${name.replace(/-/g, '')}.direct.c`);
       const result = await runVeriFast({ verifastExe, file: cPath, compileOnly: true });
@@ -232,7 +234,6 @@ describe('CLI generator', () => {
   }, 60_000);
 
   test('verifies nested and aliased Direct-C heap ownership with the repo-local VeriFast', async () => {
-    const verifastExe = path.join(process.cwd(), 'verifast-26.01', 'bin', 'verifast.exe');
     if (!fs.existsSync(verifastExe)) return;
     const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-direct-ownership-'));
     for (const name of [
@@ -244,7 +245,7 @@ describe('CLI generator', () => {
       'valid_stateful_array_alias',
       'valid_stateful_struct_alias'
     ]) {
-      const sourcePath = path.join(process.cwd(), 'examples', 'verifast', `${name}.pseudo2`);
+      const sourcePath = path.join(repoRoot, 'examples', 'verifast', `${name}.pseudo2`);
       await generateCAction(sourcePath, { destination, direct: true });
       const cPath = path.join(destination, `${name}.direct.c`);
       const result = await runVeriFast({ verifastExe, file: cPath, compileOnly: true });
@@ -253,7 +254,6 @@ describe('CLI generator', () => {
   }, 60_000);
 
   test('verifies native array and struct output without consuming heap ownership', async () => {
-    const verifastExe = path.join(process.cwd(), 'verifast-26.01', 'bin', 'verifast.exe');
     if (!fs.existsSync(verifastExe)) return;
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-direct-print-verifast-'));
     const sourcePath = path.join(tmp, 'print-values.pseudo2');
@@ -275,7 +275,6 @@ describe('CLI generator', () => {
   }, 30_000);
 
   test('maps a native VeriFast assertion failure to its Pseudo2 line', async () => {
-    const verifastExe = path.join(process.cwd(), 'verifast-26.01', 'bin', 'verifast.exe');
     if (!fs.existsSync(verifastExe)) return;
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-direct-verifast-failure-'));
     const sourcePath = path.join(tmp, 'invalid.pseudo2');
@@ -291,7 +290,6 @@ describe('CLI generator', () => {
   }, 60_000);
 
   test('builds a separate native verification tree for every Pseudo2 function', async () => {
-    const verifastExe = path.join(process.cwd(), 'verifast-26.01', 'bin', 'verifast.exe');
     if (!fs.existsSync(verifastExe)) return;
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-direct-verifast-trees-'));
     const sourcePath = path.join(tmp, 'functions.pseudo2');

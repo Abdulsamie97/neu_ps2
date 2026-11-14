@@ -44,20 +44,13 @@ export function generateC(program: Program, sourceFileName: string, options: Gen
   fs.mkdirSync(outDir, { recursive: true });
 
   const outFile = path.join(outDir, options.direct ? `${data.name}.direct.c` : `${data.name}.c`);
-  if (options.direct) {
-    const generated = generateDirectCProgramWithSourceMap(program, { runtime: options.runtime });
-    fs.writeFileSync(outFile, generated.code, { encoding: 'utf8' });
-    fs.writeFileSync(`${outFile}.map.json`, JSON.stringify({
-      sourceFile: path.resolve(sourceFileName),
-      mappings: generated.sourceMap
-    }, null, 2), { encoding: 'utf8' });
-    return outFile;
-  }
-  const generated = generateCProgramWithSourceMap(program, undefined, {
-    moduleName: data.name,
-    runtime: options.runtime,
-    checkIntegerOverflow: options.checkIntegerOverflow
-  });
+  const generated = options.direct
+    ? generateDirectCProgramWithSourceMap(program, { runtime: options.runtime })
+    : generateCProgramWithSourceMap(program, undefined, {
+        moduleName: data.name,
+        runtime: options.runtime,
+        checkIntegerOverflow: options.checkIntegerOverflow
+      });
   fs.writeFileSync(outFile, generated.code, { encoding: 'utf8' });
   fs.writeFileSync(`${outFile}.map.json`, JSON.stringify({
     sourceFile: path.resolve(sourceFileName),

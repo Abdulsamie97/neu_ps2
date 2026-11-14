@@ -12,7 +12,7 @@
 
 import { EmptyFileSystem } from 'langium';
 import { startLanguageServer } from 'langium/lsp';
-import { BrowserMessageReader, BrowserMessageWriter, createConnection } from 'vscode-languageserver/browser.js';
+import { BrowserMessageReader, BrowserMessageWriter, createConnection } from 'vscode-languageserver/browser';
 import { createPseudo2Services } from 'pseudo2-language'; //TBC
 
 /** @brief Aktiver LSP-Nachrichtenleser für den Worker-Port; vor dem Start ist er nicht gesetzt. */

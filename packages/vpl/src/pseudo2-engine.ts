@@ -13,6 +13,7 @@ import { EmptyFileSystem, URI } from 'langium';
 import {
   createPseudo2Services,
   generateProgram,
+  getDiagnosticMessage,
   type Program
 } from 'pseudo2-language';
 import {
@@ -59,7 +60,7 @@ export async function analyzeSource(source: string, documentName: string): Promi
         : 'info' as const,
     line: diagnostic.range.start.line + 1,
     column: diagnostic.range.start.character + 1,
-    message: diagnostic.message
+    message: getDiagnosticMessage(diagnostic)
   }));
   const hasErrors = diagnostics.some(diagnostic => diagnostic.severity === 'error');
 

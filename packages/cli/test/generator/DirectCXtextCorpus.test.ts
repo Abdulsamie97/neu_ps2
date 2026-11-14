@@ -31,7 +31,7 @@ import { runVeriFast } from '../../src/execution/verifast.js';
 /** Wurzel aller in das Langium-Repository portierten Beispiele. */
 const EXAMPLES_ROOT = fileURLToPath(new URL('../../../../examples', import.meta.url));
 /** Repository-lokale, fuer reproduzierbare Tests verwendete VeriFast-Installation. */
-const VERIFAST_EXE = path.join(process.cwd(), 'verifast-26.01', 'bin', 'verifast.exe');
+const VERIFAST_EXE = fileURLToPath(new URL('../../../../verifast-26.01/bin/verifast.exe', import.meta.url));
 
 /** Beispiele, deren mathematische Division oder Potenz noch ein Rationalmodell benoetigt. */
 const FRACTIONAL_CONTRACT_EXAMPLES = new Set([
@@ -49,7 +49,8 @@ const FRACTIONAL_CONTRACT_EXAMPLES = new Set([
   'serverExamples/searching/binarySearch.pseudo2',
   'serverExamples/sorting/mergeSort.pseudo2',
   'test.pseudo2',
-  'test2.pseudo2'
+  'test2.pseudo2',
+  'update-operators.pseudo2'
 ]);
 
 /** Alte Beispiele, die im dokumentierten Kompatibilitaetsprofil bereits beweisbar sind. */
@@ -148,7 +149,7 @@ afterAll(() => {
 
 /** Integrationssuite fuer Compiler und VeriFast auf dem kompletten Xtext-Bestand. */
 describe('Direct C example corpus tools', () => {
-  test('compiles all 202 executable Direct-C example translations', () => {
+  test('compiles every executable Direct-C example translation', () => {
     const compiler = resolveCCompiler();
     if (!compiler) return;
 
@@ -238,8 +239,8 @@ describe('Direct C example corpus tools', () => {
       .filter(entry => !RATIONAL_MODEL_EXAMPLES.has(entry.relativePath));
     const failures = await verifyEntries(strictExamples, 'valid-strict');
 
-    expect(validExamples).toHaveLength(48);
-    expect(strictExamples).toHaveLength(44);
+    expect(validExamples).toHaveLength(52);
+    expect(strictExamples).toHaveLength(48);
     expect(failures.filter((failure): failure is CorpusFailure => failure !== undefined)).toEqual([]);
   }, 300_000);
 
@@ -299,7 +300,7 @@ describe('Direct C example corpus tools', () => {
 
 /**
  * Liest, validiert und typisiert den vollstaendigen Beispielbestand.
- * @returns Stabil sortierte Liste aller 202 gueltigen AST-Programme.
+ * @returns Stabil sortierte Liste aller gueltigen AST-Programme.
  */
 async function loadExampleCorpus(): Promise<CorpusProgram[]> {
   const files = collectPseudo2Files(EXAMPLES_ROOT)
@@ -323,12 +324,12 @@ async function loadExampleCorpus(): Promise<CorpusProgram[]> {
     });
   }
 
-  expect(programs).toHaveLength(202);
+  expect(programs).toHaveLength(207);
   return programs;
 }
 
 /**
- * Erkennt die 91 regulaeren Beispiele: 87 Xtext-Portierungen und vier Basisdateien.
+ * Erkennt die regulaeren Beispiele einschliesslich der Xtext-Portierungen.
  * @param relativePath Relativer Pfad innerhalb des Beispielverzeichnisses.
  * @returns `true`, wenn die Datei weder zur neuen Direct-C- noch zur VeriFast-Suite gehoert.
  */

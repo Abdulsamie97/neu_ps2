@@ -4,7 +4,8 @@
  *
  * Der Einstieg bleibt bewusst duenn: Sprachverarbeitung und Prozessisolation
  * liegen in `pseudo2-engine.ts`, waehrend `assignment.ts` Konfiguration,
- * Testausfuehrung und Moodle-VPL-Ausgabe kapselt.
+ * Testausfuehrung und Moodle-VPL-Ausgabe kapselt. Strukturregeln werten den
+ * validierten AST der Originalabgabe getrennt von den Verhaltenstests aus.
  *
  * @author Abdul
  */
@@ -30,6 +31,7 @@ import {
   formatDiagnostic,
   readLimitedUtf8File
 } from './pseudo2-engine.js';
+import { runStructuralChecks } from './structural-checks.js';
 
 /** Exit-Code fuer ungueltige Kommandozeilenargumente. */
 const EXIT_USAGE = 1;
@@ -125,8 +127,9 @@ async function evaluateCommand(sourcePath: string, manifestPath: string): Promis
   }
 
   const warnings = baseAnalysis.diagnostics.filter(diagnostic => diagnostic.severity !== 'error');
+  const structuralResults = runStructuralChecks(baseAnalysis.program, manifest.structuralChecks);
   const results = await runAssignmentTests(source, resolve(sourcePath), manifest);
-  printEvaluation(manifest, results, warnings, sourceName);
+  printEvaluation(manifest, results, structuralResults, warnings, sourceName);
   return 0;
 }
 

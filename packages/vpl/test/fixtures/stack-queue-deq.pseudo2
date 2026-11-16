@@ -1,0 +1,94 @@
+struct Stack
+    num[] data
+    num top
+    init(limit)
+        var storage[limit] = 0
+        this.data = storage
+        this.top = 0
+    push(value)
+        this.top += 1
+        this.data[this.top] = value
+    pop()
+        var value = this.data[this.top]
+        this.top -= 1
+        return value
+
+func reverseWithStack(A[1..n])
+    if n == 0
+        return ""
+    var stack = new Stack
+    stack.init(n)
+    for i = 1 to n
+        stack.push(A[i])
+    var text = "" + stack.pop()
+    for i = 2 to n
+        text += "," + stack.pop()
+    return text
+
+struct Queue
+    num[] data
+    num head
+    num size
+    num capacity
+    init(limit)
+        var storage[limit] = 0
+        this.data = storage
+        this.capacity = limit
+        this.head = 1
+        this.size = 0
+    enqueue(value)
+        var slot = (this.head + this.size - 1) mod this.capacity + 1
+        this.data[slot] = value
+        this.size += 1
+    dequeue()
+        var value = this.data[this.head]
+        this.head = this.head mod this.capacity + 1
+        this.size -= 1
+        return value
+
+func rotateWithQueue(A[1..n])
+    if n == 0
+        return ""
+    var queue = new Queue
+    queue.init(n)
+    for i = 1 to n
+        queue.enqueue(A[i])
+    queue.enqueue(queue.dequeue())
+    var text = "" + queue.dequeue()
+    for i = 2 to n
+        text += "," + queue.dequeue()
+    return text
+
+struct DEQ
+    num[] data
+    num head
+    num size
+    num capacity
+    init(limit)
+        var storage[limit] = 0
+        this.data = storage
+        this.capacity = limit
+        this.head = 1
+        this.size = 0
+    isEmpty()
+        return this.size == 0
+    pushFront(value)
+        if this.head == 1
+            this.head = this.capacity
+        else
+            this.head -= 1
+        this.data[this.head] = value
+        this.size += 1
+    pushBack(value)
+        var slot = (this.head + this.size - 1) mod this.capacity + 1
+        this.data[slot] = value
+        this.size += 1
+    popFront()
+        var value = this.data[this.head]
+        this.head = this.head mod this.capacity + 1
+        this.size -= 1
+        return value
+    popBack()
+        var slot = (this.head + this.size - 2) mod this.capacity + 1
+        this.size -= 1
+        return this.data[slot]

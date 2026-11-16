@@ -22,6 +22,21 @@ export const MAX_SOURCE_BYTES = 1024 * 1024;
 export const MAX_MANIFEST_BYTES = 1024 * 1024;
 /** Maximale Zahl einzelner Tests in einer Aufgabe. */
 export const MAX_TEST_COUNT = 100;
+/** Obergrenze fuer Strukturkriterien pro Aufgabe und Eintraege pro Regelliste. */
+export const MAX_STRUCTURAL_CHECK_COUNT = 100;
+
+/** Im ausfuehrbaren AST erkennbare Operationsarten. */
+export const STRUCTURAL_OPERATIONS = [
+  'loop', 'for', 'while', 'do-while', 'print', 'throw', 'new', 'array-create', 'array-index'
+] as const;
+export type StructuralOperation = typeof STRUCTURAL_OPERATIONS[number];
+
+/** Im Pseudo2-Programm erlaubte Operatoren, ohne Spezifikationssyntax. */
+export const STRUCTURAL_OPERATORS = [
+  '=', '+=', '-=', '*=', '/=', '++', '--', '||', '&&', '==', '!=',
+  '<', '<=', '>', '>=', '+', '-', '*', '/', '%', 'mod', '^', '!'
+] as const;
+export type StructuralOperator = typeof STRUCTURAL_OPERATORS[number];
 
 /** Schweregrad einer normalisierten Langium-Diagnose. */
 export type DiagnosticSeverity = 'error' | 'warning' | 'info';
@@ -78,7 +93,7 @@ export interface AssignmentTest {
   timeoutMs?: number;
   /** Vergleicht bei true nur normalisierte Folgen von Leerraum. */
   normalizeWhitespace: boolean;
-  /** Unterdrueckt bei Fehlern erwartete und tatsaechliche Ausgabe. */
+  /** Anonymisiert den Test und unterdrueckt Harness-spezifische Fehlerdetails. */
   hidden: boolean;
 }
 
@@ -96,6 +111,63 @@ export interface AssignmentManifest {
   defaultTimeoutMs: number;
   /** Geordnete Liste der auszufuehrenden Tests. */
   tests: AssignmentTest[];
+  /** Strukturkriterien fuer den validierten AST der Abgabe, ohne Test-Harness. */
+  structuralChecks: StructuralCheck[];
+}
+
+/** Erwartetes Struct-Feld mit optionalem Element- oder Skalar-Typ. */
+export interface StructuralField {
+  name: string;
+  type?: string;
+  array: boolean;
+}
+
+/** Erwartete Struct-Methode mit optionaler Anzahl sichtbarer Parameter. */
+export interface StructuralMethod {
+  name: string;
+  arity?: number;
+}
+
+/** Vorgaben fuer die Deklaration eines globalen Structs. */
+export interface StructuralStruct {
+  name: string;
+  fields: StructuralField[];
+  methods: StructuralMethod[];
+}
+
+/** Regeln fuer den Rumpf einer Funktion oder qualifizierten Struct-Methode. */
+export interface StructuralScope {
+  in: string;
+  includeCallees: boolean;
+  requiredCalls: string[];
+  requiredFields: string[];
+  requiredArrayAccesses: string[];
+  requiredConstructions: string[];
+  forbiddenCalls: string[];
+  forbiddenOperations: StructuralOperation[];
+  forbiddenOperators: StructuralOperator[];
+  /** Falls angegeben, sind nur diese Aufrufziele erlaubt, auch bei einer leeren Liste. */
+  allowedCalls?: string[];
+}
+
+/** Ein eigenstaendig bewertetes Kriterium; alle Teilregeln muessen erfuellt sein. */
+export interface StructuralCheck {
+  name: string;
+  points: number;
+  struct?: StructuralStruct;
+  scopes: StructuralScope[];
+}
+
+/** Rueckmeldung zu einer Teilregel, gegebenenfalls mit Position in der Abgabe. */
+export interface StructuralIssue {
+  message: string;
+  location?: { line: number; column: number };
+}
+
+/** Strukturpunkte werden vergeben, wenn keine Teilregel verletzt wurde. */
+export interface StructuralCheckResult {
+  check: StructuralCheck;
+  issues: StructuralIssue[];
 }
 
 /** Ergebnis eines einzelnen Bewertungstests. */

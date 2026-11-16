@@ -1,31 +1,47 @@
 {
   "version": 1,
-  "title": "Quadratfunktion",
+  "title": "Stack, Queue und DEQ",
   "mode": "function",
-  "maxGrade": 10,
+  "maxGrade": 100,
   "defaultTimeoutMs": 2000,
   "tests": [
-    {
-      "name": "Oeffentlicher Test: square(5)",
-      "harness": "print square(5)",
-      "expectedOutput": "25",
-      "points": 4,
-      "hidden": false
-    },
-    {
-      "name": "Versteckter Test: negative Zahl",
-      "harness": "print square(-3)",
-      "expectedOutput": "9",
-      "points": 3,
-      "hidden": true
-    },
-    {
-      "name": "Versteckter Test: Null",
-      "harness": "print square(0)",
-      "expectedOutput": "0",
-      "points": 3,
-      "hidden": true,
-      "timeoutMs": 1000
-    }
+    {"name": "Stack: Reihenfolge umkehren", "points": 15,
+      "harness": "print reverseWithStack([10, 20, 30])\nprint reverseWithStack([4, 9])", "expectedOutput": "30,20,10\n9,4"},
+    {"name": "Queue: Nach links rotieren", "points": 15,
+      "harness": "print rotateWithQueue([10, 20, 30])\nprint rotateWithQueue([4, 9])", "expectedOutput": "20,30,10\n9,4"},
+    {"name": "DEQ: Beide Enden", "points": 10,
+      "harness": "var d = new DEQ\nd.init(3)\nprint d.isEmpty()\nd.pushBack(10)\nd.pushBack(20)\nd.pushBack(30)\nprint d.popBack()\nprint d.popFront()\nd.pushFront(11)\nprint d.popFront()\nprint d.popFront()\nprint d.isEmpty()", "expectedOutput": "true\n30\n10\n11\n20\ntrue"},
+    {"name": "DEQ: Umlauf bei belegtem Ring", "points": 15,
+      "harness": "var d = new DEQ\nd.init(3)\nd.pushBack(11)\nd.pushBack(22)\nd.pushBack(33)\nprint d.popFront()\nd.pushBack(44)\nprint d.popFront()\nd.pushBack(55)\nprint d.popFront()\nd.pushBack(66)\nprint d.popFront()\nprint d.popBack()\nprint d.popFront()\nprint d.isEmpty()", "expectedOutput": "11\n22\n33\n44\n66\n55\ntrue"},
+    {"name": "DEQ: Ringpuffer wiederverwenden", "points": 15,
+      "harness": "var d = new DEQ\nd.init(2)\nfor round = 1 to 4\n    d.pushBack(round)\n    d.pushBack(round + 10)\n    print d.popFront()\n    print d.popFront()\n    print d.isEmpty()\nd.pushFront(50)\nd.pushBack(60)\nprint d.popBack()\nprint d.popBack()\nprint d.isEmpty()", "expectedOutput": "1\n11\ntrue\n2\n12\ntrue\n3\n13\ntrue\n4\n14\ntrue\n60\n50\ntrue"}
+  ],
+  "structuralChecks": [
+    {"name": "Stack: Aufbau und Verwendung", "points": 10,
+      "struct": {"name": "Stack", "fields": [{"name": "data", "type": "num", "array": true}, {"name": "top", "type": "num"}],
+        "methods": [{"name": "init", "arity": 1}, {"name": "push", "arity": 1}, {"name": "pop", "arity": 0}]},
+      "scopes": [
+        {"in": "reverseWithStack", "requiredConstructions": ["Stack"], "requiredCalls": ["Stack.push", "Stack.pop"]},
+        {"in": "Stack.push", "requiredFields": ["Stack.top"], "requiredArrayAccesses": ["Stack.data"]},
+        {"in": "Stack.pop", "requiredFields": ["Stack.top"], "requiredArrayAccesses": ["Stack.data"]}
+      ]},
+    {"name": "Queue: Aufbau und Verwendung", "points": 10,
+      "struct": {"name": "Queue", "fields": [{"name": "data", "type": "num", "array": true}, {"name": "head", "type": "num"}, {"name": "size", "type": "num"}],
+        "methods": [{"name": "init", "arity": 1}, {"name": "enqueue", "arity": 1}, {"name": "dequeue", "arity": 0}]},
+      "scopes": [
+        {"in": "rotateWithQueue", "requiredConstructions": ["Queue"], "requiredCalls": ["Queue.enqueue", "Queue.dequeue"]},
+        {"in": "Queue.enqueue", "requiredFields": ["Queue.size"], "requiredArrayAccesses": ["Queue.data"]},
+        {"in": "Queue.dequeue", "requiredFields": ["Queue.head", "Queue.size"], "requiredArrayAccesses": ["Queue.data"]}
+      ]},
+    {"name": "DEQ: Ringpuffer ohne Verschiebeschleifen", "points": 10,
+      "struct": {"name": "DEQ", "fields": [{"name": "data", "type": "num", "array": true}, {"name": "head", "type": "num"}, {"name": "size", "type": "num"}],
+        "methods": [{"name": "init", "arity": 1}, {"name": "isEmpty", "arity": 0}, {"name": "pushFront", "arity": 1}, {"name": "pushBack", "arity": 1}, {"name": "popFront", "arity": 0}, {"name": "popBack", "arity": 0}]},
+      "scopes": [
+        {"in": "DEQ.isEmpty", "requiredFields": ["DEQ.size"]},
+        {"in": "DEQ.pushFront", "requiredFields": ["DEQ.head", "DEQ.size"], "requiredArrayAccesses": ["DEQ.data"], "forbiddenOperations": ["loop", "array-create"], "includeCallees": true},
+        {"in": "DEQ.pushBack", "requiredFields": ["DEQ.head", "DEQ.size"], "requiredArrayAccesses": ["DEQ.data"], "forbiddenOperations": ["loop", "array-create"], "includeCallees": true},
+        {"in": "DEQ.popFront", "requiredFields": ["DEQ.head", "DEQ.size"], "requiredArrayAccesses": ["DEQ.data"], "forbiddenOperations": ["loop", "array-create"], "includeCallees": true},
+        {"in": "DEQ.popBack", "requiredFields": ["DEQ.head", "DEQ.size"], "requiredArrayAccesses": ["DEQ.data"], "forbiddenOperations": ["loop", "array-create"], "includeCallees": true}
+      ]}
   ]
 }

@@ -10,13 +10,21 @@ import {
   MAX_MANIFEST_BYTES,
   MAX_OUTPUT_BYTES,
   MAX_SOURCE_BYTES,
+  MAX_STRUCTURAL_CHECK_COUNT,
   MAX_TEST_COUNT,
   MAX_TIMEOUT_MS,
   MIN_TIMEOUT_MS,
+  STRUCTURAL_OPERATIONS,
+  STRUCTURAL_OPERATORS,
   type AssignmentManifest,
   type AssignmentTest,
   type EvaluationMode,
+  type ExecutionResult,
   type SourceDiagnostic,
+  type StructuralCheck,
+  type StructuralCheckResult,
+  type StructuralScope,
+  type StructuralStruct,
   type TestResult
 } from './model.js';
 import {
@@ -40,9 +48,9 @@ export async function loadManifest(manifestPath: string): Promise<AssignmentMani
   let value: unknown;
   try {
     value = JSON.parse(text) as unknown;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Bewertungsdatei ist kein gueltiges JSON: ${message}`);
+  } catch {
+    // JSON.parse kann einen Ausschnitt aus einem versteckten Harness anzeigen.
+    throw new Error('Die Bewertungsdatei ist kein gueltiges JSON. Pruefe Anfuehrungszeichen, Kommas und Klammern.');
   }
   return parseManifest(value);
 }
@@ -78,7 +86,10 @@ function parseManifest(value: unknown): AssignmentManifest {
     mode,
     maxGrade,
     defaultTimeoutMs,
-    tests
+    tests,
+    structuralChecks: root.structuralChecks === undefined
+      ? []
+      : parseList(root.structuralChecks, 'structuralChecks', parseStructuralCheck)
   };
 }
 
@@ -110,6 +121,148 @@ function parseAssignmentTest(value: unknown, index: number, mode: EvaluationMode
     normalizeWhitespace: optionalBoolean(test.normalizeWhitespace, `${label}.normalizeWhitespace`, false),
     hidden: optionalBoolean(test.hidden, `${label}.hidden`, false)
   };
+}
+
+/**
+ * Liest ein Strukturkriterium. Unbekannte Eigenschaften werden nur im neuen
+ * Schema abgelehnt, damit bestehende Aufgabenformate kompatibel bleiben.
+ */
+function parseStructuralCheck(value: unknown, label: string): StructuralCheck {
+  const check = requireStructuralRecord(value, label, ['name', 'points', 'struct', 'scopes']);
+  const struct = check.struct === undefined ? undefined : parseStructuralStruct(check.struct, `${label}.struct`);
+  const scopes = parseOptionalList(check.scopes, `${label}.scopes`, parseStructuralScope);
+  if (!struct && scopes.length === 0) {
+    throw new Error(`"${label}" braucht "struct" oder mindestens einen Eintrag in "scopes".`);
+  }
+  return {
+    name: requireString(check.name, `${label}.name`, 1, 120),
+    points: requireNumber(check.points, `${label}.points`, 0.001, 1_000_000),
+    struct,
+    scopes
+  };
+}
+
+/** Liest Struct-Namen, Feldtypen und Methodensignaturen aus der Konfiguration. */
+function parseStructuralStruct(value: unknown, label: string): StructuralStruct {
+  const struct = requireStructuralRecord(value, label, ['name', 'fields', 'methods']);
+  const fields = parseOptionalList(struct.fields, `${label}.fields`, (entry, path) => {
+    const field = requireStructuralRecord(entry, path, ['name', 'type', 'array']);
+    return {
+      name: requireReferenceName(field.name, `${path}.name`, 'identifier'),
+      type: field.type === undefined ? undefined : requireReferenceName(field.type, `${path}.type`, 'identifier'),
+      array: optionalBoolean(field.array, `${path}.array`, false)
+    };
+  });
+  const methods = parseOptionalList(struct.methods, `${label}.methods`, (entry, path) => {
+    const method = requireStructuralRecord(entry, path, ['name', 'arity']);
+    return {
+      name: requireReferenceName(method.name, `${path}.name`, 'identifier'),
+      arity: method.arity === undefined ? undefined : requireInteger(method.arity, `${path}.arity`, 0, 100)
+    };
+  });
+  requireUnique([...fields.map(field => field.name), ...methods.map(method => method.name)], label);
+  return { name: requireReferenceName(struct.name, `${label}.name`, 'identifier'), fields, methods };
+}
+
+/** Liest Regeln fuer einen benannten Funktions- oder Methodenrumpf. */
+function parseStructuralScope(value: unknown, label: string): StructuralScope {
+  const scope = requireStructuralRecord(value, label, [
+    'in', 'includeCallees', 'requiredCalls', 'requiredFields', 'requiredArrayAccesses',
+    'requiredConstructions', 'forbiddenCalls', 'forbiddenOperations', 'forbiddenOperators', 'allowedCalls'
+  ]);
+  const requiredCalls = parseNames(scope.requiredCalls, `${label}.requiredCalls`, 'callable');
+  const requiredFields = parseNames(scope.requiredFields, `${label}.requiredFields`, 'member');
+  const requiredArrayAccesses = parseNames(scope.requiredArrayAccesses, `${label}.requiredArrayAccesses`, 'member');
+  const requiredConstructions = parseNames(scope.requiredConstructions, `${label}.requiredConstructions`, 'identifier');
+  const forbiddenCalls = parseNames(scope.forbiddenCalls, `${label}.forbiddenCalls`, 'callable');
+  const forbiddenOperations = parseChoices(scope.forbiddenOperations, `${label}.forbiddenOperations`, STRUCTURAL_OPERATIONS);
+  const forbiddenOperators = parseChoices(scope.forbiddenOperators, `${label}.forbiddenOperators`, STRUCTURAL_OPERATORS);
+  const allowedCalls = scope.allowedCalls === undefined
+    ? undefined
+    : parseNames(scope.allowedCalls, `${label}.allowedCalls`, 'callable');
+  if (allowedCalls === undefined && ![
+    requiredCalls, requiredFields, requiredArrayAccesses, requiredConstructions,
+    forbiddenCalls, forbiddenOperations, forbiddenOperators
+  ].some(entries => entries.length > 0)) {
+    throw new Error(`"${label}" muss mindestens eine Aufruf-, Feld- oder Verbotsregel enthalten.`);
+  }
+  for (const required of requiredCalls) {
+    if (forbiddenCalls.includes(required) || (allowedCalls !== undefined && !allowedCalls.includes(required))) {
+      throw new Error(`"${label}.requiredCalls": "${required}" ist zugleich durch eine Aufrufregel verboten.`);
+    }
+  }
+  return {
+    in: requireReferenceName(scope.in, `${label}.in`, 'callable'),
+    includeCallees: optionalBoolean(scope.includeCallees, `${label}.includeCallees`, false),
+    requiredCalls, requiredFields, requiredArrayAccesses, requiredConstructions,
+    forbiddenCalls, forbiddenOperations, forbiddenOperators, allowedCalls
+  };
+}
+
+/** Laesst dort, wo Strukturregeln erwartet werden, keine Tippfehler still durch. */
+function requireStructuralRecord(value: unknown, label: string, properties: string[]): Record<string, unknown> {
+  const record = requireRecord(value, label);
+  for (const key of Object.keys(record)) {
+    if (!properties.includes(key)) {
+      throw new Error(`Unbekanntes Feld "${label}.${key}".`);
+    }
+  }
+  return record;
+}
+
+/** Begrenzt und validiert eine Liste mit genauer Position jedes Eintrags. */
+function parseList<T>(value: unknown, label: string, parseEntry: (entry: unknown, label: string) => T): T[] {
+  if (!Array.isArray(value) || value.length > MAX_STRUCTURAL_CHECK_COUNT) {
+    throw new Error(`"${label}" muss ein Array mit hoechstens ${MAX_STRUCTURAL_CHECK_COUNT} Eintraegen sein.`);
+  }
+  return value.map((entry, index) => parseEntry(entry, `${label}[${index}]`));
+}
+
+/** Normalisiert eine fehlende Regelliste zu einer leeren Liste. */
+function parseOptionalList<T>(value: unknown, label: string, parseEntry: (entry: unknown, label: string) => T): T[] {
+  return value === undefined ? [] : parseList(value, label, parseEntry);
+}
+
+/** Validiert Bezeichner in der JSON-Konfiguration, nicht den Pseudo2-Quelltext. */
+function requireReferenceName(value: unknown, label: string, kind: 'identifier' | 'member' | 'callable'): string {
+  const name = requireString(value, label, 1, 200);
+  const parts = name.split('.');
+  if ((kind === 'identifier' && parts.length !== 1)
+      || (kind === 'member' && parts.length !== 2)
+      || parts.length > 2 || !parts.every(part => /^[A-Za-z_][A-Za-z0-9_]*$/.test(part))) {
+    const example = kind === 'identifier' ? 'Stack' : kind === 'member' ? 'Stack.data' : 'algorithmus oder Stack.push';
+    throw new Error(`"${label}" muss einen Pseudo2-Namen wie ${example} enthalten.`);
+  }
+  return name;
+}
+
+/** Laedt eine eindeutige Liste benannter Referenzziele. */
+function parseNames(value: unknown, label: string, kind: 'identifier' | 'member' | 'callable'): string[] {
+  const names = parseOptionalList(value, label, (entry, path) => requireReferenceName(entry, path, kind));
+  requireUnique(names, label);
+  return names;
+}
+
+/** Laedt eine eindeutige Liste aus einer vorgegebenen Menge zulaessiger Werte. */
+function parseChoices<T extends string>(value: unknown, label: string, choices: readonly T[]): T[] {
+  const entries = parseOptionalList(value, label, (entry, path) => {
+    const choice = choices.find(item => item === entry);
+    if (choice === undefined) {
+      throw new Error(`"${path}" muss einer dieser Werte sein: ${choices.join(', ')}.`);
+    }
+    return choice;
+  });
+  requireUnique(entries, label);
+  return entries;
+}
+
+/** Meldet doppelte Namen oder Werte innerhalb einer Regelliste. */
+function requireUnique(values: string[], label: string): void {
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) throw new Error(`"${label}" enthaelt "${value}" mehrfach.`);
+    seen.add(value);
+  }
 }
 
 /** Fordert fuer einen Wert ein normales JSON-Objekt ohne Arrayform. */
@@ -187,13 +340,13 @@ export async function runAssignmentTests(
   const sourceLineCount = source.replace(/\r/g, '').split('\n').length;
 
   for (const test of manifest.tests) {
-    const combinedSource = appendHarness(source, test.harness);
-    const analysis = await analyzeSource(combinedSource, basename(sourcePath));
+    const analysis = await runWithPrivateErrors(test, () =>
+      analyzeSource(appendHarness(source, test.harness), basename(sourcePath)));
     const errors = analysis.diagnostics.filter(diagnostic => diagnostic.severity === 'error');
     if (!analysis.program || errors.length > 0) {
       const visibleErrors = errors.filter(diagnostic => diagnostic.line <= sourceLineCount);
       const details = test.hidden
-        ? 'Der versteckte Test konnte wegen eines Fehlers in der Abgabe nicht vorbereitet werden.'
+        ? 'Der versteckte Test konnte nicht vorbereitet werden. Pruefe die geforderten Funktionen und Methoden.'
         : (visibleErrors.length > 0 ? visibleErrors : errors)
           .map(diagnostic => formatDiagnostic(diagnostic, basename(sourcePath)))
           .join('\n');
@@ -202,12 +355,15 @@ export async function runAssignmentTests(
     }
 
     const timeoutMs = test.timeoutMs ?? manifest.defaultTimeoutMs;
-    const execution = await executeProgram(analysis.program, dirname(sourcePath), timeoutMs);
+    const program = analysis.program;
+    const execution = await runWithPrivateErrors(test, () => executeProgram(program, dirname(sourcePath), timeoutMs));
     if (!executionSucceeded(execution)) {
       results.push({
         test,
         passed: false,
-        details: describeExecutionFailure(execution, timeoutMs)
+        details: test.hidden
+          ? describeHiddenExecutionFailure(execution)
+          : describeExecutionFailure(execution, timeoutMs)
       });
       continue;
     }
@@ -232,6 +388,23 @@ export async function runAssignmentTests(
   }
 
   return results;
+}
+
+/** Unterdrueckt interne Analyse- oder Generatorausnahmen, die Harness-Text enthalten koennen. */
+async function runWithPrivateErrors<T>(test: AssignmentTest, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!test.hidden) throw error;
+    throw new Error('Ein versteckter Test konnte technisch nicht ausgefuehrt werden. Bitte wende dich an die Lehrperson.');
+  }
+}
+
+/** Meldet nur die Fehlerkategorie, nie Stacktrace, Harness-Text oder Ausgabe. */
+function describeHiddenExecutionFailure(execution: ExecutionResult): string {
+  if (execution.timedOut) return 'Der versteckte Test hat das Zeitlimit ueberschritten.';
+  if (execution.outputLimitExceeded) return 'Der versteckte Test hat das Ausgabelimit ueberschritten.';
+  return 'Der versteckte Test konnte wegen eines Laufzeitfehlers nicht abgeschlossen werden.';
 }
 
 /** Formatiert auch eine leere Programmausgabe eindeutig fuer Rueckmeldungen. */
@@ -261,18 +434,24 @@ function escapeVplText(text: string): string {
  *
  * @param manifest Aufgabenkonfiguration mit Maximalnote.
  * @param results Ergebnisse aller Tests.
+ * @param structuralResults Ergebnisse der vom Harness getrennten Strukturpruefung.
  * @param diagnostics Nicht blockierende Warnungen aus der Grundabgabe.
  * @param sourceName Name der Abgabedatei fuer anklickbare Meldungen.
  */
 export function printEvaluation(
   manifest: AssignmentManifest,
   results: TestResult[],
+  structuralResults: StructuralCheckResult[],
   diagnostics: SourceDiagnostic[],
   sourceName: string
 ): void {
-  const totalPoints = manifest.tests.reduce((sum, test) => sum + test.points, 0);
-  const earnedPoints = results.reduce((sum, result) => sum + (result.passed ? result.test.points : 0), 0);
-  const grade = totalPoints === 0 ? 0 : manifest.maxGrade * earnedPoints / totalPoints;
+  const testPoints = manifest.tests.reduce((sum, test) => sum + test.points, 0);
+  const structuralPoints = manifest.structuralChecks.reduce((sum, check) => sum + check.points, 0);
+  const earnedTestPoints = results.reduce((sum, result) => sum + (result.passed ? result.test.points : 0), 0);
+  const earnedStructuralPoints = structuralResults.reduce((sum, result) =>
+    sum + (result.issues.length === 0 ? result.check.points : 0), 0);
+  const grade = Math.min(manifest.maxGrade,
+    manifest.maxGrade * (earnedTestPoints + earnedStructuralPoints) / (testPoints + structuralPoints));
   const passedCount = results.filter(result => result.passed).length;
   const lines = [
     `${manifest.title}: ${passedCount}/${results.length} Tests bestanden.`
@@ -281,10 +460,23 @@ export function printEvaluation(
   for (const diagnostic of diagnostics) {
     lines.push(formatDiagnostic(diagnostic, sourceName));
   }
+  let hiddenIndex = 0;
   for (const result of results) {
-    lines.push(`${result.passed ? '[OK]' : '[FEHLER]'} ${result.test.name} (${result.test.points} Punkte)`);
+    const name = result.test.hidden ? `Versteckter Test ${++hiddenIndex}` : result.test.name;
+    lines.push(`${result.passed ? '[OK]' : '[FEHLER]'} ${name} (${result.test.points} Punkte)`);
     if (result.details) {
       lines.push(result.details);
+    }
+  }
+
+  if (structuralResults.length > 0) {
+    lines.push('', `Verhalten: ${formatGrade(earnedTestPoints)}/${formatGrade(testPoints)} Gewichtspunkte.`,
+      `Struktur: ${formatGrade(earnedStructuralPoints)}/${formatGrade(structuralPoints)} Gewichtspunkte.`);
+    for (const { check, issues } of structuralResults) {
+      lines.push(`${issues.length === 0 ? '[OK]' : '[FEHLER]'} ${check.name} (${check.points} Punkte)`);
+      for (const { message, location } of issues) {
+        lines.push(location ? formatDiagnostic({ ...location, severity: 'info', message }, sourceName) : `  ${message}`);
+      }
     }
   }
 

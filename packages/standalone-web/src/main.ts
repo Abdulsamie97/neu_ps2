@@ -144,6 +144,7 @@ const breakpoints = new Set<number>();
 let debugSession: BrowserDebugSession | undefined;
 let debugPaused: PausedExecutionStep | undefined;
 let debugOutput: string[] = [];
+let actionInProgress = false;
 /** Letzter Inhalt jeder Ergebnisansicht. */
 const resultValues: Record<ResultTab, string> = {
   output: 'Noch nicht ausgefuehrt.',
@@ -173,13 +174,14 @@ const tracePrevious = requireElement<HTMLButtonElement>('#trace-previous');
 const traceNext = requireElement<HTMLButtonElement>('#trace-next');
 const traceCounter = requireElement<HTMLElement>('#trace-counter');
 const debugControls = requireElement<HTMLElement>('#debug-controls');
+const debugStart = requireElement<HTMLButtonElement>('#debug-start');
 const debugContinue = requireElement<HTMLButtonElement>('#debug-continue');
 const debugStep = requireElement<HTMLButtonElement>('#debug-step');
 const debugOver = requireElement<HTMLButtonElement>('#debug-over');
 const debugOut = requireElement<HTMLButtonElement>('#debug-out');
 const debugStop = requireElement<HTMLButtonElement>('#debug-stop');
 const debugPosition = requireElement<HTMLElement>('#debug-position');
-const actionButtons = [...document.querySelectorAll<HTMLButtonElement>('.toolbar-actions button')];
+const actionButtons = document.querySelectorAll<HTMLButtonElement>('.toolbar-actions button:not(#debug-button)');
 
 /**
  * Sucht ein zwingend benoetigtes DOM-Element und beendet die Initialisierung bei
@@ -550,11 +552,11 @@ async function runCurrentSource(traceMode = false): Promise<void> {
 
 /** Startet eine anhaltbare Pseudo2-Ausfuehrung mit Haltepunkten im Quelltext. */
 async function debugCurrentSource(): Promise<void> {
+  const revision = sourceRevision;
   const analysis = await analyzeCurrentSource();
-  if (!analysis.program) return;
+  if (revision !== sourceRevision || !analysis.program) return;
 
   clearTrace();
-  const revision = sourceRevision;
   const context = Pseudo2GeneratorContext.fromProgram(analysis.program, true, false, true);
   const executable = generateProgram(analysis.program, context);
   const fieldNames = collectStructFieldNames(analysis.program, context);
@@ -597,12 +599,13 @@ async function debugCurrentSource(): Promise<void> {
   resultValues.debug = `${finalOutput || '(keine Ausgabe)'}${error}`;
   showVariables(analysis.variables, new Map(execution.variables.map(variable => [variable.id, variable])),
     execution.error ? 'Nicht erreicht.' : 'Nicht ausgefuehrt.');
-  showResultTab('debug');
+  if (activeResultTab === 'debug') showResultTab('debug');
 }
 
 /** Schaltet die Steuerung zwischen laufendem und angehaltenem Debug-Modus um. */
 function updateDebugControls(): void {
-  debugControls.hidden = activeResultTab !== 'debug' || !debugSession;
+  debugControls.hidden = activeResultTab !== 'debug';
+  debugStart.disabled = actionInProgress;
   debugContinue.disabled = !debugPaused;
   debugStep.disabled = !debugPaused;
   debugOver.disabled = !debugPaused;
@@ -1053,13 +1056,16 @@ function setStatus(message: string, kind?: 'success' | 'error'): void {
 }
 
 /**
- * Sperrt alle Hauptaktionen waehrend eines asynchronen Arbeitsschritts. Geworfene
- * Fehler werden als Diagnose dargestellt, ohne die Oberflaeche unbedienbar zu lassen.
+ * Verhindert ueberlappende Hauptaktionen waehrend eines asynchronen Arbeitsschritts,
+ * laesst aber das Beenden eines Debug-Laufs zu. Geworfene Fehler erscheinen als Diagnose.
  *
  * @param action Auszufuehrender Validierungs-, Generator- oder Laufzeitschritt.
  */
 async function runBusyAction(action: () => Promise<void>): Promise<void> {
+  if (actionInProgress) return;
+  actionInProgress = true;
   actionButtons.forEach(button => { button.disabled = true; });
+  updateDebugControls();
   try {
     await action();
   } catch (error) {
@@ -1068,7 +1074,9 @@ async function runBusyAction(action: () => Promise<void>): Promise<void> {
     setStatus('Verarbeitung fehlgeschlagen', 'error');
     showResultTab('diagnostics');
   } finally {
+    actionInProgress = false;
     actionButtons.forEach(button => { button.disabled = false; });
+    updateDebugControls();
   }
 }
 
@@ -1449,6 +1457,10 @@ document.querySelector('#run-button')?.addEventListener('click', () => {
   void runBusyAction(runCurrentSource);
 });
 document.querySelector('#debug-button')?.addEventListener('click', () => {
+  showResultTab('debug');
+  (debugStart.disabled ? debugControls : debugStart).focus();
+});
+debugStart.addEventListener('click', () => {
   void runBusyAction(debugCurrentSource);
 });
 document.querySelector('#trace-button')?.addEventListener('click', () => {

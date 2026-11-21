@@ -601,6 +601,12 @@ button.primary:hover {
   flex-wrap: wrap;
 }
 
+.debug-session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: inherit;
+}
+
 .trace-controls[hidden],
 .debug-controls[hidden] {
   display: none;

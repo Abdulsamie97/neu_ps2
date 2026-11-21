@@ -482,13 +482,24 @@ function updateDebugControls(): void {
         const button = document.querySelector<HTMLButtonElement>(selector);
         if (button) button.disabled = disabled;
     };
-    setDisabled('#button-debug', !editorApp?.getEditor() || debugPreparing || !!debugSession);
+    const editorReady = !!editorApp?.getEditor();
+    setDisabled('#button-debug', !editorReady);
+    setDisabled('#debug-start', !editorReady || debugPreparing || !!debugSession);
     setDisabled('#debug-continue', !debugPaused);
     setDisabled('#debug-step', !debugPaused);
     setDisabled('#debug-over', !debugPaused);
     setDisabled('#debug-out', !debugPaused || debugPaused.frames.length <= 1);
     setDisabled('#debug-stop', !debugPreparing && !debugSession);
 }
+
+/** @brief Oeffnet den Debugger in der JavaScript-Ansicht, ohne einen Lauf zu starten. */
+const openDebugPanel = async () => {
+    await showResultView('javascript');
+    const panel = document.querySelector<HTMLDetailsElement>('#debug-panel');
+    if (!panel) return;
+    panel.open = true;
+    (panel.querySelector<HTMLButtonElement>('#debug-start:not(:disabled)') ?? panel.querySelector('summary'))?.focus();
+};
 
 /**
  * @brief Generiert asynchrones, beobachtbares JavaScript und startet es in einem Worker.
@@ -502,7 +513,6 @@ const startDebugExecution = async () => {
     const epoch = debugEpoch;
     debugPreparing = true;
     updateDebugControls();
-    await showResultView('javascript');
     setTextContent('#debug-status', 'Debug-Lauf wird vorbereitet ...');
     setTextContent('#exespan', '');
 
@@ -2160,7 +2170,8 @@ export const runDsl = async () => {
         document.querySelector('#button-code')?.addEventListener('click', updateCode);
         document.querySelector('#button-save')?.addEventListener('click', saveCurrentCode);
         document.querySelector('#button-execute')?.addEventListener('click', updateExecution);
-        document.querySelector('#button-debug')?.addEventListener('click', () => void startDebugExecution());
+        document.querySelector('#button-debug')?.addEventListener('click', () => void openDebugPanel());
+        document.querySelector('#debug-start')?.addEventListener('click', () => void startDebugExecution());
         document.querySelector('#debug-continue')?.addEventListener('click', () => resumeDebug('continue'));
         document.querySelector('#debug-step')?.addEventListener('click', () => resumeDebug('step'));
         document.querySelector('#debug-over')?.addEventListener('click', () => resumeDebug('over'));

@@ -845,8 +845,9 @@ Produktions-Webserver muss fuer diese Dateien ebenfalls die Header
 `Cross-Origin-Embedder-Policy: require-corp` setzen. Die statische Root-Seite
 enthaelt bewusst keine serverseitige C-Ausfuehrung und keine VeriFast-Anbindung.
 Nach dem automatischen Editorstart setzt ein Klick auf die Zeilennummer einen
-Haltepunkt. `Debuggen` haelt vor der ersten ausfuehrbaren Pseudo2-Zeile; mit
-`Weiter`, `Hinein`, `Darueber`, `Heraus` und `Stop` wird der Lauf gesteuert.
+Haltepunkt. `Debuggen` oeffnet den Debugger im Ergebnisbereich. Dort beginnt
+`Starten` den Lauf und haelt vor der ersten ausfuehrbaren Pseudo2-Zeile.
+`Weiter`, `Hinein`, `Darueber` und `Heraus` steuern den Lauf; `Beenden` stoppt ihn.
 Die aktuelle Zeile und die Werte aktiver Aufrufrahmen erscheinen direkt auf der
 Root-Seite. Die Ausfuehrung erfolgt lokal in einem Browser-Worker.
 
@@ -893,13 +894,13 @@ normal weiter. Dies ist eine nachtraegliche Schrittansicht, kein interaktiver
 Haltepunkt- oder Stack-Debugger. `Ausfuehren` bleibt ohne Schrittaufzeichnung.
 
 Fuer einen interaktiven Lauf kann man im linken Rand des Einzeldatei-Editors
-Haltepunkte auf Pseudo2-Zeilen setzen und `Debuggen` starten. Der Worker haelt
-zuerst vor der ersten ausfuehrbaren Zeile. `Hinein` haelt vor der naechsten
+Haltepunkte auf Pseudo2-Zeilen setzen. `Debuggen` oeffnet den Debug-Tab. Mit
+`Starten` haelt der Worker vor der ersten ausfuehrbaren Zeile. `Hinein` haelt vor der naechsten
 Pseudo2-Anweisung, auch in aufgerufenen Funktionen. `Darueber` fuehrt einen
 Funktionsaufruf aus und haelt danach im aktuellen Aufrufrahmen; `Heraus` laeuft
 bis zum Aufrufer. Haltepunkte unterbrechen auch `Darueber` und `Heraus`.
-`Weiter` laeuft bis zum naechsten Haltepunkt, `Stop` beendet den Lauf. Der
-Debug-Tab zeigt die bisherige Ausgabe. Die Variablenansicht trennt globale
+`Weiter` laeuft bis zum naechsten Haltepunkt, `Beenden` stoppt den Lauf im
+Debug-Tab. Der Tab zeigt die bisherige Ausgabe. Die Variablenansicht trennt globale
 Werte von den lokalen Werten jedes aktiven Aufrufrahmens, auch bei Rekursion.
 Die Ausfuehrungszeit ist nur waehrend laufender Abschnitte auf fuenf Sekunden
 begrenzt, nicht waehrend einer Pause.
@@ -1032,12 +1033,13 @@ Der Server nutzt den repo-lokalen Standardpfad:
     veraendert; ein Doppelklick setzt sie auf den Standardwert zurueck.
 
 Im Monaco-Editor setzt ein Klick auf eine Zeilennummer oder den linken Rand
-einen Haltepunkt; ein zweiter Klick entfernt ihn. `Debug JavaScript` startet
-einen separaten Worker-Lauf und haelt vor der ersten ausfuehrbaren Zeile.
+einen Haltepunkt; ein zweiter Klick entfernt ihn. `Debug JavaScript` oeffnet
+den Debugger in der JavaScript-Ansicht. `Starten` startet einen separaten
+Worker-Lauf und haelt vor der ersten ausfuehrbaren Zeile.
 `Weiter` laeuft bis zum naechsten Haltepunkt, `Hinein` bis zur naechsten
 Pseudo2-Anweisung auch innerhalb eines Funktionsaufrufs, `Darueber` bis zur
 naechsten Anweisung im aktuellen Aufrufrahmen und `Heraus` bis zum Aufrufer.
-`Stop` beendet den Lauf. Die angehaltene Zeile wird im Editor markiert;
+`Beenden` stoppt den Lauf. Die angehaltene Zeile wird im Editor markiert;
 `Variablen` zeigt globale Werte und die lokalen Werte jedes aktiven
 Aufrufrahmens getrennt. Eine Quelltextaenderung, `Run JavaScript` oder
 `Dispose` beendet einen laufenden Debug-Lauf. Haltepunkte wandern beim

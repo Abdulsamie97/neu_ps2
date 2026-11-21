@@ -22,7 +22,7 @@
           <button type="button" id="generate-button">JavaScript</button>
           <button type="button" id="pretty-button">Pretty Print</button>
           <button type="button" id="run-button" class="primary">Ausfuehren</button>
-          <button type="button" id="debug-button">Debuggen</button>
+          <button type="button" id="debug-button" aria-controls="debug-controls">Debuggen</button>
           <button type="button" id="trace-button">Trace</button>
           <button type="button" id="save-button">Speichern</button>
         </div>
@@ -80,12 +80,15 @@
             <button type="button" id="trace-next" title="Naechster Schritt" aria-label="Naechster Schritt">&#9654;</button>
             <span id="trace-counter" aria-live="polite"></span>
           </div>
-          <div id="debug-controls" class="debug-controls" hidden>
+          <div id="debug-controls" class="debug-controls" role="group" aria-label="Debugger" tabindex="-1" hidden>
+            <div class="debug-session-actions" role="group" aria-label="Debug-Lauf">
+              <button type="button" id="debug-start">Starten</button>
+              <button type="button" id="debug-stop" disabled>Beenden</button>
+            </div>
             <button type="button" id="debug-continue" title="Bis zum naechsten Haltepunkt fortsetzen" disabled>Weiter</button>
             <button type="button" id="debug-step" title="In Aufrufe hinein bis zur naechsten Pseudo2-Anweisung" disabled>Hinein</button>
             <button type="button" id="debug-over" title="Aufruf ausfuehren und danach anhalten" disabled>Darueber</button>
             <button type="button" id="debug-out" title="Aktuelle Funktion verlassen und im Aufrufer anhalten" disabled>Heraus</button>
-            <button type="button" id="debug-stop" title="Debug-Lauf beenden">Stop</button>
             <span id="debug-position" aria-live="polite"></span>
           </div>
           <pre id="result-content" tabindex="0" aria-live="polite">Noch nicht ausgefuehrt.</pre>

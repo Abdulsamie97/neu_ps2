@@ -580,6 +580,13 @@ body.is-resizing-workspace {
     display: flex;
     flex-wrap: wrap;
     gap: 7px;
+    margin-top: 8px;
+}
+
+.debug-session-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: inherit;
 }
 
 .debug-controls button {

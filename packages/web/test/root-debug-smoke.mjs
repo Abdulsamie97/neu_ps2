@@ -11,23 +11,31 @@ import { fileURLToPath } from 'node:url';
 const root = readFileSync(new URL('../../../index.html', import.meta.url), 'utf8');
 const workbench = readFileSync(new URL('../pseudo2-workbench.html', import.meta.url), 'utf8');
 const controls = [
-  'button-debug', 'debug-continue', 'debug-step', 'debug-over',
+  'button-debug', 'debug-start', 'debug-continue', 'debug-step', 'debug-over',
   'debug-out', 'debug-stop', 'debug-status', 'variable-list'
 ];
+const sessionControls = /class="debug-session-actions"[^>]*>\s*<button[^>]*id="debug-start" disabled>[^<]*<\/button>\s*<button[^>]*id="debug-stop" disabled>/;
 
-for (const [name, html] of [['root', root], ['workbench', workbench]]) {
+/** @brief Prueft die Trennung zwischen Werkzeugleiste und Debug-Bereich. */
+function assertDebuggerMarkup(name, html) {
   for (const id of controls) {
     assert.match(html, new RegExp(`id="${id}"`), `${name} must expose ${id}`);
   }
+  const toolbar = html.match(/<header class="toolbar">[\s\S]*?<\/header>/)?.[0] ?? '';
+  const panel = html.match(/<details[^>]*id="debug-panel"[^>]*>[\s\S]*?<\/details>/)?.[0] ?? '';
+  assert.match(toolbar, /id="button-debug" aria-controls="debug-panel" disabled>Debug(?:gen| JavaScript)</,
+    `${name} must keep a single Debug entry in the toolbar.`);
+  assert.doesNotMatch(toolbar, /id="debug-(start|stop)"/);
+  assert.match(panel, sessionControls, `${name} must group start and end inside the debugger.`);
 }
 
+assertDebuggerMarkup('root', root);
+assertDebuggerMarkup('workbench', workbench);
 assert.match(root, /runDsl\(\)/, 'The root page must initialize the shared editor.');
 
 if (process.argv.includes('--built')) {
   const built = readFileSync(new URL('../../../dist/index.html', import.meta.url), 'utf8');
-  for (const id of controls) {
-    assert.match(built, new RegExp(`id="${id}"`), `The production root bundle must expose ${id}`);
-  }
+  assertDebuggerMarkup('production root bundle', built);
 
   const assets = [...built.matchAll(/(?:src|href)="(\/assets\/[^\"]+)"/g)]
     .map(([, asset]) => asset);

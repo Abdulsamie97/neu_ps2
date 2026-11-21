@@ -38,12 +38,16 @@ assert.match(html, /id="variable-list"/, 'The UI must contain the runtime variab
 assert.match(html, /id="trace-button"/, 'The standalone editor must offer an explicit step trace.');
 assert.match(html, /id="trace-position"/, 'The trace must have a step navigator.');
 assert.match(html, /id="trace-line-highlight"/, 'The current Pseudo2 source line must be marked.');
-assert.match(html, /id="debug-button"/, 'The editor must expose live debugging.');
+const toolbar = html.match(/<header class="toolbar">[\s\S]*?<\/header>/)?.[0] ?? '';
+assert.match(toolbar, /id="debug-button" aria-controls="debug-controls">Debuggen</);
+assert.doesNotMatch(toolbar, /id="debug-(start|stop)"/);
+assert.match(html,
+  /id="debug-controls"[^>]*hidden>\s*<div class="debug-session-actions"[^>]*>\s*<button[^>]*id="debug-start">[^<]*<\/button>\s*<button[^>]*id="debug-stop" disabled>/,
+  'The editor must group start and end inside the Debug tab.');
 assert.match(html, /id="debug-continue"/, 'Live debugging must have a continue control.');
 assert.match(html, /id="debug-step"/, 'Live debugging must have a step control.');
 assert.match(html, /id="debug-over"/, 'Live debugging must have a step-over control.');
 assert.match(html, /id="debug-out"/, 'Live debugging must have a step-out control.');
-assert.match(html, /id="debug-stop"/, 'Live debugging must have a stop control.');
 assert.match(html, /data-breakpoint-line/, 'The source gutter must offer Pseudo2 breakpoints.');
 
 const source = `func square(value)

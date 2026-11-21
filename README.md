@@ -910,12 +910,39 @@ bleiben beim Steppen offen. Zyklen erscheinen als `[Zyklus]`, grosse Werte
 werden als begrenzte Vorschau angezeigt. Das gilt auch fuer die Root-Seite
 und die Workbench.
 Unter `Beobachten` lassen sich in diesen drei Editoren lesende Ausdruecke wie
-`i`, `A[i]` oder `liste.next.key` hinzufuegen. Die Werte werden bei jeder Pause
-und bei Auswahl eines anderen Aufrufs neu gelesen; lokale beobachtete Namen
+`i + 1`, `A[i + 1]` oder `liste.next.key` hinzufuegen. Die Werte werden bei
+jeder Pause und bei Auswahl eines anderen Aufrufs neu gelesen; lokale beobachtete Namen
 haben Vorrang vor globalen. Array-Zugriffe bleiben einsbasiert und sind nicht
-auf die Vorschau beschraenkt. Funktionsaufrufe, Rechenoperatoren und Aenderungen
-wie `i++` sind hier nicht erlaubt. Die Liste bleibt bis zum Neuladen der Seite
-erhalten, auch wenn ein Debug-Lauf beendet wird.
+auf die Vorschau beschraenkt. Rechenoperatoren, Textverkettung, Vergleiche und
+Logik verwenden die Semantik der JavaScript-Ausfuehrung. Funktionsaufrufe,
+Konstruktionen und Aenderungen wie `i++` sind nicht erlaubt. Die Liste bleibt
+bis zum Neuladen der Seite erhalten, auch wenn ein Debug-Lauf beendet wird.
+Mit Umschalt-Klick am Zeilenrand oder `Bedingung...` im Debug-Bereich kann man
+einen bedingten Haltepunkt setzen. Beim Fortsetzen haelt er nur, wenn der
+Ausdruck, z. B. `i == 10` oder `i mod 2 == 0 && A[i + 1] != 0`, vor der Anweisung
+`true` ergibt. Bedingungen verwenden denselben lesenden Auswerter wie Watches;
+sie muessen einen booleschen Wert ergeben. Eine ungueltige
+Auswertung haelt mit einer Meldung an. Eine leere Bedingung setzt einen
+normalen Haltepunkt. Der erste Halt beim Start und Einzelschritte bleiben
+auch mit bedingten Haltepunkten unveraendert.
+Die Liste `Haltepunkte` im Debug-Fenster springt zur jeweiligen Quellzeile,
+bearbeitet Bedingungen und aktiviert, deaktiviert oder entfernt einzelne
+Marker. Deaktivierte Marker bleiben am Zeilenrand sichtbar, halten den Worker
+aber nicht an. Solange Haltepunkte vorhanden sind, speichert der Browser den
+aktuellen Quelltext mit der Liste als lokalen Entwurf. Die Daten werden beim
+Neuladen im selben Editor wiederhergestellt und nicht an einen Server gesendet.
+Beim Entfernen des letzten Haltepunkts wird dieser Entwurf geloescht. Ist der
+Browserspeicher gesperrt, funktioniert die Liste nur fuer die aktuelle Seite.
+`Pause` fordert bei laufendem Programm einen Halt an der naechsten
+ausfuehrbaren Pseudo2-Anweisung an. `Neustart` beendet den aktuellen Worker
+und haelt in einem frischen Lauf wieder vor der ersten Anweisung. Ausgabe,
+Werte und Aufrufstapel beginnen von vorn; Haltepunkte mit ihren Bedingungen
+und die Watch-Liste bleiben erhalten.
+Bei einem Laufzeitfehler haelt der Browser-Debugger an der Pseudo2-Fehlerzeile.
+Der Aufrufstapel, die Werte aller aktiven Aufrufe, die Watches und die bisherige
+Ausgabe bleiben bis `Beenden` oder `Neustart` sichtbar. Der fehlgeschlagene Lauf
+kann nicht fortgesetzt werden. Normales `Ausfuehren` endet weiterhin direkt mit
+der Fehlermeldung.
 Die Ausfuehrungszeit ist nur waehrend laufender Abschnitte auf fuenf Sekunden
 begrenzt, nicht waehrend einer Pause.
 

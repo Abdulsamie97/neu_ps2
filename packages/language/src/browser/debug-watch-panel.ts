@@ -5,7 +5,8 @@
  */
 
 import type { LangiumParser } from 'langium';
-import { MAX_DEBUG_WATCHES, MAX_DEBUG_WATCH_LENGTH, parseDebugWatch, type DebugWatchPath } from '../runtime/debug-watch.js';
+import { MAX_DEBUG_WATCHES } from '../runtime/debug-watch.js';
+import { MAX_DEBUG_EXPRESSION_LENGTH, parseDebugExpression, type DebugExpression } from '../runtime/debug-expression.js';
 import type { BrowserDebugSession } from '../runtime/variable-inspector.js';
 import { createDebugValueElement } from './debug-value-view.js';
 
@@ -20,8 +21,8 @@ export function createDebugWatchPanel(container: HTMLDetailsElement, getParser: 
   input.type = 'text';
   input.spellcheck = false;
   input.autocomplete = 'off';
-  input.maxLength = MAX_DEBUG_WATCH_LENGTH;
-  input.placeholder = 'A[i]';
+  input.maxLength = MAX_DEBUG_EXPRESSION_LENGTH;
+  input.placeholder = 'A[i + 1]';
   input.setAttribute('aria-label', 'Ausdruck beobachten');
   const add = document.createElement('button');
   add.type = 'submit';
@@ -38,7 +39,7 @@ export function createDebugWatchPanel(container: HTMLDetailsElement, getParser: 
   container.replaceChildren(summary, form, feedback, list);
   container.open = true;
 
-  const watches: { id: string; source: string; path: DebugWatchPath; result: HTMLElement }[] = [];
+  const watches: { id: string; source: string; expression: DebugExpression; result: HTMLElement }[] = [];
   const expanded = new Set<string>();
   let nextId = 0;
   let revision = 0;
@@ -55,7 +56,7 @@ export function createDebugWatchPanel(container: HTMLDetailsElement, getParser: 
     if (!session || frameId === undefined || watches.length === 0) return;
 
     const selectedFrame = frameId;
-    void session.inspectWatches(selectedFrame, watches.map(watch => watch.path)).then(results => {
+    void session.inspectWatches(selectedFrame, watches.map(watch => watch.expression)).then(results => {
       if (requestRevision !== revision) return;
       watches.forEach((watch, index) => {
         const result = results[index];
@@ -87,7 +88,7 @@ export function createDebugWatchPanel(container: HTMLDetailsElement, getParser: 
       setFeedback('Dieser Ausdruck wird bereits beobachtet.');
       return;
     }
-    const parsed = parseDebugWatch(source, getParser());
+    const parsed = parseDebugExpression(source, getParser());
     if ('error' in parsed) {
       setFeedback(parsed.error);
       return;
@@ -104,7 +105,7 @@ export function createDebugWatchPanel(container: HTMLDetailsElement, getParser: 
     const result = document.createElement('div');
     result.className = 'debug-watch-result';
     result.setAttribute('aria-live', 'polite');
-    const watch = { id: `watch-${nextId++}`, source, path: parsed.path, result };
+    const watch = { id: `watch-${nextId++}`, source, expression: parsed.expression, result };
     watches.push(watch);
     row.append(name, remove, result);
     list.append(row);

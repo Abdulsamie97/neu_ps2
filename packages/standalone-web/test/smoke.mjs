@@ -45,6 +45,9 @@ assert.match(html,
   /id="debug-controls"[^>]*hidden>\s*<div class="debug-session-actions"[^>]*>\s*<button[^>]*id="debug-start">[^<]*<\/button>\s*<button[^>]*id="debug-stop" disabled>/,
   'The editor must group start and end inside the Debug tab.');
 assert.match(html, /id="debug-continue"/, 'Live debugging must have a continue control.');
+assert.match(html, /id="debug-pause"[^>]* disabled>/, 'Live debugging must have a pause control.');
+assert.match(html, /id="debug-restart"[^>]* disabled>/, 'Live debugging must have a restart control.');
+assert.match(html, /<details id="debug-breakpoints"/, 'Live debugging must have a breakpoint list.');
 assert.match(html, /id="debug-step"/, 'Live debugging must have a step control.');
 assert.match(html, /id="debug-over"/, 'Live debugging must have a step-over control.');
 assert.match(html, /id="debug-out"/, 'Live debugging must have a step-out control.');
@@ -417,9 +420,9 @@ const combinedProgram = combinedDocument.parseResult.value;
 const combinedOutput = [];
 const combinedConsole = { log: value => combinedOutput.push(`${value}\n`) };
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-await new AsyncFunction('console', '__ps2_trace', '__ps2_step', '__ps2_enter', '__ps2_leave', `"use strict";\n${generateProgram(
+await new AsyncFunction('console', '__ps2_trace', '__ps2_step', '__ps2_enter', '__ps2_leave', '__ps2_captureFailure', `"use strict";\n${generateProgram(
   combinedProgram, Pseudo2GeneratorContext.fromProgram(combinedProgram, true, false, true)
-)}`)(combinedConsole, () => {}, async () => {}, () => 1, () => {});
+)}`)(combinedConsole, () => {}, async () => {}, () => 1, () => {}, () => {});
 assert.equal(combinedOutput.join(''), '6\n', 'Debug mode must preserve methods, nested calls and array parameters.');
 
 const recursiveSource = `func down(n)

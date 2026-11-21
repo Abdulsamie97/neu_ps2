@@ -84,12 +84,16 @@
             <div class="debug-session-actions" role="group" aria-label="Debug-Lauf">
               <button type="button" id="debug-start">Starten</button>
               <button type="button" id="debug-stop" disabled>Beenden</button>
+              <button type="button" id="debug-restart" title="Debug-Lauf von vorne beginnen" disabled>Neustart</button>
             </div>
+            <button type="button" id="debug-pause" title="Bei der naechsten Pseudo2-Anweisung anhalten" disabled>Pause</button>
             <button type="button" id="debug-continue" title="Bis zum naechsten Haltepunkt fortsetzen" disabled>Weiter</button>
             <button type="button" id="debug-step" title="In Aufrufe hinein bis zur naechsten Pseudo2-Anweisung" disabled>Hinein</button>
             <button type="button" id="debug-over" title="Aufruf ausfuehren und danach anhalten" disabled>Darueber</button>
             <button type="button" id="debug-out" title="Aktuelle Funktion verlassen und im Aufrufer anhalten" disabled>Heraus</button>
+            <button type="button" id="debug-condition" title="Haltepunktbedingung fuer die aktuelle Editorzeile">Bedingung...</button>
             <span id="debug-position" aria-live="polite"></span>
+            <details id="debug-breakpoints" class="debug-breakpoints"></details>
           </div>
           <pre id="result-content" tabindex="0" aria-live="polite">Noch nicht ausgefuehrt.</pre>
         </section>

@@ -22,6 +22,7 @@ import { EmptyFileSystem, URI } from 'langium';
 import {
     collectStructFieldNames,
     collectVariableDefinitions,
+    createDebugBreakpointBinder,
     createPseudo2Services,
     getDiagnosticMessage,
     executeObservedJavaScript,
@@ -46,6 +47,10 @@ import {
 } from 'pseudo2-language'; //TBC
 import { createDebugValueElement } from 'pseudo2-language/browser/debug-value-view';
 import { createDebugWatchPanel } from 'pseudo2-language/browser/debug-watch-panel';
+import { createDebugBreakpointDialog } from 'pseudo2-language/browser/debug-breakpoint-dialog';
+import {
+    createBreakpointPanel, loadBreakpointDraft, saveBreakpointDraft, type BreakpointSettings, type EditorBreakpoint
+} from 'pseudo2-language/browser/debug-breakpoints';
 import { instance, type Viz } from '@viz-js/viz';
 import {
     buildVeriFastExecutionTreeDot,
@@ -88,12 +93,16 @@ let variableChangeDisposable: monaco.IDisposable | undefined;
 /** @brief Monaco-Handler fuer Haltepunkte und die aktuelle Debug-Zeile. */
 let debugEditorDisposable: monaco.IDisposable | undefined;
 /** @brief Von Monaco verwaltete Haltepunkte, deren Zeilen bei Edits mitwandern. */
-let breakpointDecorationIds: string[] = [];
+const breakpointDecorations = new Map<string, BreakpointSettings>();
+let renderBreakpointList: ReturnType<typeof createBreakpointPanel> | undefined;
+let bindBreakpoint: ReturnType<typeof createDebugBreakpointBinder> | undefined;
+let editBreakpoint: ReturnType<typeof createDebugBreakpointDialog> | undefined;
 /** @brief Dekoration der aktuell angehaltenen Pseudo2-Zeile. */
 let activeDebugLineDecorationIds: string[] = [];
 /** @brief Aktueller Worker-Debug-Lauf und dessen angehaltener Zustand. */
 let debugSession: BrowserDebugSession | undefined;
 let debugPaused: PausedExecutionStep | undefined;
+let debugPauseRequested = false;
 let debugPreparing = false;
 const expandedDebugValues = new Set<string>();
 let debugWatches: ReturnType<typeof createDebugWatchPanel> | undefined;
@@ -226,12 +235,13 @@ const startEditor = async () => {
     disableElement('button-dispose', false);
 
     try {
+        const draft = loadBreakpointDraft(breakpointDraftKey(), () => getExecutionServices().Pseudo2.parser.LangiumParser);
         const htmlContainer = document.getElementById('monaco-editor-root')!;
         // the configuration does not contain any text content
         const appConfig = createLangiumGlobalConfig({
             languageServerId: 'first',
             codeContent: {
-                text,
+                text: draft?.source ?? text,
                 uri: '/workspace/example.pseudo2',   //TBC  (suffix might be important)
                 enforceLanguageId: 'pseudo2'
             },
@@ -256,10 +266,13 @@ const startEditor = async () => {
         const editor = editorApp.getEditor();
         if (editor) installLineCommentShortcut(editor);
         installPseudo2KeywordDecorations(editor);
-        debugEditorDisposable = installDebugEditor(editor);
+        const modelSource = editor?.getModel()?.getValue().replace(/\r\n/g, '\n');
+        const restored = draft && modelSource === draft.source.replace(/\r\n/g, '\n') ? draft.breakpoints : [];
+        debugEditorDisposable = installDebugEditor(editor, restored);
         variableChangeDisposable = editor?.onDidChangeModelContent(() => {
             const wasDebugging = debugPreparing || !!debugSession;
             cancelDebugSession();
+            if (editor && breakpointDecorations.size) syncBreakpoints(editor);
             if (wasDebugging) setTextContent('#debug-status', 'Quelltext geaendert. Debug-Lauf beendet.');
             scheduleVariableDefinitions();
         });
@@ -475,7 +488,9 @@ function cancelDebugSession(): void {
     expandedDebugValues.clear();
     const session = debugSession;
     debugSession = undefined;
+    bindBreakpoint = undefined;
     debugPaused = undefined;
+    debugPauseRequested = false;
     debugPreparing = false;
     debugWatches?.setContext();
     session?.stop();
@@ -491,12 +506,16 @@ function updateDebugControls(): void {
         if (button) button.disabled = disabled;
     };
     const editorReady = !!editorApp?.getEditor();
+    const canStep = !!debugPaused && debugPaused.reason !== 'error';
     setDisabled('#button-debug', !editorReady);
+    setDisabled('#debug-condition', !editorReady);
     setDisabled('#debug-start', !editorReady || debugPreparing || !!debugSession);
-    setDisabled('#debug-continue', !debugPaused);
-    setDisabled('#debug-step', !debugPaused);
-    setDisabled('#debug-over', !debugPaused);
-    setDisabled('#debug-out', !debugPaused || debugPaused.frames.length <= 1);
+    setDisabled('#debug-restart', !editorReady || !debugSession);
+    setDisabled('#debug-pause', !debugSession || !!debugPaused || debugPauseRequested);
+    setDisabled('#debug-continue', !canStep);
+    setDisabled('#debug-step', !canStep);
+    setDisabled('#debug-over', !canStep);
+    setDisabled('#debug-out', !canStep || (debugPaused?.frames.length ?? 0) <= 1);
     setDisabled('#debug-stop', !debugPreparing && !debugSession);
 }
 
@@ -542,6 +561,7 @@ const startDebugExecution = async () => {
         }
 
         const context = Pseudo2GeneratorContext.fromProgram(program, true, false, true);
+        bindBreakpoint = createDebugBreakpointBinder(program, context, getExecutionServices().Pseudo2.references.ScopeProvider);
         const executable = generateProgram(program, context);
         const definitions = collectVariableDefinitions(program, context);
         const fieldNames = collectStructFieldNames(program, context);
@@ -552,18 +572,23 @@ const startDebugExecution = async () => {
         const session = startObservedDebug(
             executable,
             fieldNames,
-            getBreakpointLines(),
+            getDebugBreakpoints(),
             step => {
                 if (epoch !== debugEpoch || session !== debugSession || revision !== variableRevision) return;
                 debugPaused = step;
-                setDebugLine(step.line);
+                debugPauseRequested = false;
+                setDebugLine(step.line, step.reason === 'error');
                 renderDebugVariables(step);
-                const reason = step.reason === 'breakpoint' ? 'Haltepunkt'
+                const reason = step.reason === 'breakpoint'
+                    ? step.conditionError ? 'Bedingungsfehler' : step.conditionalBreakpoint ? 'Bedingter Haltepunkt' : 'Haltepunkt'
+                    : step.reason === 'error' ? 'Laufzeitfehler'
                     : step.reason === 'entry' ? 'Start'
+                    : step.reason === 'pause' ? 'Pause'
                     : step.reason === 'over' ? 'Darueber'
                     : step.reason === 'out' ? 'Heraus' : 'Hinein';
-                setTextContent('#debug-status', `Zeile ${step.line} (${reason})`);
-                setTextContent('#exespan', output.join('') || '(no output)');
+                setTextContent('#debug-status', `Zeile ${step.line} (${reason})${step.conditionError ? `: ${step.conditionError}` : ''}`);
+                const programOutput = output.join('') || '(no output)';
+                setTextContent('#exespan', step.runtimeError ? `${programOutput}\n\n${step.runtimeError}` : programOutput);
                 updateDebugControls();
             },
             () => {},
@@ -581,11 +606,14 @@ const startDebugExecution = async () => {
 
         const execution = await session.completion;
         if (epoch !== debugEpoch || session !== debugSession || revision !== variableRevision) return;
+        const failed = debugPaused?.reason === 'error';
         debugSession = undefined;
+        bindBreakpoint = undefined;
         debugPaused = undefined;
+        debugPauseRequested = false;
         debugWatches?.setContext();
         setDebugLine(undefined);
-        const stopped = execution.error === 'Ausfuehrung gestoppt.';
+        const stopped = !failed && execution.error === 'Ausfuehrung gestoppt.';
         setTextContent('#debug-status', stopped ? 'Debug-Lauf gestoppt.'
             : execution.error ? 'Laufzeitfehler.' : 'Debug-Lauf abgeschlossen.');
         const finalOutput = execution.output.join('') || '(no output)';
@@ -608,7 +636,7 @@ const startDebugExecution = async () => {
 
 /** @brief Setzt einen pausierten Lauf mit der gewaehlten Schrittstrategie fort. */
 function resumeDebug(mode: 'continue' | 'step' | 'over' | 'out'): void {
-    if (!debugSession || !debugPaused) return;
+    if (!debugSession || !debugPaused || debugPaused.reason === 'error') return;
     debugPaused = undefined;
     debugWatches?.setContext(debugSession);
     setDebugLine(undefined);
@@ -1254,18 +1282,90 @@ function renderDebugVariables(step: PausedExecutionStep): void {
     showLocals(frames[0]);
 }
 
-/** @brief Liest die von Monaco bei Texteingaben mitgefuehrten Haltepunktzeilen aus. */
-function getBreakpointLines(): number[] {
-    const model = editorApp?.getEditor()?.getModel();
+/** @brief Trennt die lokalen Entwuerfe der Root-Seite und der Workbench. */
+function breakpointDraftKey(): string {
+    return document.getElementById('c-view') ? 'pseudo2.debug.breakpoints.workbench' : 'pseudo2.debug.breakpoints.runner';
+}
+
+/** @brief Liest sichtbare Zeilen aus den von Monaco mitgefuehrten Dekorationen. */
+function getBreakpointRows(editor = editorApp?.getEditor()): EditorBreakpoint[] {
+    const model = editor?.getModel();
     if (!model) return [];
-    return breakpointDecorationIds.flatMap(id => {
+    const byLine = new Map<number, EditorBreakpoint>();
+    for (const [id, point] of breakpointDecorations) {
         const line = model.getDecorationRange(id)?.startLineNumber;
-        return line === undefined ? [] : [line];
+        if (line === undefined) {
+            breakpointDecorations.delete(id);
+            continue;
+        }
+        const previous = byLine.get(line);
+        if (!previous || (!previous.enabled && point.enabled) || (previous.enabled === point.enabled && !previous.condition && point.condition)) {
+            byLine.set(line, { line, ...point });
+        }
+    }
+    return [...byLine.values()];
+}
+
+/** @brief Bindet nur aktivierte Haltepunkte an den aktuellen Quelltext. */
+function getDebugBreakpoints(points = getBreakpointRows()) {
+    return points.flatMap(point => point.enabled ? [bindBreakpoint?.(point.line, point.condition) ?? point.line] : []);
+}
+
+/** @brief Uebernimmt die aktuelle Liste in den Worker und den lokalen Entwurf. */
+function syncBreakpoints(editor: monaco.editor.IStandaloneCodeEditor): void {
+    const model = editor.getModel();
+    if (!model) return;
+    const points = getBreakpointRows(editor);
+    renderBreakpointList?.(points);
+    saveBreakpointDraft(breakpointDraftKey(), model.getValue(), points);
+    debugSession?.setBreakpoints(getDebugBreakpoints(points));
+}
+
+/** @brief Findet alle Dekorationen eines Haltepunkts, auch nach zusammengefuehrten Zeilen. */
+function breakpointIdsOnLine(model: monaco.editor.ITextModel, line: number): string[] {
+    return [...breakpointDecorations.keys()].filter(id => model.getDecorationRange(id)?.startLineNumber === line);
+}
+
+/** @brief Gestaltet aktive, bedingte und deaktivierte Haltepunkte am Zeilenrand. */
+function breakpointDecoration(line: number, point: BreakpointSettings): monaco.editor.IModelDeltaDecoration {
+    const marker = point.condition ? 'Bedingter Haltepunkt' : 'Haltepunkt';
+    return {
+        range: new monaco.Range(line, 1, line, 1),
+        options: {
+            stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+            glyphMarginClassName: 'pseudo2-breakpoint-glyph' + (point.condition ? ' pseudo2-breakpoint-conditional' : '')
+                + (point.enabled ? '' : ' pseudo2-breakpoint-disabled'),
+            glyphMarginHoverMessage: { value: `${point.enabled ? '' : 'Deaktiviert: '}${marker}. Umschalt+Klick: Bedingung` }
+        }
+    };
+}
+
+/** @brief Ersetzt einen Marker und aktualisiert seine neue Konfiguration. */
+function setBreakpoint(editor: monaco.editor.IStandaloneCodeEditor, line: number, point?: BreakpointSettings): void {
+    const model = editor.getModel();
+    if (!model || line < 1 || line > model.getLineCount()) return;
+    const existing = breakpointIdsOnLine(model, line);
+    const ids = editor.deltaDecorations(existing, point ? [breakpointDecoration(line, point)] : []);
+    for (const id of existing) breakpointDecorations.delete(id);
+    if (point) for (const id of ids) breakpointDecorations.set(id, point);
+    syncBreakpoints(editor);
+}
+
+/** @brief Oeffnet die Bedingung fuer eine Quellzeile im aktuellen Modell. */
+function openBreakpointCondition(editor: monaco.editor.IStandaloneCodeEditor, line: number): void {
+    const model = editor.getModel();
+    if (!model) return;
+    const previous = getBreakpointRows(editor).find(point => point.line === line);
+    const version = model.getVersionId();
+    editBreakpoint?.(line, previous?.condition, condition => {
+        if (editor.getModel() === model && model.getVersionId() === version) {
+            setBreakpoint(editor, line, { enabled: previous?.enabled ?? true, condition });
+        }
     });
 }
 
 /** @brief Markiert die vor der Ausfuehrung angehaltene Pseudo2-Zeile in Monaco. */
-function setDebugLine(line: number | undefined): void {
+function setDebugLine(line: number | undefined, error = false): void {
     const editor = editorApp?.getEditor();
     const model = editor?.getModel();
     if (!editor || !model) {
@@ -1277,46 +1377,51 @@ function setDebugLine(line: number | undefined): void {
         range: new monaco.Range(line, 1, line, 1),
         options: {
             isWholeLine: true,
-            className: 'pseudo2-debug-active-line',
-            linesDecorationsClassName: 'pseudo2-debug-line-marker'
+            className: error ? 'pseudo2-debug-error-line' : 'pseudo2-debug-active-line',
+            linesDecorationsClassName: error ? 'pseudo2-debug-error-marker' : 'pseudo2-debug-line-marker'
         }
     }] : []);
     if (valid) editor.revealLineInCenter(line);
 }
 
 /** @brief Bindet Haltepunkte an den Monaco-Zeilenrand und verwaltet deren Dekorationen. */
-function installDebugEditor(editor: monaco.editor.IStandaloneCodeEditor | undefined): monaco.IDisposable | undefined {
+function installDebugEditor(editor: monaco.editor.IStandaloneCodeEditor | undefined, restored: EditorBreakpoint[]): monaco.IDisposable | undefined {
     if (!editor) return undefined;
     editor.updateOptions({ glyphMargin: true });
+    const ids = editor.deltaDecorations([...breakpointDecorations.keys()], restored.map(point => breakpointDecoration(point.line, point)));
+    breakpointDecorations.clear();
+    ids.forEach((id, index) => {
+        const { enabled, condition } = restored[index];
+        breakpointDecorations.set(id, { enabled, condition });
+    });
+    renderBreakpointList?.(getBreakpointRows(editor));
     const mouse = editor.onMouseDown(event => {
+        if (!event.event.leftButton) return;
         if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS
             && event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
         const line = event.target.position?.lineNumber;
         const model = editor.getModel();
         if (!line || !model) return;
-        const existing = breakpointDecorationIds.find(id => model.getDecorationRange(id)?.startLineNumber === line);
-        if (existing) {
-            editor.deltaDecorations([existing], []);
-            breakpointDecorationIds = breakpointDecorationIds.filter(id => id !== existing);
-        } else {
-            breakpointDecorationIds.push(...editor.deltaDecorations([], [{
-                range: new monaco.Range(line, 1, line, 1),
-                options: { glyphMarginClassName: 'pseudo2-breakpoint-glyph' }
-            }]));
+        if (event.event.shiftKey) {
+            event.event.preventDefault();
+            openBreakpointCondition(editor, line);
+            return;
         }
-        debugSession?.setBreakpoints(getBreakpointLines());
+        setBreakpoint(editor, line, breakpointIdsOnLine(model, line).length ? undefined : { enabled: true });
     });
     const modelChange = editor.onDidChangeModel(() => {
         cancelDebugSession();
-        breakpointDecorationIds = [];
+        breakpointDecorations.clear();
+        renderBreakpointList?.([]);
         activeDebugLineDecorationIds = [];
     });
     return {
         dispose() {
             mouse.dispose();
             modelChange.dispose();
-            editor.deltaDecorations([...breakpointDecorationIds, ...activeDebugLineDecorationIds], []);
-            breakpointDecorationIds = [];
+            editor.deltaDecorations([...breakpointDecorations.keys(), ...activeDebugLineDecorationIds], []);
+            breakpointDecorations.clear();
+            renderBreakpointList?.([]);
             activeDebugLineDecorationIds = [];
         }
     };
@@ -2205,6 +2310,27 @@ export const runDsl = async () => {
         installWorkspaceSplitter();
         const watches = document.querySelector<HTMLDetailsElement>('#debug-watches');
         if (watches) debugWatches = createDebugWatchPanel(watches, () => getExecutionServices().Pseudo2.parser.LangiumParser);
+        editBreakpoint = createDebugBreakpointDialog(() => getExecutionServices().Pseudo2.parser.LangiumParser);
+        const breakpointPanel = document.querySelector<HTMLDetailsElement>('#debug-breakpoints');
+        if (breakpointPanel) {
+            renderBreakpointList = createBreakpointPanel(breakpointPanel, {
+                jump: focusPseudo2SourceLine,
+                edit(line) {
+                    const editor = editorApp?.getEditor();
+                    if (editor) openBreakpointCondition(editor, line);
+                },
+                toggle(line, enabled) {
+                    const editor = editorApp?.getEditor();
+                    const point = getBreakpointRows(editor).find(point => point.line === line);
+                    if (editor && point) setBreakpoint(editor, line, { enabled, condition: point.condition });
+                },
+                remove(line) {
+                    const editor = editorApp?.getEditor();
+                    if (editor) setBreakpoint(editor, line);
+                }
+            });
+            renderBreakpointList([]);
+        }
         document.querySelector('#button-start')?.addEventListener('click', startEditor);
         document.querySelector('#button-dispose')?.addEventListener('click', disposeEditor);
         document.querySelector('#button-summary')?.addEventListener('click', updateSummary);
@@ -2213,10 +2339,25 @@ export const runDsl = async () => {
         document.querySelector('#button-execute')?.addEventListener('click', updateExecution);
         document.querySelector('#button-debug')?.addEventListener('click', () => void openDebugPanel());
         document.querySelector('#debug-start')?.addEventListener('click', () => void startDebugExecution());
+        document.querySelector('#debug-restart')?.addEventListener('click', () => {
+            if (debugSession && !debugPreparing) void startDebugExecution();
+        });
+        document.querySelector('#debug-pause')?.addEventListener('click', () => {
+            if (!debugSession || debugPaused || debugPauseRequested) return;
+            debugPauseRequested = true;
+            setTextContent('#debug-status', 'Pause wird angefordert ...');
+            updateDebugControls();
+            debugSession.pause();
+        });
         document.querySelector('#debug-continue')?.addEventListener('click', () => resumeDebug('continue'));
         document.querySelector('#debug-step')?.addEventListener('click', () => resumeDebug('step'));
         document.querySelector('#debug-over')?.addEventListener('click', () => resumeDebug('over'));
         document.querySelector('#debug-out')?.addEventListener('click', () => resumeDebug('out'));
+        document.querySelector('#debug-condition')?.addEventListener('click', () => {
+            const editor = editorApp?.getEditor();
+            const line = editor?.getPosition()?.lineNumber;
+            if (editor && line) openBreakpointCondition(editor, line);
+        });
         document.querySelector('#debug-stop')?.addEventListener('click', () => {
             if (debugPreparing) {
                 cancelDebugSession();

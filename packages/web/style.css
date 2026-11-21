@@ -602,7 +602,60 @@ body.is-resizing-workspace {
 #debug-status {
     color: #c5c5c5;
     font-size: 12px;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
+
+.debug-breakpoints {
+    min-width: 0;
+    margin-top: 8px;
+    border-top: 1px solid #555;
+    padding-top: 6px;
+}
+.debug-breakpoint-list {
+    max-height: 9rem;
+    overflow: auto;
+    margin: 4px 0 0;
+    padding: 0;
+    list-style: none;
+}
+.debug-breakpoint-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 4px;
+    border-top: 1px solid #444;
+    padding: 4px 0;
+}
+.debug-breakpoint-row input { margin: 4px; accent-color: #ba216e; }
+.debug-breakpoint-row button { min-height: 24px; padding: 2px 6px; font-size: 12px; }
+.debug-breakpoint-jump { min-width: 0; text-align: left; overflow-wrap: anywhere; }
+.debug-breakpoint-jump code { display: block; color: #c5c5c5; }
+.debug-breakpoint-empty { color: #c5c5c5; font-size: 12px; }
+
+.debug-breakpoint-dialog {
+    width: min(400px, calc(100% - 32px));
+    border: 1px solid #555;
+    border-radius: 6px;
+    padding: 16px;
+    color: #eee;
+    background: #202020;
+}
+.debug-breakpoint-dialog::backdrop { background: #0009; }
+.debug-breakpoint-dialog h2 { margin: 0 0 12px; font-size: 16px; }
+.debug-breakpoint-dialog input {
+    display: block;
+    width: 100%;
+    margin: 6px 0;
+    border: 1px solid #666;
+    border-radius: 4px;
+    padding: 6px;
+    color: #eee;
+    background: #161616;
+    font: 13px Consolas, "Courier New", monospace;
+}
+.debug-breakpoint-feedback { color: #ff9d9d; font-size: 12px; }
+.debug-breakpoint-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 
 /** @brief Markiert Monaco-Haltepunkte und die vor Ausfuehrung angehaltene Zeile. */
 .pseudo2-breakpoint-glyph::before {
@@ -617,12 +670,30 @@ body.is-resizing-workspace {
     width: 12px;
 }
 
+.pseudo2-breakpoint-conditional::before {
+    border: 2px solid #a22631;
+    background: transparent;
+}
+
+.pseudo2-breakpoint-disabled::before {
+    border: 2px dashed #6d6d6d;
+    background: transparent;
+}
+
 .pseudo2-debug-active-line {
     background: rgba(236, 74, 168, 0.13);
 }
 
 .pseudo2-debug-line-marker {
     border-left: 3px solid #d91687;
+}
+
+.pseudo2-debug-error-line {
+    background: rgba(223, 58, 67, 0.16);
+}
+
+.pseudo2-debug-error-marker {
+    border-left: 3px solid #df3a43;
 }
 
 pre {

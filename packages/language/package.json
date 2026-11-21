@@ -29,6 +29,14 @@
         "./browser/debug-watch-panel": {
             "types": "./out/browser/debug-watch-panel.d.ts",
             "default": "./out/browser/debug-watch-panel.js"
+        },
+        "./browser/debug-breakpoint-dialog": {
+            "types": "./out/browser/debug-breakpoint-dialog.d.ts",
+            "default": "./out/browser/debug-breakpoint-dialog.js"
+        },
+        "./browser/debug-breakpoints": {
+            "types": "./out/browser/debug-breakpoints.d.ts",
+            "default": "./out/browser/debug-breakpoints.js"
         }
     },
     "typesVersions": {

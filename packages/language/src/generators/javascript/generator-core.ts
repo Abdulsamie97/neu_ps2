@@ -397,12 +397,15 @@ function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent
   const trace = loop.iterator ? traceCall(loop.iterator, context, loop) : undefined;
   const update = `${iterName}.set(${iterName}.get() ${stepOp} ${stepName}.get())`;
   const line = executableLine(loop, 'for');
+  const location = context.liveDebug && line !== undefined ? `__ps2_step(${line + 1}, true)` : undefined;
+  const increment = location || trace ? `(${[location, update, trace].filter(Boolean).join(', ')})` : update;
   const condition = `${iterName}.get() ${directionOp} ${endName}.get()`;
   const checked = context.traceSteps && line !== undefined
     ? `(${context.liveDebug ? 'await ' : ''}__ps2_step(${line + 1}), ${condition})`
     : condition;
 
   return [
+    ...(location ? [`${indent}${location};`] : []),
     `${indent}let ${iterName} = new ObservableScalar(${from});`,
     ...(trace ? [`${indent}${trace};`] : []),
     `${indent}let ${endName} = new ObservableScalar(${to});`,
@@ -410,7 +413,7 @@ function generateForLoop(loop: ForLoop, context: Pseudo2GeneratorContext, indent
     `${indent}if (${stepName}.get() <= 0) {`,
     `${indent}  throw new Error("Invoked for-loop with negative step-size " + ${stepName}.get());`,
     `${indent}}`,
-    `${indent}for (${iterName}.get(); ${checked}; ${trace ? `(${update}, ${trace})` : update}) ${body}`
+    `${indent}for (${iterName}.get(); ${checked}; ${increment}) ${body}`
   ].join('\n');
 }
 
@@ -431,7 +434,9 @@ function generateDoWhileLoop(
 ): string {
   const body = generateBlock(loop.body, context, indent, state, stepCall(loop, context, `${indent}  `, 'do'));
   const condition = genExpr(loop.condition, context, state);
-  return `${indent}do ${body} while (${condition});`;
+  const line = executableLine(loop.condition);
+  const checked = context.liveDebug && line !== undefined ? `(__ps2_step(${line + 1}, true), ${condition})` : condition;
+  return `${indent}do ${body} while (${checked});`;
 }
 
 /**
@@ -548,8 +553,10 @@ function generateFunctionBody(
     const line = (GrammarUtils.findNodeForProperty(fn.$cstNode, 'name')?.range.start.line
       ?? fn.$cstNode?.range.start.line ?? 0) + 1;
     const frameId = context.getAnonymousVarName('__frame');
+    const errorName = context.getAnonymousVarName('__debugError');
     return `${indent}{\n${indent}  const ${frameId} = __ps2_enter(${JSON.stringify(frameName)}, ${line});`
-      + `\n${indent}  try {\n${nested.join('\n')}\n${indent}  } finally {`
+      + `\n${indent}  try {\n${nested.join('\n')}\n${indent}  } catch (${errorName}) {`
+      + `\n${indent}    __ps2_captureFailure();\n${indent}    throw ${errorName};\n${indent}  } finally {`
       + `\n${indent}    __ps2_leave(${frameId});\n${indent}  }\n${indent}}`;
   }
 

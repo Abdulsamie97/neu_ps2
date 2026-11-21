@@ -14,6 +14,7 @@ import { EmptyFileSystem, TextDocument, URI } from 'langium';
 import {
   collectStructFieldNames,
   collectVariableDefinitions,
+  createDebugBreakpointBinder,
   createPseudo2Services,
   executeObservedJavaScript,
   generatePrettyPseudo2,
@@ -30,6 +31,7 @@ import {
   type BrowserDebugSession,
   type DebugFrame,
   type ExecutionStep,
+  type ObservedExecutionResult,
   type PausedExecutionStep,
   type Program,
   type VariableDefinition,
@@ -37,6 +39,11 @@ import {
 } from 'pseudo2-language';
 import { createDebugValueElement } from 'pseudo2-language/browser/debug-value-view';
 import { createDebugWatchPanel } from 'pseudo2-language/browser/debug-watch-panel';
+import { createDebugBreakpointDialog } from 'pseudo2-language/browser/debug-breakpoint-dialog';
+import {
+  createBreakpointPanel, loadBreakpointDraft, rebaseTextareaBreakpoints, saveBreakpointDraft,
+  type BreakpointSettings, type EditorBreakpoint
+} from 'pseudo2-language/browser/debug-breakpoints';
 
 /** Auswaehlbare Bereiche des Ergebnisfensters. */
 type ResultTab = 'output' | 'debug' | 'trace' | 'javascript' | 'diagnostics' | 'pretty';
@@ -143,9 +150,14 @@ let traceTruncated = false;
 let selectedTraceStep = 0;
 let activeTraceLine: number | undefined;
 /** Vom Benutzer gesetzte Haltepunkte und der aktuelle Worker-Debug-Lauf. */
-const breakpoints = new Set<number>();
+const BREAKPOINT_DRAFT_KEY = 'pseudo2.debug.breakpoints.standalone';
+const breakpoints = new Map<number, BreakpointSettings>();
+let breakpointSource = DEFAULT_SOURCE;
+let bindBreakpoint: ReturnType<typeof createDebugBreakpointBinder> | undefined;
 let debugSession: BrowserDebugSession | undefined;
 let debugPaused: PausedExecutionStep | undefined;
+let debugPauseRequested = false;
+let debugRestartRequested = false;
 let debugOutput: string[] = [];
 const expandedDebugValues = new Set<string>();
 let actionInProgress = false;
@@ -172,6 +184,16 @@ const editorDiagnosticText = requireElement<HTMLElement>('#editor-diagnostic-tex
 const completionList = requireElement<HTMLElement>('#completion-list');
 const variableList = requireElement<HTMLElement>('#variable-list');
 const debugWatches = createDebugWatchPanel(requireElement<HTMLDetailsElement>('#debug-watches'), () => services.Pseudo2.parser.LangiumParser);
+const editBreakpoint = createDebugBreakpointDialog(() => services.Pseudo2.parser.LangiumParser);
+const renderBreakpointList = createBreakpointPanel(requireElement<HTMLDetailsElement>('#debug-breakpoints'), {
+  jump: revealSourceLine,
+  edit: openBreakpointCondition,
+  toggle(line, enabled) {
+    const point = breakpoints.get(line);
+    if (point) setBreakpoint(line, { ...point, enabled });
+  },
+  remove: line => setBreakpoint(line)
+});
 const languageVersion = requireElement<HTMLElement>('#language-version');
 const traceControls = requireElement<HTMLElement>('#trace-controls');
 const tracePosition = requireElement<HTMLInputElement>('#trace-position');
@@ -180,6 +202,8 @@ const traceNext = requireElement<HTMLButtonElement>('#trace-next');
 const traceCounter = requireElement<HTMLElement>('#trace-counter');
 const debugControls = requireElement<HTMLElement>('#debug-controls');
 const debugStart = requireElement<HTMLButtonElement>('#debug-start');
+const debugRestart = requireElement<HTMLButtonElement>('#debug-restart');
+const debugPause = requireElement<HTMLButtonElement>('#debug-pause');
 const debugContinue = requireElement<HTMLButtonElement>('#debug-continue');
 const debugStep = requireElement<HTMLButtonElement>('#debug-step');
 const debugOver = requireElement<HTMLButtonElement>('#debug-over');
@@ -563,29 +587,62 @@ async function debugCurrentSource(): Promise<void> {
 
   clearTrace();
   const context = Pseudo2GeneratorContext.fromProgram(analysis.program, true, false, true);
+  bindBreakpoint = createDebugBreakpointBinder(analysis.program, context, services.Pseudo2.references.ScopeProvider);
   const executable = generateProgram(analysis.program, context);
   const fieldNames = collectStructFieldNames(analysis.program, context);
+  let execution: ObservedExecutionResult;
+  do {
+    const session = launchDebugWorker(executable, fieldNames, revision);
+    execution = await session.completion;
+    if (revision !== sourceRevision || session !== debugSession) return;
+    debugSession = undefined;
+    debugPaused = undefined;
+    debugPauseRequested = false;
+    debugWatches.setContext();
+  } while (debugRestartRequested);
+
+  bindBreakpoint = undefined;
+  executedRevision = sourceRevision;
+  const finalOutput = execution.output.join('');
+  const error = execution.error ? `\n\n${execution.error}` : '';
+  resultValues.debug = `${finalOutput || '(keine Ausgabe)'}${error}`;
+  showVariables(analysis.variables, new Map(execution.variables.map(variable => [variable.id, variable])),
+    execution.error ? 'Nicht erreicht.' : 'Nicht ausgefuehrt.');
+  if (activeResultTab === 'debug') showResultTab('debug');
+}
+
+/** Startet einen frischen Worker fuer eine bereits validierte Editor-Revision. */
+function launchDebugWorker(executable: string, fieldNames: Record<string, string>, revision: number): BrowserDebugSession {
   expandedDebugValues.clear();
   debugOutput = [];
   debugPaused = undefined;
+  debugPauseRequested = false;
+  debugRestartRequested = false;
+  variableList.textContent = 'Debug-Lauf startet ...';
   resultValues.debug = 'Debug-Lauf startet ...';
   showResultTab('debug');
 
   const session = startObservedDebug(
-    executable, fieldNames, breakpoints,
+    executable, fieldNames, getDebugBreakpoints(),
     step => {
-      if (revision !== sourceRevision) return;
+      if (revision !== sourceRevision || session !== debugSession || debugRestartRequested) return;
       debugPaused = step;
+      debugPauseRequested = false;
       showDebugVariables(step);
-      const reason = step.reason === 'breakpoint' ? 'Haltepunkt' : step.reason === 'entry' ? 'Start'
+      const reason = step.reason === 'breakpoint'
+        ? step.conditionError ? 'Bedingungsfehler' : step.conditionalBreakpoint ? 'Bedingter Haltepunkt' : 'Haltepunkt'
+        : step.reason === 'error' ? 'Laufzeitfehler'
+        : step.reason === 'entry' ? 'Start'
+        : step.reason === 'pause' ? 'Pause'
         : step.reason === 'over' ? 'Schritt darueber' : step.reason === 'out' ? 'Schritt heraus' : 'Schritt hinein';
       resultValues.debug = `Angehalten in Zeile ${step.line} (${reason}).`
+        + (step.runtimeError || step.conditionError ? `\n${step.runtimeError ?? step.conditionError}` : '')
         + `\n\nAusgabe bis hier:\n${debugOutput.join('') || '(keine Ausgabe)'}`;
       showResultTab('debug');
     },
     () => {},
     text => {
-      if (revision !== sourceRevision) return;
+      if (revision !== sourceRevision || session !== debugSession || debugRestartRequested) return;
       debugOutput.push(text);
       if (!debugPaused) {
         resultValues.debug = `Programm laeuft ...\n\n${debugOutput.join('')}`;
@@ -596,36 +653,65 @@ async function debugCurrentSource(): Promise<void> {
   debugSession = session;
   debugWatches.setContext(session);
   updateDebugControls();
+  return session;
+}
 
-  const execution = await session.completion;
-  if (revision !== sourceRevision) return;
-  debugSession = undefined;
-  debugPaused = undefined;
-  debugWatches.setContext();
-  executedRevision = sourceRevision;
-  const finalOutput = execution.output.join('');
-  const error = execution.error ? `\n\n${execution.error}` : '';
-  resultValues.debug = `${finalOutput || '(keine Ausgabe)'}${error}`;
-  showVariables(analysis.variables, new Map(execution.variables.map(variable => [variable.id, variable])),
-    execution.error ? 'Nicht erreicht.' : 'Nicht ausgefuehrt.');
-  if (activeResultTab === 'debug') showResultTab('debug');
+/** Uebersetzt Marker und Bedingungen fuer den aktuellen Worker. */
+function getDebugBreakpoints(points = getBreakpointRows()) {
+  return points.flatMap(point => point.enabled ? [bindBreakpoint?.(point.line, point.condition) ?? point.line] : []);
+}
+
+/** Liefert den gemeinsamen Listenzustand ohne Abhaengigkeit vom Editor-Gutter. */
+function getBreakpointRows(): EditorBreakpoint[] {
+  return Array.from(breakpoints, ([line, settings]) => ({ line, ...settings }));
+}
+
+/** Aktualisiert Entwurf, Liste und aktive Worker-Haltepunkte gemeinsam. */
+function syncBreakpoints(): void {
+  const points = getBreakpointRows();
+  renderBreakpointList(points);
+  saveBreakpointDraft(BREAKPOINT_DRAFT_KEY, sourceEditor.value, points);
+  debugSession?.setBreakpoints(getDebugBreakpoints(points));
+}
+
+/** Setzt oder entfernt einen Marker und aktualisiert den Zeilenrand. */
+function setBreakpoint(line: number, point?: BreakpointSettings): void {
+  if (point) breakpoints.set(line, point);
+  else breakpoints.delete(line);
+  syncBreakpoints();
+  updateEditorPresentation();
+}
+
+/** Oeffnet den Dialog fuer die angegebene Pseudo2-Zeile. */
+function openBreakpointCondition(line: number): void {
+  const point = breakpoints.get(line);
+  const revision = sourceRevision;
+  editBreakpoint(line, point?.condition, condition => {
+    if (revision === sourceRevision) setBreakpoint(line, { enabled: point?.enabled ?? true, condition });
+  });
 }
 
 /** Schaltet die Steuerung zwischen laufendem und angehaltenem Debug-Modus um. */
 function updateDebugControls(): void {
   debugControls.hidden = activeResultTab !== 'debug';
   debugStart.disabled = actionInProgress;
-  debugContinue.disabled = !debugPaused;
-  debugStep.disabled = !debugPaused;
-  debugOver.disabled = !debugPaused;
-  debugOut.disabled = !debugPaused || debugPaused.frames.length <= 1;
-  debugStop.disabled = !debugSession;
-  debugPosition.textContent = debugPaused ? `Zeile ${debugPaused.line}` : debugSession ? 'Laeuft' : '';
+  const stopping = !debugSession || debugRestartRequested;
+  const canStep = !!debugPaused && debugPaused.reason !== 'error' && !stopping;
+  debugRestart.disabled = stopping;
+  debugPause.disabled = stopping || !!debugPaused || debugPauseRequested;
+  debugContinue.disabled = !canStep;
+  debugStep.disabled = !canStep;
+  debugOver.disabled = !canStep;
+  debugOut.disabled = !canStep || (debugPaused?.frames.length ?? 0) <= 1;
+  debugStop.disabled = stopping;
+  debugPosition.textContent = debugRestartRequested ? 'Neustart ...'
+    : debugPaused ? `${debugPaused.reason === 'error' ? 'Fehler in ' : ''}Zeile ${debugPaused.line}`
+    : debugPauseRequested ? 'Pause wird angefordert ...' : debugSession ? 'Laeuft' : '';
 }
 
 /** Laesst den aktuellen Worker bis zur naechsten Zeile oder zum Haltepunkt weiterlaufen. */
 function resumeDebug(mode: 'continue' | 'step' | 'over' | 'out'): void {
-  if (!debugSession || !debugPaused) return;
+  if (!debugSession || !debugPaused || debugPaused.reason === 'error') return;
   debugPaused = undefined;
   debugWatches.setContext(debugSession);
   variableList.textContent = 'Programm laeuft ...';
@@ -994,7 +1080,7 @@ function showResultTab(tab: ResultTab): void {
   traceControls.hidden = tab !== 'trace' || traceSteps.length === 0;
   if (tab === 'debug' && debugPaused) {
     resultContent.textContent = resultValues.debug;
-    setTraceLine(debugPaused.line);
+    setTraceLine(debugPaused.line, debugPaused.reason === 'error');
   } else if (tab === 'trace' && traceSteps.length > 0) {
     renderTraceStep();
   } else {
@@ -1053,14 +1139,15 @@ function selectTraceStep(index: number): void {
 }
 
 /** Markiert und zentriert die aktuelle Quellzeile des aufgezeichneten Schritts. */
-function setTraceLine(line: number | undefined): void {
+function setTraceLine(line: number | undefined, error = false): void {
   if (activeTraceLine !== undefined) {
-    lineNumbers.children[activeTraceLine - 1]?.classList.remove('line-number-trace');
+    lineNumbers.children[activeTraceLine - 1]?.classList.remove('line-number-trace', 'line-number-debug-error');
   }
   activeTraceLine = line;
   traceLineHighlight.hidden = line === undefined;
+  traceLineHighlight.classList.toggle('trace-line-error', error);
   if (line === undefined) return;
-  lineNumbers.children[line - 1]?.classList.add('line-number-trace');
+  lineNumbers.children[line - 1]?.classList.add(error ? 'line-number-debug-error' : 'line-number-trace');
   const lineHeight = Number.parseFloat(window.getComputedStyle(sourceEditor).lineHeight) || 21.7;
   const targetTop = Number.parseFloat(window.getComputedStyle(sourceEditor).paddingTop) + (line - 1) * lineHeight;
   if (targetTop < sourceEditor.scrollTop || targetTop + lineHeight > sourceEditor.scrollTop + sourceEditor.clientHeight) {
@@ -1304,21 +1391,26 @@ function renderHighlightedSegment(
  */
 function renderLineNumbers(source: string, diagnostics: StandaloneDiagnostic[]): string {
   const lineCount = Math.max(1, source.split('\n').length);
+  const traceClass = traceLineHighlight.classList.contains('trace-line-error') ? 'line-number-debug-error' : 'line-number-trace';
   return Array.from({ length: lineCount }, (_, index) => {
     const line = index + 1;
     const lineDiagnostics = diagnostics
       .filter(diagnostic => diagnostic.line <= line && diagnostic.endLine >= line)
       .sort((left, right) => diagnosticPriority(left) - diagnosticPriority(right));
     const primary = lineDiagnostics[0];
-    const className = `${primary ? ` line-number-${diagnosticClass(primary)}` : ''}${line === activeTraceLine ? ' line-number-trace' : ''}`;
+    const className = `${primary ? ` line-number-${diagnosticClass(primary)}` : ''}${line === activeTraceLine ? ` ${traceClass}` : ''}`;
     const title = lineDiagnostics.length > 0
       ? ` title="${escapeHtmlAttribute(lineDiagnostics.map(diagnostic => diagnostic.message).join('\n'))}"`
       : '';
     const dataLine = primary ? ` data-diagnostic-line="${line}"` : '';
-    const active = breakpoints.has(line);
-    const breakpointLabel = active ? 'Haltepunkt entfernen' : 'Haltepunkt setzen';
-    const toggle = `<button type="button" class="breakpoint-toggle${active ? ' active' : ''}" data-breakpoint-line="${line}"`
-      + ` aria-label="${breakpointLabel}, Zeile ${line}" title="${breakpointLabel}, Zeile ${line}"></button>`;
+    const point = breakpoints.get(line);
+    const condition = point?.condition;
+    const breakpointLabel = point ? 'Haltepunkt entfernen' : 'Haltepunkt setzen';
+    const breakpointTitle = condition ? `Bedingter Haltepunkt: ${condition.source}` : `${breakpointLabel}, Zeile ${line}`;
+    const markerClass = point ? ` active${point.enabled ? '' : ' disabled'}${condition ? ' conditional' : ''}` : '';
+    const titleText = point && !point.enabled ? `Deaktiviert: ${breakpointTitle}` : breakpointTitle;
+    const toggle = `<button type="button" class="breakpoint-toggle${markerClass}" data-breakpoint-line="${line}"`
+      + ` aria-label="${breakpointLabel}, Zeile ${line}" title="${escapeHtmlAttribute(titleText)}, Umschalt+Klick: Bedingung"></button>`;
     return `<span class="line-number${className}"${dataLine}${title}>${toggle}${line}</span>`;
   }).join('');
 }
@@ -1511,6 +1603,22 @@ debugContinue.addEventListener('click', () => resumeDebug('continue'));
 debugStep.addEventListener('click', () => resumeDebug('step'));
 debugOver.addEventListener('click', () => resumeDebug('over'));
 debugOut.addEventListener('click', () => resumeDebug('out'));
+debugPause.addEventListener('click', () => {
+  if (!debugSession || debugPause.disabled) return;
+  debugPauseRequested = true;
+  updateDebugControls();
+  debugSession.pause();
+});
+debugRestart.addEventListener('click', () => {
+  if (!debugSession || debugRestart.disabled) return;
+  debugRestartRequested = true;
+  updateDebugControls();
+  debugSession.stop();
+});
+requireElement<HTMLButtonElement>('#debug-condition').addEventListener('click', () => {
+  const line = sourceEditor.value.slice(0, sourceEditor.selectionStart).split('\n').length;
+  openBreakpointCondition(line);
+});
 debugStop.addEventListener('click', () => debugSession?.stop());
 
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-result-tab]')) {
@@ -1525,7 +1633,18 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-result-
 sourceEditor.addEventListener('input', () => {
   debugSession?.stop();
   debugSession = undefined;
+  bindBreakpoint = undefined;
+  debugPauseRequested = false;
+  debugRestartRequested = false;
   debugWatches.setContext();
+  const source = sourceEditor.value;
+  if (breakpoints.size && source !== breakpointSource) {
+    const shifted = rebaseTextareaBreakpoints(breakpointSource, source, getBreakpointRows());
+    breakpoints.clear();
+    for (const { line, ...point } of shifted) breakpoints.set(line, point);
+    syncBreakpoints();
+  }
+  breakpointSource = source;
   sourceRevision++;
   executedRevision = -1;
   debugPaused = undefined;
@@ -1608,10 +1727,11 @@ lineNumbers.addEventListener('click', event => {
   if (breakpointTarget) {
     const breakpointLine = Number(breakpointTarget.dataset.breakpointLine);
     if (Number.isInteger(breakpointLine)) {
-      if (breakpoints.has(breakpointLine)) breakpoints.delete(breakpointLine);
-      else breakpoints.add(breakpointLine);
-      debugSession?.setBreakpoints(breakpoints);
-      updateEditorPresentation();
+      if (event.shiftKey) {
+        openBreakpointCondition(breakpointLine);
+        return;
+      }
+      setBreakpoint(breakpointLine, breakpoints.has(breakpointLine) ? undefined : { enabled: true });
     }
     return;
   }
@@ -1637,7 +1757,11 @@ editorDiagnostic.addEventListener('click', () => {
   }
 });
 
-sourceEditor.value = DEFAULT_SOURCE;
+const breakpointDraft = loadBreakpointDraft(BREAKPOINT_DRAFT_KEY, () => services.Pseudo2.parser.LangiumParser);
+sourceEditor.value = breakpointDraft?.source ?? DEFAULT_SOURCE;
+breakpointSource = sourceEditor.value;
+for (const { line, ...point } of breakpointDraft?.breakpoints ?? []) breakpoints.set(line, point);
+renderBreakpointList(getBreakpointRows());
 languageVersion.textContent = `v${PSEUDO2_VERSION}`;
 updateEditorPresentation();
 showResultTab('output');

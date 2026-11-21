@@ -15,7 +15,9 @@ import {
 } from '../generated/ast.js';
 import { Pseudo2GeneratorContext } from '../generators/javascript/generator-context.js';
 import { DEBUG_VALUE_SNAPSHOT_SCRIPT, type DebugValueSnapshot } from './debug-value-snapshot.js';
-import { DEBUG_WATCH_SCRIPT, MAX_DEBUG_WATCHES, type DebugWatchPath, type DebugWatchResult } from './debug-watch.js';
+import { DEBUG_EXPRESSION_SCRIPT, type DebugExpression } from './debug-expression.js';
+import { DEBUG_WATCH_SCRIPT, MAX_DEBUG_WATCHES, type DebugWatchResult } from './debug-watch.js';
+import { DEBUG_BREAKPOINT_SCRIPT, type DebugBreakpoint } from './debug-breakpoint.js';
 
 /** Deklaration und Quellort einer globalen oder lokalen Variable. */
 export interface VariableDefinition {
@@ -61,17 +63,21 @@ export interface DebugFrame {
 /** Angehaltener Zustand eines interaktiven Debug-Laufs. */
 export interface PausedExecutionStep extends ExecutionStep {
   line: number;
-  reason: 'entry' | 'step' | 'over' | 'out' | 'breakpoint' | 'pause';
+  reason: 'entry' | 'step' | 'over' | 'out' | 'breakpoint' | 'pause' | 'error';
   globals: VariableValue[];
   frames: DebugFrame[];
+  conditionalBreakpoint?: boolean;
+  conditionError?: string;
+  runtimeError?: string;
 }
 
 /** Steuerung eines im Browser-Worker laufenden Pseudo2-Debuggers. */
 export interface BrowserDebugSession {
   completion: Promise<ObservedExecutionResult>;
-  inspectWatches(frameId: number, paths: DebugWatchPath[]): Promise<DebugWatchResult[]>;
+  inspectWatches(frameId: number, expressions: readonly DebugExpression[]): Promise<DebugWatchResult[]>;
+  pause(): void;
   resume(mode: 'continue' | 'step' | 'over' | 'out'): void;
-  setBreakpoints(lines: Iterable<number>): void;
+  setBreakpoints(breakpoints: Iterable<number | DebugBreakpoint>): void;
   stop(): void;
 }
 
@@ -125,7 +131,9 @@ export function collectStructFieldNames(program: Program, context: Pseudo2Genera
  */
 export const OBSERVED_WORKER_SCRIPT = String.raw`
 ${DEBUG_VALUE_SNAPSHOT_SCRIPT}
+${DEBUG_EXPRESSION_SCRIPT}
 ${DEBUG_WATCH_SCRIPT}
+${DEBUG_BREAKPOINT_SCRIPT}
 
 function formatValue(value) {
   if (typeof value === 'string') return value;
@@ -179,16 +187,17 @@ function formatVariable(value, fieldNames, depth, path) {
 
 var resumeDebug;
 var readPausedWatches;
-var debugBreakpoints = new Set();
+var debugBreakpoints = new Map();
 var pauseRequested = false;
 self.onmessage = async function (event) {
   if (event.data.command) {
     if (event.data.command === 'setBreakpoints') {
-      debugBreakpoints = new Set(event.data.breakpoints || []);
+      debugBreakpoints = readDebugBreakpoints(event.data.breakpoints);
     } else if (event.data.command === 'pause') {
-      pauseRequested = true;
+      // Eine inzwischen erreichte Pause erfuellt die Anforderung bereits.
+      if (!resumeDebug) pauseRequested = true;
     } else if (event.data.command === 'inspectWatches') {
-      var results = readPausedWatches ? readPausedWatches(event.data.frameId, event.data.paths) : [];
+      var results = readPausedWatches ? readPausedWatches(event.data.frameId, event.data.expressions) : [];
       self.postMessage({ type: 'watches', requestId: event.data.requestId, results: results });
     } else if (resumeDebug) {
       var resume = resumeDebug;
@@ -202,6 +211,9 @@ self.onmessage = async function (event) {
   var traces = new Map();
   var traceCount = 0;
   var debugMode = event.data.debugMode === true;
+  var stopOnRuntimeError = debugMode && event.data.stopOnRuntimeError === true;
+  var hasDebugLocation = false;
+  var failedFrames;
   var debugModeState = 'step';
   var firstPause = true;
   var debugStepCount = 0;
@@ -209,7 +221,7 @@ self.onmessage = async function (event) {
   var nextFrameId = 1;
   var globalValues = new Map();
   var frameStack = [{ id: 0, name: 'Programm', line: 1, values: new Map() }];
-  debugBreakpoints = new Set(event.data.breakpoints || []);
+  debugBreakpoints = readDebugBreakpoints(event.data.breakpoints);
   pauseRequested = false;
   var stepLimit = Math.min(${MAX_TRACE_STEPS}, Math.max(0, Math.floor(Number(event.data.stepLimit) || 0)));
   var steps = [];
@@ -241,10 +253,10 @@ self.onmessage = async function (event) {
 
   function currentVariables() { return snapshotValues(traces); }
 
-  function currentFrames(budget) {
-    var frames = new Array(frameStack.length);
-    for (var i = frameStack.length - 1; i >= 0; i--) {
-      var frame = frameStack[i];
+  function snapshotFrames(stack, budget) {
+    var frames = new Array(stack.length);
+    for (var i = stack.length - 1; i >= 0; i--) {
+      var frame = stack[i];
       frames[i] = { id: frame.id, name: frame.name, line: frame.line, variables: snapshotValues(frame.values, budget) };
     }
     return frames;
@@ -258,6 +270,11 @@ self.onmessage = async function (event) {
 
   function leaveFrame(id) {
     if (frameStack.length > 1 && frameStack[frameStack.length - 1].id === id) frameStack.pop();
+  }
+
+  function captureFailure() {
+    // Der erste Catch sieht auch die innersten Aufrufe, bevor finally sie entfernt.
+    if (stopOnRuntimeError && !failedFrames) failedFrames = frameStack.slice();
   }
 
   function trace(metadata, value) {
@@ -289,11 +306,41 @@ self.onmessage = async function (event) {
     if (pendingSteps.length >= 25) flushSteps();
   }
 
-  function step(line) {
+  function publishPause(stack, reason, details) {
+    var budget = event.data.inspectValues === true ? { remaining: 4096 } : undefined;
+    var frames = snapshotFrames(stack, budget);
+    if (budget) {
+      readPausedWatches = function (frameId, expressions) {
+        var frame = stack.find(function (current) { return current.id === frameId; });
+        var watchBudget = { remaining: 4096 };
+        return expressions.slice(0, ${MAX_DEBUG_WATCHES}).map(function (expression) {
+          return frame ? readDebugWatch(expression, frame.values, globalValues, event.data.fieldNames, watchBudget)
+            : { error: 'Der Aufruf ist nicht mehr verfuegbar.' };
+        });
+      };
+    }
+    self.postMessage({ type: 'paused', step: Object.assign({
+      line: stack[stack.length - 1].line, outputCount: output.length, variables: currentVariables(), reason: reason,
+      globals: snapshotValues(globalValues, budget), frames: frames
+    }, details) });
+  }
+
+  function step(line, locationOnly) {
     if (debugMode) {
       frameStack[frameStack.length - 1].line = line;
+      hasDebugLocation = true;
+      if (locationOnly) return;
       var depth = frameStack.length;
       var breakpoint = debugBreakpoints.has(line);
+      var condition = debugBreakpoints.get(line);
+      var conditionError;
+      if (condition && !firstPause && !pauseRequested) {
+        try {
+          breakpoint = evaluateDebugCondition(condition, frameStack[depth - 1].values, globalValues, event.data.fieldNames);
+        } catch (error) {
+          conditionError = error instanceof Error ? error.message : String(error);
+        }
+      }
       var shouldPause = firstPause || breakpoint || pauseRequested || debugModeState === 'step'
         || debugModeState === 'over' && depth <= targetDepth
         || debugModeState === 'out' && depth < targetDepth;
@@ -309,22 +356,9 @@ self.onmessage = async function (event) {
       firstPause = false;
       pauseRequested = false;
       debugModeState = 'paused';
-      var budget = event.data.inspectValues === true ? { remaining: 4096 } : undefined;
-      var frames = currentFrames(budget);
-      if (budget) {
-        readPausedWatches = function (frameId, paths) {
-          var frame = frameStack.find(function (current) { return current.id === frameId; });
-          var watchBudget = { remaining: 4096 };
-          return paths.slice(0, ${MAX_DEBUG_WATCHES}).map(function (path) {
-            return frame ? readDebugWatch(path, frame.values, globalValues, event.data.fieldNames, watchBudget)
-              : { error: 'Der Aufruf ist nicht mehr verfuegbar.' };
-          });
-        };
-      }
-      self.postMessage({ type: 'paused', step: {
-        line: line, outputCount: output.length, variables: currentVariables(), reason: reason,
-        globals: snapshotValues(globalValues, budget), frames: frames
-      } });
+      publishPause(frameStack, reason, {
+        conditionalBreakpoint: reason === 'breakpoint' && !!condition, conditionError: conditionError
+      });
       return new Promise(function (resolve) {
         resumeDebug = function (command) {
           targetDepth = frameStack.length;
@@ -351,8 +385,8 @@ self.onmessage = async function (event) {
   try {
     if (debugMode) {
       var AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-      await new AsyncFunction('console', '__ps2_trace', '__ps2_step', '__ps2_enter', '__ps2_leave',
-        '"use strict";\n' + event.data.source)(capturedConsole, trace, step, enterFrame, leaveFrame);
+      await new AsyncFunction('console', '__ps2_trace', '__ps2_step', '__ps2_enter', '__ps2_leave', '__ps2_captureFailure',
+        '"use strict";\n' + event.data.source)(capturedConsole, trace, step, enterFrame, leaveFrame, captureFailure);
     } else {
       new Function('console', '__ps2_trace', '__ps2_step', '"use strict";\n' + event.data.source)(capturedConsole, trace, step);
     }
@@ -360,9 +394,14 @@ self.onmessage = async function (event) {
     self.postMessage({ output: output, variables: currentVariables(), steps: steps, traceTruncated: traceTruncated });
   } catch (error) {
     finishTrace('error');
+    var message = error instanceof Error ? error.name + ': ' + error.message : String(error);
+    if (stopOnRuntimeError && hasDebugLocation) {
+      publishPause(failedFrames || frameStack, 'error', { runtimeError: message || 'Leerer Fehlerwert.' });
+      return;
+    }
     self.postMessage({
       output: output,
-      error: error instanceof Error ? error.name + ': ' + error.message : String(error),
+      error: message,
       variables: currentVariables(),
       steps: steps,
       traceTruncated: traceTruncated
@@ -436,7 +475,7 @@ export function executeObservedJavaScript(
 export function startObservedDebug(
   source: string,
   fieldNames: Record<string, string>,
-  breakpoints: Iterable<number>,
+  breakpoints: Iterable<number | DebugBreakpoint>,
   onPause: (step: PausedExecutionStep) => void,
   onVariable: (variable: VariableValue) => void,
   onOutput: (text: string) => void,
@@ -453,6 +492,7 @@ export function startObservedDebug(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let finished = false;
   let paused = false;
+  let runtimeError: string | undefined;
 
   const clearWatchRequests = () => {
     for (const resolve of pendingWatches.values()) resolve([]);
@@ -476,6 +516,7 @@ export function startObservedDebug(
   };
 
   worker.onmessage = event => {
+    if (finished) return;
     const message = event.data as ObservedExecutionResult & {
       type?: string; variable?: VariableValue; step?: PausedExecutionStep; text?: string;
       requestId?: number; results?: DebugWatchResult[];
@@ -488,6 +529,7 @@ export function startObservedDebug(
       onOutput(message.text);
     } else if (message.type === 'paused' && message.step) {
       paused = true;
+      runtimeError = message.step.reason === 'error' ? message.step.runtimeError ?? 'Unbekannter Laufzeitfehler.' : undefined;
       if (timer) clearTimeout(timer);
       onPause(message.step);
     } else if (message.type === 'watches' && message.requestId !== undefined) {
@@ -505,20 +547,23 @@ export function startObservedDebug(
     output, error: event.message || 'Unbekannter Worker-Fehler.', variables: [...values.values()]
   });
   armTimeout();
-  worker.postMessage({ source, fieldNames, debugMode: true, inspectValues: true, breakpoints: [...breakpoints] });
+  worker.postMessage({ source, fieldNames, debugMode: true, inspectValues: true, stopOnRuntimeError: true, breakpoints: [...breakpoints] });
 
   return {
     completion,
-    inspectWatches(frameId, paths) {
-      if (finished || !paused || !paths.length) return Promise.resolve([]);
+    inspectWatches(frameId, expressions) {
+      if (finished || !paused || !expressions.length) return Promise.resolve([]);
       const requestId = ++watchRequestId;
       return new Promise(resolve => {
         pendingWatches.set(requestId, resolve);
-        worker.postMessage({ command: 'inspectWatches', requestId, frameId, paths });
+        worker.postMessage({ command: 'inspectWatches', requestId, frameId, expressions });
       });
     },
+    pause() {
+      if (!finished && !paused) worker.postMessage({ command: 'pause' });
+    },
     resume(mode) {
-      if (finished || !paused) return;
+      if (finished || !paused || runtimeError !== undefined) return;
       paused = false;
       clearWatchRequests();
       armTimeout();
@@ -528,7 +573,7 @@ export function startObservedDebug(
       if (!finished) worker.postMessage({ command: 'setBreakpoints', breakpoints: [...lines] });
     },
     stop() {
-      finish({ output, error: 'Ausfuehrung gestoppt.', variables: [...values.values()] });
+      finish({ output, error: runtimeError ?? 'Ausfuehrung gestoppt.', variables: [...values.values()] });
     }
   };
 }

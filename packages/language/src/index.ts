@@ -20,6 +20,7 @@ export * from './pseudo2-line-comments.js';
 export * from './diagnostic-message.js';
 export * from './version.js';
 export * from './runtime/variable-inspector.js';
+export { createDebugBreakpointBinder, type DebugBreakpoint, type DebugConditionInput } from './runtime/debug-breakpoint.js';
 export * from './pseudo2-validator.js';
 export * from './generators/javascript/langenerator.js';
 export * from './generators/c/c-generator-core.js';

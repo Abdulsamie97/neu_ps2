@@ -27,6 +27,10 @@ function assertDebuggerMarkup(name, html) {
     `${name} must keep a single Debug entry in the toolbar.`);
   assert.doesNotMatch(toolbar, /id="debug-(start|stop)"/);
   assert.match(panel, sessionControls, `${name} must group start and end inside the debugger.`);
+  for (const id of ['debug-restart', 'debug-pause']) {
+    assert.match(panel, new RegExp(`id="${id}"[^>]* disabled>`), `${name} must expose ${id} in the debugger.`);
+  }
+  assert.match(panel, /<details id="debug-breakpoints"/, `${name} must expose the breakpoint list in the debugger.`);
 }
 
 assertDebuggerMarkup('root', root);

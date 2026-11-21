@@ -48,6 +48,7 @@ import {
 import { createDebugValueElement } from 'pseudo2-language/browser/debug-value-view';
 import { createDebugWatchPanel } from 'pseudo2-language/browser/debug-watch-panel';
 import { createDebugBreakpointDialog } from 'pseudo2-language/browser/debug-breakpoint-dialog';
+import { installDebugShortcuts } from 'pseudo2-language/browser/debug-shortcuts';
 import {
     createBreakpointPanel, loadBreakpointDraft, saveBreakpointDraft, type BreakpointSettings, type EditorBreakpoint
 } from 'pseudo2-language/browser/debug-breakpoints';
@@ -520,12 +521,14 @@ function updateDebugControls(): void {
 }
 
 /** @brief Oeffnet den Debugger in der JavaScript-Ansicht, ohne einen Lauf zu starten. */
-const openDebugPanel = async () => {
-    await showResultView('javascript');
+const openDebugPanel = (focusStart = true) => {
+    void showResultView('javascript');
     const panel = document.querySelector<HTMLDetailsElement>('#debug-panel');
     if (!panel) return;
     panel.open = true;
-    (panel.querySelector<HTMLButtonElement>('#debug-start:not(:disabled)') ?? panel.querySelector('summary'))?.focus();
+    if (focusStart) {
+        (panel.querySelector<HTMLButtonElement>('#debug-start:not(:disabled)') ?? panel.querySelector('summary'))?.focus();
+    }
 };
 
 /**
@@ -2337,7 +2340,7 @@ export const runDsl = async () => {
         document.querySelector('#button-code')?.addEventListener('click', updateCode);
         document.querySelector('#button-save')?.addEventListener('click', saveCurrentCode);
         document.querySelector('#button-execute')?.addEventListener('click', updateExecution);
-        document.querySelector('#button-debug')?.addEventListener('click', () => void openDebugPanel());
+        document.querySelector('#button-debug')?.addEventListener('click', () => openDebugPanel());
         document.querySelector('#debug-start')?.addEventListener('click', () => void startDebugExecution());
         document.querySelector('#debug-restart')?.addEventListener('click', () => {
             if (debugSession && !debugPreparing) void startDebugExecution();
@@ -2366,6 +2369,7 @@ export const runDsl = async () => {
                 debugSession?.stop();
             }
         });
+        installDebugShortcuts(() => editorApp?.getEditor()?.hasTextFocus() === true, () => openDebugPanel(false));
         document.querySelector('#button-generate-c')?.addEventListener('click', updateCGeneration);
         document.querySelector('#c-mode-select')?.addEventListener('change', () => void changeCGeneratorMode());
         document.querySelector('#button-run-c')?.addEventListener('click', runCFromWeb);

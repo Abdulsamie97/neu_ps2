@@ -21,7 +21,6 @@ import {
   generateProgram,
   getDiagnosticMessage,
   getLineCommentEdits,
-  isLineCommentShortcut,
   isVerificationAnnotationLine,
   isVerificationKeyword,
   MAX_TRACE_STEPS,
@@ -40,6 +39,8 @@ import {
 import { createDebugValueElement } from 'pseudo2-language/browser/debug-value-view';
 import { createDebugWatchPanel } from 'pseudo2-language/browser/debug-watch-panel';
 import { createDebugBreakpointDialog } from 'pseudo2-language/browser/debug-breakpoint-dialog';
+import { installDebugShortcuts } from 'pseudo2-language/browser/debug-shortcuts';
+import { installTextareaEditorShortcuts, RUN_EDITOR_SHORTCUT } from 'pseudo2-language/browser/editor-shortcuts';
 import {
   createBreakpointPanel, loadBreakpointDraft, rebaseTextareaBreakpoints, saveBreakpointDraft,
   type BreakpointSettings, type EditorBreakpoint
@@ -1001,6 +1002,13 @@ function renderCompletion(): void {
   positionCompletion();
 }
 
+/** Waehlt den vorherigen oder naechsten Vorschlag und haelt ihn im sichtbaren Ausschnitt. */
+function moveCompletion(offset: -1 | 1): void {
+  selectedCompletion = (selectedCompletion + offset + completionSuggestions.length) % completionSuggestions.length;
+  renderCompletion();
+  completionList.children[selectedCompletion]?.scrollIntoView({ block: 'nearest' });
+}
+
 /** Berechnet die Position im nicht umbrechenden, monospace dargestellten Editor. */
 function positionCompletion(): void {
   const source = sourceEditor.value;
@@ -1581,7 +1589,11 @@ document.querySelector('#generate-button')?.addEventListener('click', () => {
 document.querySelector('#pretty-button')?.addEventListener('click', () => {
   void runBusyAction(prettyPrintCurrentSource);
 });
-document.querySelector('#run-button')?.addEventListener('click', () => {
+const runButton = requireElement<HTMLButtonElement>('#run-button');
+runButton.title = RUN_EDITOR_SHORTCUT.hint;
+runButton.setAttribute('aria-keyshortcuts', RUN_EDITOR_SHORTCUT.aria);
+requireElement('#run-shortcut-hint').textContent = `${RUN_EDITOR_SHORTCUT.hint}: ausfuehren`;
+runButton.addEventListener('click', () => {
   void runBusyAction(runCurrentSource);
 });
 document.querySelector('#debug-button')?.addEventListener('click', () => {
@@ -1620,6 +1632,7 @@ requireElement<HTMLButtonElement>('#debug-condition').addEventListener('click', 
   openBreakpointCondition(line);
 });
 debugStop.addEventListener('click', () => debugSession?.stop());
+installDebugShortcuts(() => document.activeElement === sourceEditor, () => showResultTab('debug'));
 
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-result-tab]')) {
   button.addEventListener('click', () => {
@@ -1678,46 +1691,15 @@ sourceEditor.addEventListener('click', () => {
 });
 sourceEditor.addEventListener('keyup', updateActiveEditorDiagnostic);
 sourceEditor.addEventListener('select', updateActiveEditorDiagnostic);
-sourceEditor.addEventListener('keydown', event => {
-  if (isLineCommentShortcut(event)) {
-    event.preventDefault();
-    if (!event.repeat) toggleSelectedLineComments();
-    return;
-  }
-  if ((event.ctrlKey || event.metaKey) && event.code === 'Space') {
-    event.preventDefault();
-    scheduleCompletion(true);
-    return;
-  }
-  if (!completionList.hidden) {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault();
-      selectedCompletion = (selectedCompletion + (event.key === 'ArrowDown' ? 1 : -1)
-        + completionSuggestions.length) % completionSuggestions.length;
-      renderCompletion();
-      completionList.children[selectedCompletion]?.scrollIntoView({ block: 'nearest' });
-      return;
-    }
-    if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey || event.key === 'Tab') {
-      event.preventDefault();
-      acceptCompletion(selectedCompletion);
-      return;
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      hideCompletion();
-      return;
-    }
-  }
-  if (event.key === 'Tab') {
-    event.preventDefault();
-    insertIndentation();
-    return;
-  }
-  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-    event.preventDefault();
-    void runBusyAction(runCurrentSource);
-  }
+installTextareaEditorShortcuts(sourceEditor, () => !completionList.hidden, {
+  toggleLineComments: toggleSelectedLineComments,
+  showCompletions: () => scheduleCompletion(true),
+  nextCompletion: () => moveCompletion(1),
+  previousCompletion: () => moveCompletion(-1),
+  acceptCompletion: () => acceptCompletion(selectedCompletion),
+  dismissCompletions: hideCompletion,
+  indent: insertIndentation,
+  run: () => runButton.click()
 });
 
 lineNumbers.addEventListener('click', event => {

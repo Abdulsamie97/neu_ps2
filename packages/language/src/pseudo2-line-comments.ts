@@ -40,10 +40,3 @@ export function getLineCommentEdits(selections: readonly Range[], lineText: (lin
     newText: remove ? '' : '// '
   }));
 }
-
-/** Erkennt Strg/Cmd + Slash, auch wenn Slash ueber Umschalt+7 eingegeben wird. */
-export function isLineCommentShortcut(event: Pick<KeyboardEvent,
-  'altKey' | 'code' | 'ctrlKey' | 'isComposing' | 'key' | 'metaKey' | 'shiftKey'>): boolean {
-  return (event.ctrlKey || event.metaKey) && !event.altKey && !event.isComposing
-    && (event.key === '/' || (event.shiftKey && event.code === 'Digit7'));
-}

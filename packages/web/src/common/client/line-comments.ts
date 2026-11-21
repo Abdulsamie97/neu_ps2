@@ -5,7 +5,8 @@
  */
 
 import * as monaco from '@codingame/monaco-vscode-editor-api';
-import { getLineCommentEdits, isLineCommentShortcut } from 'pseudo2-language';
+import { getLineCommentEdits } from 'pseudo2-language';
+import { isLineCommentShortcut } from 'pseudo2-language/browser/editor-shortcuts';
 
 /** Verwendet eine gemeinsame Undo-Gruppe und laesst Monaco die Auswahl nachfuehren. */
 export function installLineCommentShortcut(editor: monaco.editor.IStandaloneCodeEditor): void {

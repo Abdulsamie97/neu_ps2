@@ -852,6 +852,20 @@ Die Haltezeile bleibt im Editor markiert. Beim Klicken auf einen Aufruf im
 `Aufrufstapel` springt der Editor zu dessen Zeile und `Lokal` zeigt seine Werte.
 Die Ausfuehrung erfolgt lokal in einem Browser-Worker.
 
+Auf der Root-Seite, in der Workbench und im Einzeldatei-Editor gelten dieselben
+Debug-Kuerzel: `Alt+Umschalt+Enter` startet den Lauf oder setzt ihn bis zum
+naechsten Haltepunkt fort. `Alt+Umschalt+1` geht hinein, `Alt+Umschalt+2` geht
+darueber und `Alt+Umschalt+3` laeuft bis zum Aufrufer. Die Kuerzel stehen auch
+in den Tooltips der Schaltflaechen und greifen nur, wenn der jeweilige Befehl
+verfuegbar ist. In Dialogen und anderen Eingabefeldern sind sie deaktiviert.
+
+Die eigenen Editor-Kuerzel stehen in `packages/language/src/browser/editor-shortcuts.ts`.
+Im Einzeldatei-Editor fuehrt `Strg/Cmd+Enter` das Programm aus, `Strg/Cmd+Leertaste`
+zeigt Vorschlaege und `Tab` rueckt ein. Bei offener Vorschlagsliste waehlen die
+Pfeiltasten den Vorschlag, `Tab` oder `Enter` uebernehmen ihn und `Esc` schliesst
+die Liste. Das Kommentar-Kuerzel ist mit Root-Seite und Workbench geteilt;
+weitere Standardkuerzel in diesen beiden Editoren verwaltet Monaco selbst.
+
 ### Einzeldatei-JavaScript-Runner
 
 Zusaetzlich zur Monaco-basierten Weboberflaeche gibt es einen leichten Runner,

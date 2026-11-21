@@ -37,6 +37,14 @@
         "./browser/debug-breakpoints": {
             "types": "./out/browser/debug-breakpoints.d.ts",
             "default": "./out/browser/debug-breakpoints.js"
+        },
+        "./browser/debug-shortcuts": {
+            "types": "./out/browser/debug-shortcuts.d.ts",
+            "default": "./out/browser/debug-shortcuts.js"
+        },
+        "./browser/editor-shortcuts": {
+            "types": "./out/browser/editor-shortcuts.d.ts",
+            "default": "./out/browser/editor-shortcuts.js"
         }
     },
     "typesVersions": {

@@ -6,7 +6,8 @@
 
 import { TextDocument } from 'langium';
 import { describe, expect, test } from 'vitest';
-import { getLineCommentEdits, isLineCommentShortcut } from '../../src/pseudo2-line-comments.js';
+import { isLineCommentShortcut } from '../../src/browser/editor-shortcuts.js';
+import { getLineCommentEdits } from '../../src/pseudo2-line-comments.js';
 
 /** Wendet die Editor-Edits auf ein Dokument mit denselben nullbasierten Positionen an. */
 function toggle(source: string, selections: Parameters<typeof getLineCommentEdits>[0]): string {

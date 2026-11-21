@@ -45,6 +45,7 @@ import {
     type VariableValue
 } from 'pseudo2-language'; //TBC
 import { createDebugValueElement } from 'pseudo2-language/browser/debug-value-view';
+import { createDebugWatchPanel } from 'pseudo2-language/browser/debug-watch-panel';
 import { instance, type Viz } from '@viz-js/viz';
 import {
     buildVeriFastExecutionTreeDot,
@@ -95,6 +96,7 @@ let debugSession: BrowserDebugSession | undefined;
 let debugPaused: PausedExecutionStep | undefined;
 let debugPreparing = false;
 const expandedDebugValues = new Set<string>();
+let debugWatches: ReturnType<typeof createDebugWatchPanel> | undefined;
 /** @brief Invalidiert Ergebnisse bereits ersetzter oder abgebrochener Debug-Läufe. */
 let debugEpoch = 0;
 /** Verwirft veraltete Analyse- und Ausfuehrungsergebnisse. */
@@ -475,6 +477,7 @@ function cancelDebugSession(): void {
     debugSession = undefined;
     debugPaused = undefined;
     debugPreparing = false;
+    debugWatches?.setContext();
     session?.stop();
     if (session) setTextContent('#variable-list', 'Debug-Lauf beendet.');
     setDebugLine(undefined);
@@ -571,6 +574,7 @@ const startDebugExecution = async () => {
             }
         );
         debugSession = session;
+        debugWatches?.setContext(session);
         debugPreparing = false;
         setTextContent('#debug-status', 'Programm laeuft ...');
         updateDebugControls();
@@ -579,6 +583,7 @@ const startDebugExecution = async () => {
         if (epoch !== debugEpoch || session !== debugSession || revision !== variableRevision) return;
         debugSession = undefined;
         debugPaused = undefined;
+        debugWatches?.setContext();
         setDebugLine(undefined);
         const stopped = execution.error === 'Ausfuehrung gestoppt.';
         setTextContent('#debug-status', stopped ? 'Debug-Lauf gestoppt.'
@@ -605,6 +610,7 @@ const startDebugExecution = async () => {
 function resumeDebug(mode: 'continue' | 'step' | 'over' | 'out'): void {
     if (!debugSession || !debugPaused) return;
     debugPaused = undefined;
+    debugWatches?.setContext(debugSession);
     setDebugLine(undefined);
     setTextContent('#variable-list', 'Programm laeuft ...');
     setTextContent('#debug-status', 'Programm laeuft ...');
@@ -1218,6 +1224,7 @@ function renderDebugVariables(step: PausedExecutionStep): void {
     list.append(locals);
 
     const showLocals = (frame: DebugFrame | undefined) => {
+        debugWatches?.setContext(debugSession, frame?.id);
         const values = frame?.variables ?? [];
         locals.replaceChildren();
         for (const value of values) valueRow(locals, value, frame?.id);
@@ -2196,6 +2203,8 @@ export const runDsl = async () => {
     try {
         setTextContent('#language-version', `v${PSEUDO2_VERSION}`);
         installWorkspaceSplitter();
+        const watches = document.querySelector<HTMLDetailsElement>('#debug-watches');
+        if (watches) debugWatches = createDebugWatchPanel(watches, () => getExecutionServices().Pseudo2.parser.LangiumParser);
         document.querySelector('#button-start')?.addEventListener('click', startEditor);
         document.querySelector('#button-dispose')?.addEventListener('click', disposeEditor);
         document.querySelector('#button-summary')?.addEventListener('click', updateSummary);

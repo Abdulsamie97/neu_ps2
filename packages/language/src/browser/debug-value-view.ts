@@ -9,7 +9,7 @@ import type { VariableValue } from '../runtime/variable-inspector.js';
 
 /** Rendert einen Pause-Wert und merkt offene Zweige pro Deklaration und Aufruf. */
 export function createDebugValueElement(
-  observed: VariableValue,
+  observed: Pick<VariableValue, 'id' | 'value' | 'debugValue'>,
   expandedPaths: Set<string>,
   frameId?: number
 ): HTMLElement {

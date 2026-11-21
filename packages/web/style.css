@@ -667,6 +667,37 @@ pre {
     text-transform: uppercase;
 }
 
+.debug-watches {
+    border-bottom: 1px solid #555;
+    padding: 6px 0 8px;
+    font: 12px Consolas, "Courier New", monospace;
+}
+
+.debug-watch-form { display: flex; gap: 4px; margin: 6px 0; }
+.debug-watch-form input {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid #666;
+    border-radius: 4px;
+    padding: 3px 6px;
+    color: #eee;
+    background: #242424;
+    font: inherit;
+}
+.debug-watch-form button, .debug-watch-row button { min-height: 24px; padding: 0 6px; }
+.debug-watch-list { max-height: 9rem; overflow: auto; }
+.debug-watch-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 2px 6px;
+    border-top: 1px solid #444;
+    padding: 4px 0;
+    overflow-wrap: anywhere;
+}
+.debug-watch-result { grid-column: 1 / -1; }
+.debug-watch-feedback, .debug-watch-result.error { color: #ff9d9d; }
+
 /** @brief Begrenzte, scrollbare Liste der auswählbaren Aufrufrahmen. */
 .debug-frame-list {
     display: grid;

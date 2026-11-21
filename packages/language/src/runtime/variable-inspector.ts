@@ -15,6 +15,7 @@ import {
 } from '../generated/ast.js';
 import { Pseudo2GeneratorContext } from '../generators/javascript/generator-context.js';
 import { DEBUG_VALUE_SNAPSHOT_SCRIPT, type DebugValueSnapshot } from './debug-value-snapshot.js';
+import { DEBUG_WATCH_SCRIPT, MAX_DEBUG_WATCHES, type DebugWatchPath, type DebugWatchResult } from './debug-watch.js';
 
 /** Deklaration und Quellort einer globalen oder lokalen Variable. */
 export interface VariableDefinition {
@@ -68,6 +69,7 @@ export interface PausedExecutionStep extends ExecutionStep {
 /** Steuerung eines im Browser-Worker laufenden Pseudo2-Debuggers. */
 export interface BrowserDebugSession {
   completion: Promise<ObservedExecutionResult>;
+  inspectWatches(frameId: number, paths: DebugWatchPath[]): Promise<DebugWatchResult[]>;
   resume(mode: 'continue' | 'step' | 'over' | 'out'): void;
   setBreakpoints(lines: Iterable<number>): void;
   stop(): void;
@@ -123,6 +125,7 @@ export function collectStructFieldNames(program: Program, context: Pseudo2Genera
  */
 export const OBSERVED_WORKER_SCRIPT = String.raw`
 ${DEBUG_VALUE_SNAPSHOT_SCRIPT}
+${DEBUG_WATCH_SCRIPT}
 
 function formatValue(value) {
   if (typeof value === 'string') return value;
@@ -175,6 +178,7 @@ function formatVariable(value, fieldNames, depth, path) {
 }
 
 var resumeDebug;
+var readPausedWatches;
 var debugBreakpoints = new Set();
 var pauseRequested = false;
 self.onmessage = async function (event) {
@@ -183,9 +187,13 @@ self.onmessage = async function (event) {
       debugBreakpoints = new Set(event.data.breakpoints || []);
     } else if (event.data.command === 'pause') {
       pauseRequested = true;
+    } else if (event.data.command === 'inspectWatches') {
+      var results = readPausedWatches ? readPausedWatches(event.data.frameId, event.data.paths) : [];
+      self.postMessage({ type: 'watches', requestId: event.data.requestId, results: results });
     } else if (resumeDebug) {
       var resume = resumeDebug;
       resumeDebug = undefined;
+      readPausedWatches = undefined;
       resume(event.data.command);
     }
     return;
@@ -303,6 +311,16 @@ self.onmessage = async function (event) {
       debugModeState = 'paused';
       var budget = event.data.inspectValues === true ? { remaining: 4096 } : undefined;
       var frames = currentFrames(budget);
+      if (budget) {
+        readPausedWatches = function (frameId, paths) {
+          var frame = frameStack.find(function (current) { return current.id === frameId; });
+          var watchBudget = { remaining: 4096 };
+          return paths.slice(0, ${MAX_DEBUG_WATCHES}).map(function (path) {
+            return frame ? readDebugWatch(path, frame.values, globalValues, event.data.fieldNames, watchBudget)
+              : { error: 'Der Aufruf ist nicht mehr verfuegbar.' };
+          });
+        };
+      }
       self.postMessage({ type: 'paused', step: {
         line: line, outputCount: output.length, variables: currentVariables(), reason: reason,
         globals: snapshotValues(globalValues, budget), frames: frames
@@ -428,15 +446,23 @@ export function startObservedDebug(
   const worker = new Worker(workerUrl);
   const values = new Map<string, VariableValue>();
   const output: string[] = [];
+  const pendingWatches = new Map<number, (results: DebugWatchResult[]) => void>();
+  let watchRequestId = 0;
   let resolveCompletion!: (result: ObservedExecutionResult) => void;
   const completion = new Promise<ObservedExecutionResult>(resolve => { resolveCompletion = resolve; });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let finished = false;
   let paused = false;
 
+  const clearWatchRequests = () => {
+    for (const resolve of pendingWatches.values()) resolve([]);
+    pendingWatches.clear();
+  };
+
   const finish = (result: ObservedExecutionResult) => {
     if (finished) return;
     finished = true;
+    clearWatchRequests();
     if (timer) clearTimeout(timer);
     worker.terminate();
     URL.revokeObjectURL(workerUrl);
@@ -452,6 +478,7 @@ export function startObservedDebug(
   worker.onmessage = event => {
     const message = event.data as ObservedExecutionResult & {
       type?: string; variable?: VariableValue; step?: PausedExecutionStep; text?: string;
+      requestId?: number; results?: DebugWatchResult[];
     };
     if (message.type === 'variable' && message.variable) {
       values.set(message.variable.id, message.variable);
@@ -463,6 +490,9 @@ export function startObservedDebug(
       paused = true;
       if (timer) clearTimeout(timer);
       onPause(message.step);
+    } else if (message.type === 'watches' && message.requestId !== undefined) {
+      pendingWatches.get(message.requestId)?.(message.results ?? []);
+      pendingWatches.delete(message.requestId);
     } else if (!message.type) {
       finish({
         output: Array.isArray(message.output) ? message.output.map(String) : output,
@@ -479,9 +509,18 @@ export function startObservedDebug(
 
   return {
     completion,
+    inspectWatches(frameId, paths) {
+      if (finished || !paused || !paths.length) return Promise.resolve([]);
+      const requestId = ++watchRequestId;
+      return new Promise(resolve => {
+        pendingWatches.set(requestId, resolve);
+        worker.postMessage({ command: 'inspectWatches', requestId, frameId, paths });
+      });
+    },
     resume(mode) {
       if (finished || !paused) return;
       paused = false;
+      clearWatchRequests();
       armTimeout();
       worker.postMessage({ command: mode });
     },

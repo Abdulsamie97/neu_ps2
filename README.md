@@ -909,6 +909,13 @@ beginnen bei `1`; Structs zeigen ihre Pseudo2-Feldnamen. Geoeffnete Zweige
 bleiben beim Steppen offen. Zyklen erscheinen als `[Zyklus]`, grosse Werte
 werden als begrenzte Vorschau angezeigt. Das gilt auch fuer die Root-Seite
 und die Workbench.
+Unter `Beobachten` lassen sich in diesen drei Editoren lesende Ausdruecke wie
+`i`, `A[i]` oder `liste.next.key` hinzufuegen. Die Werte werden bei jeder Pause
+und bei Auswahl eines anderen Aufrufs neu gelesen; lokale beobachtete Namen
+haben Vorrang vor globalen. Array-Zugriffe bleiben einsbasiert und sind nicht
+auf die Vorschau beschraenkt. Funktionsaufrufe, Rechenoperatoren und Aenderungen
+wie `i++` sind hier nicht erlaubt. Die Liste bleibt bis zum Neuladen der Seite
+erhalten, auch wenn ein Debug-Lauf beendet wird.
 Die Ausfuehrungszeit ist nur waehrend laufender Abschnitte auf fuenf Sekunden
 begrenzt, nicht waehrend einer Pause.
 

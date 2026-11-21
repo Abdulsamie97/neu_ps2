@@ -36,6 +36,7 @@ import {
   type VariableValue
 } from 'pseudo2-language';
 import { createDebugValueElement } from 'pseudo2-language/browser/debug-value-view';
+import { createDebugWatchPanel } from 'pseudo2-language/browser/debug-watch-panel';
 
 /** Auswaehlbare Bereiche des Ergebnisfensters. */
 type ResultTab = 'output' | 'debug' | 'trace' | 'javascript' | 'diagnostics' | 'pretty';
@@ -170,6 +171,7 @@ const editorDiagnosticLocation = requireElement<HTMLElement>('#editor-diagnostic
 const editorDiagnosticText = requireElement<HTMLElement>('#editor-diagnostic-text');
 const completionList = requireElement<HTMLElement>('#completion-list');
 const variableList = requireElement<HTMLElement>('#variable-list');
+const debugWatches = createDebugWatchPanel(requireElement<HTMLDetailsElement>('#debug-watches'), () => services.Pseudo2.parser.LangiumParser);
 const languageVersion = requireElement<HTMLElement>('#language-version');
 const traceControls = requireElement<HTMLElement>('#trace-controls');
 const tracePosition = requireElement<HTMLInputElement>('#trace-position');
@@ -592,12 +594,14 @@ async function debugCurrentSource(): Promise<void> {
     }
   );
   debugSession = session;
+  debugWatches.setContext(session);
   updateDebugControls();
 
   const execution = await session.completion;
   if (revision !== sourceRevision) return;
   debugSession = undefined;
   debugPaused = undefined;
+  debugWatches.setContext();
   executedRevision = sourceRevision;
   const finalOutput = execution.output.join('');
   const error = execution.error ? `\n\n${execution.error}` : '';
@@ -623,6 +627,7 @@ function updateDebugControls(): void {
 function resumeDebug(mode: 'continue' | 'step' | 'over' | 'out'): void {
   if (!debugSession || !debugPaused) return;
   debugPaused = undefined;
+  debugWatches.setContext(debugSession);
   variableList.textContent = 'Programm laeuft ...';
   resultValues.debug = `Programm laeuft ...\n\n${debugOutput.join('')}`;
   showResultTab('debug');
@@ -659,6 +664,7 @@ function showDebugVariables(step: PausedExecutionStep): void {
   variableList.append(stackHeading, stack, localHeading, locals);
 
   const showLocals = (frame: DebugFrame | undefined) => {
+    debugWatches.setContext(debugSession, frame?.id);
     const values = frame?.variables ?? [];
     locals.replaceChildren();
     for (const value of values) appendDebugValue(locals, value, frame?.id);
@@ -1519,6 +1525,7 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-result-
 sourceEditor.addEventListener('input', () => {
   debugSession?.stop();
   debugSession = undefined;
+  debugWatches.setContext();
   sourceRevision++;
   executedRevision = -1;
   debugPaused = undefined;

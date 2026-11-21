@@ -21,6 +21,10 @@
         "./version": {
             "types": "./out/version.d.ts",
             "default": "./out/version.js"
+        },
+        "./browser/debug-value-view": {
+            "types": "./out/browser/debug-value-view.d.ts",
+            "default": "./out/browser/debug-value-view.js"
         }
     },
     "typesVersions": {

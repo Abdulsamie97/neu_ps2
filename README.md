@@ -848,8 +848,9 @@ Nach dem automatischen Editorstart setzt ein Klick auf die Zeilennummer einen
 Haltepunkt. `Debuggen` oeffnet den Debugger im Ergebnisbereich. Dort beginnt
 `Starten` den Lauf und haelt vor der ersten ausfuehrbaren Pseudo2-Zeile.
 `Weiter`, `Hinein`, `Darueber` und `Heraus` steuern den Lauf; `Beenden` stoppt ihn.
-Die aktuelle Zeile und die Werte aktiver Aufrufrahmen erscheinen direkt auf der
-Root-Seite. Die Ausfuehrung erfolgt lokal in einem Browser-Worker.
+Die Haltezeile bleibt im Editor markiert. Beim Klicken auf einen Aufruf im
+`Aufrufstapel` springt der Editor zu dessen Zeile und `Lokal` zeigt seine Werte.
+Die Ausfuehrung erfolgt lokal in einem Browser-Worker.
 
 ### Einzeldatei-JavaScript-Runner
 
@@ -895,13 +896,19 @@ Haltepunkt- oder Stack-Debugger. `Ausfuehren` bleibt ohne Schrittaufzeichnung.
 
 Fuer einen interaktiven Lauf kann man im linken Rand des Einzeldatei-Editors
 Haltepunkte auf Pseudo2-Zeilen setzen. `Debuggen` oeffnet den Debug-Tab. Mit
-`Starten` haelt der Worker vor der ersten ausfuehrbaren Zeile. `Hinein` haelt vor der naechsten
-Pseudo2-Anweisung, auch in aufgerufenen Funktionen. `Darueber` fuehrt einen
+`Starten` haelt der Worker vor der ersten ausfuehrbaren Zeile. `Hinein` haelt
+vor der naechsten Pseudo2-Anweisung, auch in aufgerufenen Funktionen. `Darueber` fuehrt einen
 Funktionsaufruf aus und haelt danach im aktuellen Aufrufrahmen; `Heraus` laeuft
 bis zum Aufrufer. Haltepunkte unterbrechen auch `Darueber` und `Heraus`.
 `Weiter` laeuft bis zum naechsten Haltepunkt, `Beenden` stoppt den Lauf im
-Debug-Tab. Der Tab zeigt die bisherige Ausgabe. Die Variablenansicht trennt globale
-Werte von den lokalen Werten jedes aktiven Aufrufrahmens, auch bei Rekursion.
+Debug-Tab. Beim Anhalten ist der innerste Aufruf vorausgewaehlt. Ein Klick im
+Aufrufstapel zeigt die lokalen Werte des gewaehlten Aufrufs, auch bei Rekursion.
+Die globalen Werte und die bisherige Ausgabe bleiben unveraendert.
+Arrays und Structs lassen sich waehrend der Pause aufklappen. Array-Indizes
+beginnen bei `1`; Structs zeigen ihre Pseudo2-Feldnamen. Geoeffnete Zweige
+bleiben beim Steppen offen. Zyklen erscheinen als `[Zyklus]`, grosse Werte
+werden als begrenzte Vorschau angezeigt. Das gilt auch fuer die Root-Seite
+und die Workbench.
 Die Ausfuehrungszeit ist nur waehrend laufender Abschnitte auf fuenf Sekunden
 begrenzt, nicht waehrend einer Pause.
 
@@ -1040,8 +1047,8 @@ Worker-Lauf und haelt vor der ersten ausfuehrbaren Zeile.
 Pseudo2-Anweisung auch innerhalb eines Funktionsaufrufs, `Darueber` bis zur
 naechsten Anweisung im aktuellen Aufrufrahmen und `Heraus` bis zum Aufrufer.
 `Beenden` stoppt den Lauf. Die angehaltene Zeile wird im Editor markiert;
-`Variablen` zeigt globale Werte und die lokalen Werte jedes aktiven
-Aufrufrahmens getrennt. Eine Quelltextaenderung, `Run JavaScript` oder
+`Variablen` zeigt globale Werte und die lokalen Werte des im Aufrufstapel
+ausgewaehlten Aufrufs. Eine Quelltextaenderung, `Run JavaScript` oder
 `Dispose` beendet einen laufenden Debug-Lauf. Haltepunkte wandern beim
 Einfuegen oder Loeschen von Zeilen mit dem Monaco-Text mit.
 

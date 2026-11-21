@@ -667,7 +667,15 @@ pre {
     text-transform: uppercase;
 }
 
-/** @brief Trennt aktive Aufrufrahmen in der Variablenansicht. */
+/** @brief Begrenzte, scrollbare Liste der auswählbaren Aufrufrahmen. */
+.debug-frame-list {
+    display: grid;
+    gap: 3px;
+    max-height: 8rem;
+    margin-top: 4px;
+    overflow: auto;
+}
+
 .debug-frame-heading {
     background: #29292d;
     border: 0;
@@ -676,17 +684,18 @@ pre {
     color: #eeeeee;
     font-family: Arial, Helvetica, sans-serif;
     font-size: 11px;
-    margin-top: 8px;
+    overflow-wrap: anywhere;
     padding: 6px 8px;
     text-align: left;
     width: 100%;
 }
 
-.debug-frame-heading.current {
+.debug-frame-heading[aria-pressed="true"] {
     border-left-color: #ec4aa8;
 }
 
-.debug-frame-heading:hover {
+.debug-frame-heading:hover,
+.debug-frame-heading[aria-pressed="true"] {
     background: #39393e;
 }
 
@@ -694,6 +703,24 @@ pre {
     color: #a0a0a0;
     font-size: 11px;
     margin: 4px 0 4px 8px;
+}
+
+.debug-value-tree > summary {
+    color: inherit;
+    font: inherit;
+    text-transform: none;
+}
+
+.debug-value-children {
+    margin: 2px 0 0 .35rem;
+    border-inline-start: 1px solid #555;
+    padding-inline-start: .5rem;
+    list-style: none;
+}
+
+.debug-value-label,
+.debug-value-omitted {
+    color: #b8b8b8;
 }
 
 .variable-row {

@@ -37,12 +37,14 @@ import {
     startObservedDebug,
     type BrowserDebugSession,
     type CSourceMapEntry,
+    type DebugFrame,
     type GeneratedArtifact,
     type PausedExecutionStep,
     type Program,
     type VariableDefinition,
     type VariableValue
 } from 'pseudo2-language'; //TBC
+import { createDebugValueElement } from 'pseudo2-language/browser/debug-value-view';
 import { instance, type Viz } from '@viz-js/viz';
 import {
     buildVeriFastExecutionTreeDot,
@@ -92,6 +94,7 @@ let activeDebugLineDecorationIds: string[] = [];
 let debugSession: BrowserDebugSession | undefined;
 let debugPaused: PausedExecutionStep | undefined;
 let debugPreparing = false;
+const expandedDebugValues = new Set<string>();
 /** @brief Invalidiert Ergebnisse bereits ersetzter oder abgebrochener Debug-Läufe. */
 let debugEpoch = 0;
 /** Verwirft veraltete Analyse- und Ausfuehrungsergebnisse. */
@@ -467,11 +470,13 @@ const updateExecution = async () => {
 /** @brief Beendet einen Debug-Lauf und invalidiert seine noch ausstehenden Worker-Antworten. */
 function cancelDebugSession(): void {
     debugEpoch++;
+    expandedDebugValues.clear();
     const session = debugSession;
     debugSession = undefined;
     debugPaused = undefined;
     debugPreparing = false;
     session?.stop();
+    if (session) setTextContent('#variable-list', 'Debug-Lauf beendet.');
     setDebugLine(undefined);
     updateDebugControls();
 }
@@ -601,6 +606,7 @@ function resumeDebug(mode: 'continue' | 'step' | 'over' | 'out'): void {
     if (!debugSession || !debugPaused) return;
     debugPaused = undefined;
     setDebugLine(undefined);
+    setTextContent('#variable-list', 'Programm laeuft ...');
     setTextContent('#debug-status', 'Programm laeuft ...');
     updateDebugControls();
     debugSession.resume(mode);
@@ -1163,7 +1169,7 @@ function renderVariables(
     }
 }
 
-/** @brief Zeigt bei einer Pause globale Werte und jeden aktiven Aufrufrahmen separat. */
+/** @brief Zeigt globale Werte und die lokalen Werte des im Aufrufstapel ausgewaehlten Aufrufs. */
 function renderDebugVariables(step: PausedExecutionStep): void {
     const list = document.querySelector<HTMLElement>('#variable-list');
     if (!list) return;
@@ -1174,15 +1180,13 @@ function renderDebugVariables(step: PausedExecutionStep): void {
         element.textContent = label;
         list.append(element);
     };
-    const valueRow = (observed: VariableValue) => {
+    const valueRow = (parent: HTMLElement, observed: VariableValue, frameId?: number) => {
         const row = document.createElement('div');
         row.className = 'variable-row';
         const name = document.createElement('span');
         name.className = 'variable-name';
         name.textContent = observed.name;
-        const value = document.createElement('span');
-        value.className = 'variable-value';
-        value.textContent = observed.value;
+        const value = createDebugValueElement(observed, expandedDebugValues, frameId);
         const location = document.createElement('button');
         location.type = 'button';
         location.className = 'variable-location';
@@ -1190,30 +1194,57 @@ function renderDebugVariables(step: PausedExecutionStep): void {
         location.title = 'Zur Deklaration springen';
         location.addEventListener('click', () => focusPseudo2SourceLine(observed.line));
         row.append(name, value, location);
-        list.append(row);
+        parent.append(row);
     };
-    const empty = (label: string) => {
+    const empty = (parent: HTMLElement, label: string) => {
         const element = document.createElement('p');
         element.className = 'debug-frame-empty';
         element.textContent = label;
-        list.append(element);
+        parent.append(element);
     };
 
     heading('Global');
-    for (const value of step.globals) valueRow(value);
-    if (step.globals.length === 0) empty('Noch keine globalen Werte.');
+    for (const value of step.globals) valueRow(list, value);
+    if (step.globals.length === 0) empty(list, 'Noch keine globalen Werte.');
     heading('Aufrufstapel');
-    for (const [index, frame] of [...step.frames].reverse().entries()) {
-        const title = document.createElement('button');
-        title.type = 'button';
-        title.className = `debug-frame-heading${index === 0 ? ' current' : ''}`;
-        title.textContent = `${frame.name} - Zeile ${frame.line}${index === 0 ? ' (aktuell)' : ''}`;
-        title.title = 'Zur aktuellen Zeile dieses Aufrufs springen';
-        title.addEventListener('click', () => focusPseudo2SourceLine(frame.line));
-        list.append(title);
-        for (const value of frame.variables) valueRow(value);
-        if (frame.variables.length === 0) empty('Noch keine lokalen Werte.');
+    const stack = document.createElement('div');
+    stack.className = 'debug-frame-list';
+    stack.setAttribute('role', 'group');
+    stack.setAttribute('aria-label', 'Aufrufstapel');
+    list.append(stack);
+    heading('Lokal');
+    const locals = document.createElement('div');
+    locals.className = 'debug-local-values';
+    list.append(locals);
+
+    const showLocals = (frame: DebugFrame | undefined) => {
+        const values = frame?.variables ?? [];
+        locals.replaceChildren();
+        for (const value of values) valueRow(locals, value, frame?.id);
+        if (values.length === 0) empty(locals, 'Noch keine lokalen Werte.');
+    };
+
+    const frames = [...step.frames].reverse();
+    let selected: HTMLButtonElement | undefined;
+    for (const [index, frame] of frames.entries()) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'debug-frame-heading';
+        button.textContent = `${index + 1}. ${frame.name} - Zeile ${frame.line}${index === 0 ? ' (aktuell)' : ''}`;
+        button.title = 'Lokale Werte und Quellzeile dieses Aufrufs anzeigen';
+        button.setAttribute('aria-pressed', String(index === 0));
+        if (index === 0) selected = button;
+        button.addEventListener('click', () => {
+            if (debugPaused !== step) return;
+            selected?.setAttribute('aria-pressed', 'false');
+            button.setAttribute('aria-pressed', 'true');
+            selected = button;
+            showLocals(frame);
+            focusPseudo2SourceLine(frame.line, false);
+        });
+        stack.append(button);
     }
+    showLocals(frames[0]);
 }
 
 /** @brief Liest die von Monaco bei Texteingaben mitgefuehrten Haltepunktzeilen aus. */
@@ -1466,10 +1497,11 @@ function installVeriFastTreeInteraction(
 }
 
 /**
- * @brief Springt zu einer aus dem Verifikationsbaum ausgewählten Pseudo2-Zeile.
+ * @brief Zeigt eine Pseudo2-Zeile zur aktuell betrachteten Stelle im Editor.
  * @param sourceLine Einsbasierte Zeile des aktiven Monaco-Modells.
+ * @param focusEditor Ob der Editor den Tastaturfokus uebernehmen soll.
  */
-function focusPseudo2SourceLine(sourceLine: number): void {
+function focusPseudo2SourceLine(sourceLine: number, focusEditor = true): void {
     const editor = editorApp?.getEditor();
     const model = editor?.getModel();
     if (!editor || !model || sourceLine < 1 || sourceLine > model.getLineCount()) {
@@ -1477,7 +1509,7 @@ function focusPseudo2SourceLine(sourceLine: number): void {
     }
     editor.setPosition({ lineNumber: sourceLine, column: 1 });
     editor.revealLineInCenter(sourceLine);
-    editor.focus();
+    if (focusEditor) editor.focus();
 }
 
 /**

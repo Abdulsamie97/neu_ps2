@@ -14,6 +14,7 @@ import {
   isVarDecl
 } from '../generated/ast.js';
 import { Pseudo2GeneratorContext } from '../generators/javascript/generator-context.js';
+import { DEBUG_VALUE_SNAPSHOT_SCRIPT, type DebugValueSnapshot } from './debug-value-snapshot.js';
 
 /** Deklaration und Quellort einer globalen oder lokalen Variable. */
 export interface VariableDefinition {
@@ -28,6 +29,7 @@ export interface VariableDefinition {
 export interface VariableValue extends VariableDefinition {
   value: string;
   changedLine: number;
+  debugValue?: DebugValueSnapshot;
 }
 
 /** Ausgabe und Variablen nach einem beobachteten Programmlauf. */
@@ -120,6 +122,8 @@ export function collectStructFieldNames(program: Program, context: Pseudo2Genera
  * `self.postMessage` bereit und leitet eine Eingabenachricht an `self.onmessage`.
  */
 export const OBSERVED_WORKER_SCRIPT = String.raw`
+${DEBUG_VALUE_SNAPSHOT_SCRIPT}
+
 function formatValue(value) {
   if (typeof value === 'string') return value;
   if (typeof value === 'undefined') return 'undefined';
@@ -214,20 +218,28 @@ self.onmessage = async function (event) {
     __ps2_write: function (value, ending) { writeOutput(formatValue(value) + String(ending)); }
   };
 
-  function snapshotValues(values) {
+  function snapshotValues(values, budget) {
     return Array.from(values.values()).map(function (entry) {
-      return Object.assign({}, entry.metadata, {
+      var snapshot = Object.assign({}, entry.metadata, {
         value: formatVariable(entry.value, event.data.fieldNames, 0, new Set())
       });
+      if (budget) {
+        var tree = describeDebugValue(entry.value, event.data.fieldNames, budget);
+        if (tree) snapshot.debugValue = tree;
+      }
+      return snapshot;
     });
   }
 
   function currentVariables() { return snapshotValues(traces); }
 
-  function currentFrames() {
-    return frameStack.map(function (frame) {
-      return { id: frame.id, name: frame.name, line: frame.line, variables: snapshotValues(frame.values) };
-    });
+  function currentFrames(budget) {
+    var frames = new Array(frameStack.length);
+    for (var i = frameStack.length - 1; i >= 0; i--) {
+      var frame = frameStack[i];
+      frames[i] = { id: frame.id, name: frame.name, line: frame.line, variables: snapshotValues(frame.values, budget) };
+    }
+    return frames;
   }
 
   function enterFrame(name, line) {
@@ -289,9 +301,11 @@ self.onmessage = async function (event) {
       firstPause = false;
       pauseRequested = false;
       debugModeState = 'paused';
+      var budget = event.data.inspectValues === true ? { remaining: 4096 } : undefined;
+      var frames = currentFrames(budget);
       self.postMessage({ type: 'paused', step: {
         line: line, outputCount: output.length, variables: currentVariables(), reason: reason,
-        globals: snapshotValues(globalValues), frames: currentFrames()
+        globals: snapshotValues(globalValues, budget), frames: frames
       } });
       return new Promise(function (resolve) {
         resumeDebug = function (command) {
@@ -461,7 +475,7 @@ export function startObservedDebug(
     output, error: event.message || 'Unbekannter Worker-Fehler.', variables: [...values.values()]
   });
   armTimeout();
-  worker.postMessage({ source, fieldNames, debugMode: true, breakpoints: [...breakpoints] });
+  worker.postMessage({ source, fieldNames, debugMode: true, inspectValues: true, breakpoints: [...breakpoints] });
 
   return {
     completion,

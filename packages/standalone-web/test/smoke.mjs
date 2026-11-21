@@ -426,7 +426,8 @@ const recursiveSource = `func down(n)
   if n > 0
     return down(n - 1)
   return n
-print down(2)
+var seed = 2
+print down(seed)
 `;
 const recursiveDocument = services.shared.workspace.LangiumDocumentFactory.fromString(
   recursiveSource, URI.parse('memory:/standalone-recursive-frames.pseudo2')
@@ -463,7 +464,9 @@ assert.equal((await nextRecursivePause()).frames[2].variables.find(item => item.
 await recursiveWorker.onmessage({ data: { command: 'continue' } });
 const deepest = await nextRecursivePause();
 assert.deepEqual(Array.from(deepest.frames, frame => frame.name), ['Programm', 'down', 'down', 'down']);
+assert.deepEqual(Array.from(deepest.frames, frame => frame.line), [6, 3, 3, 2], 'Each frame must retain its own navigation target.');
 assert.deepEqual(Array.from(deepest.frames.slice(1), frame => frame.variables.find(item => item.name === 'n').value), ['2', '1', '0']);
+assert.equal(deepest.globals.find(item => item.name === 'seed').value, '2');
 await recursiveWorker.onmessage({ data: { command: 'continue' } });
 await recursiveRunning;
 assert.equal(recursiveMessages.at(-1).output.join(''), '0\n');

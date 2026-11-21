@@ -644,11 +644,18 @@ button.primary:hover {
   white-space: nowrap;
 }
 
+.debug-frame-list {
+  display: grid;
+  gap: 3px;
+  max-height: 8rem;
+  margin-top: 4px;
+  overflow: auto;
+}
+
 .debug-frame-heading {
   display: block;
   width: 100%;
   min-height: 0;
-  margin-top: 8px;
   border: 0;
   border-left: 3px solid #666;
   border-radius: 0;
@@ -658,14 +665,16 @@ button.primary:hover {
   text-align: left;
   font-family: Arial, Helvetica, sans-serif;
   font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
-.debug-frame-heading.current {
+.debug-frame-heading[aria-pressed="true"] {
   border-left-color: #ec4aa8;
   color: #fff;
 }
 
-.debug-frame-heading:hover {
+.debug-frame-heading:hover,
+.debug-frame-heading[aria-pressed="true"] {
   background: #303030;
 }
 
@@ -673,6 +682,23 @@ button.primary:hover {
   margin: 5px 0 0 10px;
   color: #888;
   font-size: 11px;
+}
+
+.debug-value-tree > summary {
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.debug-value-children {
+  margin: 2px 0 0 .35rem;
+  border-inline-start: 1px solid #555;
+  padding-inline-start: .5rem;
+  list-style: none;
+}
+
+.debug-value-label,
+.debug-value-omitted {
+  color: #b8b8b8;
 }
 
 #result-content {

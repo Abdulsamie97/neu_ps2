@@ -28,12 +28,14 @@ import {
   Pseudo2GeneratorContext,
   startObservedDebug,
   type BrowserDebugSession,
+  type DebugFrame,
   type ExecutionStep,
   type PausedExecutionStep,
   type Program,
   type VariableDefinition,
   type VariableValue
 } from 'pseudo2-language';
+import { createDebugValueElement } from 'pseudo2-language/browser/debug-value-view';
 
 /** Auswaehlbare Bereiche des Ergebnisfensters. */
 type ResultTab = 'output' | 'debug' | 'trace' | 'javascript' | 'diagnostics' | 'pretty';
@@ -144,6 +146,7 @@ const breakpoints = new Set<number>();
 let debugSession: BrowserDebugSession | undefined;
 let debugPaused: PausedExecutionStep | undefined;
 let debugOutput: string[] = [];
+const expandedDebugValues = new Set<string>();
 let actionInProgress = false;
 /** Letzter Inhalt jeder Ergebnisansicht. */
 const resultValues: Record<ResultTab, string> = {
@@ -283,7 +286,7 @@ async function analyzeCurrentSource(): Promise<AnalysisResult> {
 function presentAnalysis(analysis: AnalysisResult, revealErrors: boolean): void {
   resultValues.diagnostics = formatDiagnostics(analysis.diagnostics);
   setEditorDiagnostics(analysis.diagnostics);
-  if (executedRevision !== sourceRevision) {
+  if (!debugSession && executedRevision !== sourceRevision) {
     showVariables(analysis.variables);
   }
 
@@ -560,6 +563,7 @@ async function debugCurrentSource(): Promise<void> {
   const context = Pseudo2GeneratorContext.fromProgram(analysis.program, true, false, true);
   const executable = generateProgram(analysis.program, context);
   const fieldNames = collectStructFieldNames(analysis.program, context);
+  expandedDebugValues.clear();
   debugOutput = [];
   debugPaused = undefined;
   resultValues.debug = 'Debug-Lauf startet ...';
@@ -570,6 +574,7 @@ async function debugCurrentSource(): Promise<void> {
     step => {
       if (revision !== sourceRevision) return;
       debugPaused = step;
+      showDebugVariables(step);
       const reason = step.reason === 'breakpoint' ? 'Haltepunkt' : step.reason === 'entry' ? 'Start'
         : step.reason === 'over' ? 'Schritt darueber' : step.reason === 'out' ? 'Schritt heraus' : 'Schritt hinein';
       resultValues.debug = `Angehalten in Zeile ${step.line} (${reason}).`
@@ -618,19 +623,20 @@ function updateDebugControls(): void {
 function resumeDebug(mode: 'continue' | 'step' | 'over' | 'out'): void {
   if (!debugSession || !debugPaused) return;
   debugPaused = undefined;
+  variableList.textContent = 'Programm laeuft ...';
   resultValues.debug = `Programm laeuft ...\n\n${debugOutput.join('')}`;
   showResultTab('debug');
   debugSession.resume(mode);
 }
 
-/** Stellt globale Werte und aktive Funktionsaufrufe ohne vermischte Rekursion dar. */
+/** Zeigt globale Werte und die lokalen Werte des im Aufrufstapel ausgewaehlten Aufrufs. */
 function showDebugVariables(step: PausedExecutionStep): void {
   variableList.replaceChildren();
   const globalHeading = document.createElement('div');
   globalHeading.className = 'variable-group';
   globalHeading.textContent = 'Global';
   variableList.append(globalHeading);
-  for (const value of step.globals) appendDebugValue(value);
+  for (const value of step.globals) appendDebugValue(variableList, value);
   if (step.globals.length === 0) {
     const empty = document.createElement('p');
     empty.className = 'debug-frame-empty';
@@ -641,35 +647,60 @@ function showDebugVariables(step: PausedExecutionStep): void {
   const stackHeading = document.createElement('div');
   stackHeading.className = 'variable-group';
   stackHeading.textContent = 'Aufrufstapel';
-  variableList.append(stackHeading);
-  for (const [index, frame] of [...step.frames].reverse().entries()) {
-    const heading = document.createElement('button');
-    heading.type = 'button';
-    heading.className = `debug-frame-heading${index === 0 ? ' current' : ''}`;
-    heading.textContent = `${frame.name} - Zeile ${frame.line}${index === 0 ? ' (aktuell)' : ''}`;
-    heading.title = 'Zur aktuellen Zeile dieses Aufrufs springen';
-    heading.addEventListener('click', () => revealSourceLine(frame.line));
-    variableList.append(heading);
-    for (const value of frame.variables) appendDebugValue(value);
-    if (frame.variables.length === 0) {
+  const stack = document.createElement('div');
+  stack.className = 'debug-frame-list';
+  stack.setAttribute('role', 'group');
+  stack.setAttribute('aria-label', 'Aufrufstapel');
+  const localHeading = document.createElement('div');
+  localHeading.className = 'variable-group';
+  localHeading.textContent = 'Lokal';
+  const locals = document.createElement('div');
+  locals.className = 'debug-local-values';
+  variableList.append(stackHeading, stack, localHeading, locals);
+
+  const showLocals = (frame: DebugFrame | undefined) => {
+    const values = frame?.variables ?? [];
+    locals.replaceChildren();
+    for (const value of values) appendDebugValue(locals, value, frame?.id);
+    if (values.length === 0) {
       const empty = document.createElement('p');
       empty.className = 'debug-frame-empty';
       empty.textContent = 'Noch keine lokalen Werte.';
-      variableList.append(empty);
+      locals.append(empty);
     }
+  };
+
+  const frames = [...step.frames].reverse();
+  let selected: HTMLButtonElement | undefined;
+  for (const [index, frame] of frames.entries()) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'debug-frame-heading';
+    button.textContent = `${index + 1}. ${frame.name} - Zeile ${frame.line}${index === 0 ? ' (aktuell)' : ''}`;
+    button.title = 'Lokale Werte und Quellzeile dieses Aufrufs anzeigen';
+    button.setAttribute('aria-pressed', String(index === 0));
+    if (index === 0) selected = button;
+    button.addEventListener('click', () => {
+      if (debugPaused !== step) return;
+      selected?.setAttribute('aria-pressed', 'false');
+      button.setAttribute('aria-pressed', 'true');
+      selected = button;
+      showLocals(frame);
+      revealSourceLine(frame.line, false);
+    });
+    stack.append(button);
   }
+  showLocals(frames[0]);
 }
 
 /** Fuegt einen beobachteten Wert mit Sprung zur Deklaration hinzu. */
-function appendDebugValue(observed: VariableValue): void {
+function appendDebugValue(parent: HTMLElement, observed: VariableValue, frameId?: number): void {
   const row = document.createElement('div');
   row.className = 'variable-row';
   const name = document.createElement('span');
   name.className = 'variable-name';
   name.textContent = observed.name;
-  const value = document.createElement('span');
-  value.className = 'variable-value';
-  value.textContent = observed.value;
+  const value = createDebugValueElement(observed, expandedDebugValues, frameId);
   const location = document.createElement('button');
   location.type = 'button';
   location.className = 'variable-location';
@@ -677,13 +708,13 @@ function appendDebugValue(observed: VariableValue): void {
   location.title = 'Zur Deklaration springen';
   location.addEventListener('click', () => revealSourceLine(observed.line));
   row.append(name, value, location);
-  variableList.append(row);
+  parent.append(row);
 }
 
-/** Springt zu einer Pseudo2-Zeile und synchronisiert die Textebenen. */
-function revealSourceLine(line: number): void {
+/** Springt zur Quellzeile und kann den Fokus im Aufrufstapel belassen. */
+function revealSourceLine(line: number, focusEditor = true): void {
   const offset = sourcePositionToOffset(sourceEditor.value, getLineStarts(sourceEditor.value), line, 1);
-  sourceEditor.focus();
+  if (focusEditor) sourceEditor.focus();
   sourceEditor.setSelectionRange(offset, offset);
   const lineHeight = Number.parseFloat(window.getComputedStyle(sourceEditor).lineHeight) || 21.7;
   sourceEditor.scrollTop = Math.max(0, (line - 1) * lineHeight - sourceEditor.clientHeight / 2);
@@ -957,7 +988,6 @@ function showResultTab(tab: ResultTab): void {
   traceControls.hidden = tab !== 'trace' || traceSteps.length === 0;
   if (tab === 'debug' && debugPaused) {
     resultContent.textContent = resultValues.debug;
-    showDebugVariables(debugPaused);
     setTraceLine(debugPaused.line);
   } else if (tab === 'trace' && traceSteps.length > 0) {
     renderTraceStep();

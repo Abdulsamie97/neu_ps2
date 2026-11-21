@@ -276,6 +276,8 @@ button.primary:hover {
   tab-size: 4;
   white-space: pre;
   font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+  font-variant-ligatures: none;
+  font-feature-settings: "calt" 0;
   font-size: 14px;
   line-height: 1.55;
 }

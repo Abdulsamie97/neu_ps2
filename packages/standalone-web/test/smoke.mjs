@@ -142,6 +142,29 @@ assert.equal(workerResult.variables.find(item => item.name === 'local').value, '
 assert.equal(workerResult.variables.find(item => item.name === 'number').changedLine, 6);
 assert.deepEqual(Array.from(workerResult.steps), [], 'A normal run must not record steps.');
 
+const structDocument = services.shared.workspace.LangiumDocumentFactory.fromString(`struct Link
+    num key
+    Link next
+var L = new Link
+var L1 = new Link
+L.key = 5
+L.next = L1
+`, URI.parse('memory:/standalone-null-struct.pseudo2'));
+await services.shared.workspace.DocumentBuilder.build([structDocument], { validation: true });
+assert.deepEqual((structDocument.diagnostics ?? []).filter(item => item.severity === 1), []);
+const structProgram = structDocument.parseResult.value;
+const structContext = Pseudo2GeneratorContext.fromProgram(structProgram, true);
+const structMessages = [];
+const structWorker = { postMessage: message => structMessages.push(message) };
+runInNewContext(OBSERVED_WORKER_SCRIPT, { self: structWorker });
+structWorker.onmessage({ data: {
+  source: generateProgram(structProgram, structContext),
+  fieldNames: collectStructFieldNames(structProgram, structContext)
+} });
+assert.equal(structMessages.at(-1).error, undefined);
+assert.equal(structMessages.at(-1).variables.find(item => item.name === 'L1').value, '{key: null, next: null}');
+assert.equal(structMessages.at(-1).variables.find(item => item.name === 'L').value, '{key: 5, next: {key: null, next: null}}');
+
 const stepJavaScript = generateProgram(tracedProgram, Pseudo2GeneratorContext.fromProgram(tracedProgram, true, true));
 assert.ok(stepJavaScript.includes('__ps2_step(5)'), 'Debug output must retain the Pseudo2 source line.');
 const stepMessages = [];

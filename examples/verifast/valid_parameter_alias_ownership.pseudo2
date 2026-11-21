@@ -13,7 +13,7 @@ func callArrayAlias()
 struct Box
   num value
 
-@requires left == right && left.value == undefined && right.value == undefined
+@requires left == right && left.value == null && right.value == null
 @ensures result == 9 && left.value == 9 && right.value == 9
 func writeStructAlias(left, right)
   right.value = 9

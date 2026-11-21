@@ -18,6 +18,32 @@ bei kompatiblen Spracherweiterungen die Nebenversion und bei Korrekturen ohne
 beabsichtigte Sprachaenderung die Patchversion erhoeht. Nach jeder Aenderung
 muessen die Web-Bundles und die VS-Code-Erweiterung neu gebaut werden. Die
 Versionsnummer wird aktuell nicht in `.pseudo2`-Quelldateien gespeichert.
+Solange Pseudo2 die Hauptversion 0 verwendet, kennzeichnen auch neue
+Nebenversionen inkompatible Semantikaenderungen.
+
+## Neue Struct-Objekte
+
+Ab Pseudo2 0.3.0 enthalten alle deklarierten Felder eines neuen Struct-Objekts
+zunaechst `null`, nicht `undefined`. Das gilt auch fuer Zahlen-, Bool-,
+String- und Arrayfelder. Das neue Objekt selbst ist nicht null:
+
+```pseudo2
+struct Link
+    num key
+    Link next
+
+var L = new Link
+print L.key           // null
+print L.next == null  // true
+print L == null       // false
+L.key = 5
+```
+
+Die Variablenansicht zeigt anfangs `{key: null, next: null}`.
+JavaScript und die beiden C-Generatoren verwenden denselben Standardwert.
+VeriFast-Nachbedingungen fuer frische Felder lauten entsprechend etwa
+`@ensures result.key == null`. Fuer die bisherige Undefined-Semantik
+geschriebene Verträge muessen angepasst werden.
 
 ## Veraendernde Operatoren
 
@@ -601,7 +627,7 @@ Unterstuetzte Pseudo2-Annotationen:
 - `@invariant <Expression>` direkt vor `while`, `for` oder `do`.
 - `@decreases <Expression>` direkt vor `while`, `for` oder `do`.
 - direkte Werte und Operatoren, etwa `result == 5`, `result == "abc"`,
-  `result == null`, `result.value == undefined`, `result == a*b` und `!!x`.
+  `result == null`, `result.value == null`, `result == a*b` und `!!x`.
 - Array- und Struct-Zugriffe wie `A[i]`, `matrix[i][j]`, `s.value` und
   `result.values[2]`. Indizes bleiben in Pseudo2 einsbasiert.
 - `length(A)` fuer die Arraylaenge; eine Grenze schreibt man beispielsweise
@@ -1107,7 +1133,7 @@ func identityFive(x)
 - direkte 1-basierte Arrayzugriffe in Annotationen mit `A[i]` sowie verschachtelte Zugriffe mit `matrix[i][j]`, jeweils mit positiven und absichtlich falschen Beispielen.
 - Array-Literal-Elemente, z. B. `result[2]` nach `return [1, 2]`.
 - konstante Array-Initialisierung mit Literal-Werten, z. B. `result[1]` nach `var A[2] = 7`.
-- Struct-Defaultfelder, z. B. `result.value == undefined` nach `return new S`.
+- Struct-Defaultfelder, z. B. `result.value == null` nach `return new S`.
 - Array- und Struct-Parameter in Funktionsvertraegen, z. B. `A[i]` und `s.value`.
 - automatische Ownership-Aufgabe beim Ersetzen besessener Array-/Struct-Childs.
 - konkrete Heap-Freigabe sowie konkrete skalare String-, Gleitkomma-, I/O- und Freigabe-Runtime.

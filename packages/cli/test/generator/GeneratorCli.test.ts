@@ -24,6 +24,92 @@ const verifastExe = path.join(repoRoot, 'verifast-26.01', 'bin', 'verifast.exe')
 
 /** Integrationssuite der programmatisch aufgerufenen CLI-Generatoraktionen. */
 describe('CLI generator', () => {
+  test('both C generators preserve null defaults and linked-list termination', async () => {
+    if (!resolveCCompiler()) return;
+    const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-null-defaults-'));
+    const sourcePath = path.join(destination, 'defaults.pseudo2');
+    fs.writeFileSync(sourcePath, `struct Link
+    num key
+    string label
+    bool active
+    num[] values
+    Link next
+func count(node)
+    if node == null
+        return 0
+    return 1 + count(node.next)
+var L = new Link
+print L == null
+print L.key
+print L.label
+print L.active
+print L.values
+print L.next
+print L.key == null
+print L.label == null
+print L.active == null
+print L.values == null
+print L.next == null
+print L.key == 0
+print L.active == false
+L.key = 0
+L.active = false
+L.label = ""
+L.values = []
+print L.key == null
+print L.active == null
+print L.label == null
+print L.values == null
+L.next = new Link
+print count(L)
+`, 'utf8');
+    const expected = [
+      'false', 'null', 'null', 'null', 'null', 'null',
+      'true', 'true', 'true', 'true', 'true', 'false', 'false',
+      'false', 'false', 'false', 'false', '2'
+    ].join('\n');
+    try {
+      for (const direct of [false, true]) {
+        await generateCAction(sourcePath, { destination, direct, runtime: 'implementation' });
+        const file = path.join(destination, direct ? 'defaults.direct.c' : 'defaults.c');
+        const result = await runCSource(fs.readFileSync(file, 'utf8'), path.basename(file));
+        expect(result.ok, result.stderr).toBe(true);
+        expect(result.stdout.trim().replace(/\r\n/g, '\n')).toBe(expected);
+      }
+    } finally {
+      fs.rmSync(destination, { recursive: true, force: true });
+    }
+  }, 90_000);
+
+  test('VeriFast proves default null but not zero or undefined in both C generators', async () => {
+    if (!fs.existsSync(verifastExe)) return;
+    const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'pseudo2-null-proofs-'));
+    const sourcePath = path.join(destination, 'proof.pseudo2');
+    try {
+      for (const [condition, succeeds] of [
+        ['result.value == null', true],
+        ['result.value == 0', false],
+        ['result.value == undefined', false],
+        ['result.value != null', false]
+      ] as const) {
+        fs.writeFileSync(sourcePath, `struct Box
+    num value
+@ensures ${condition}
+func make()
+    return new Box
+`, 'utf8');
+        for (const direct of [false, true]) {
+          await generateCAction(sourcePath, { destination, direct });
+          const file = path.join(destination, direct ? 'proof.direct.c' : 'proof.c');
+          const result = await runVeriFast({ verifastExe, file, compileOnly: true, timeoutMs: 30_000 });
+          expect(result.ok, `${condition} (${direct ? 'direct' : 'runtime'}): ${result.stderr || result.stdout}`).toBe(succeeds);
+        }
+      }
+    } finally {
+      fs.rmSync(destination, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   test('update operators run identically in runtime C and direct C', async () => {
     if (!resolveCCompiler()) return;
     const sourcePath = path.join(repoRoot, 'examples', 'update-operators.pseudo2');

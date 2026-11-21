@@ -438,7 +438,7 @@ function generateDoWhileLoop(
  * Erzeugt eine Struct-Factory und freie JavaScript-Funktionen für alle Methoden.
  *
  * Neue Struct-Instanzen werden über `__ps2_struct` mit allen deklarierten
- * Feldern als `undefined` angelegt. Methoden erhalten einen expliziten
+ * Feldern als `null` angelegt. Methoden erhalten einen expliziten
  * `mythis`-Parameter und werden nicht als JavaScript-Klassenmethoden ausgegeben.
  *
  * @param structDecl Zu übersetzende Struct-Deklaration.
@@ -460,7 +460,7 @@ function generateStructDeclaration(
   const fields = attributes
     .map((att, index) => {
       const comma = index < attributes.length - 1 ? ',' : '';
-      return `${indent}    ${context.getVarName(att)}: undefined${comma}`;
+      return `${indent}    ${context.getVarName(att)}: null${comma}`;
     })
     .join('\n');
   const factory = attributes.length > 0

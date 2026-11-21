@@ -445,7 +445,7 @@ describe('CGenerator', () => {
         num value
 
       @requires true
-      @ensures vf_struct(result) && vf_undefined(vf_field(result, "value"))
+      @ensures vf_struct(result) && vf_null(vf_field(result, "value"))
       func makeStruct()
         return new S
 
@@ -504,9 +504,9 @@ describe('CGenerator', () => {
     expect(c).toContain('ps2_model_int(nth(1 - 1, __ps2_array_ensures_0)) == 7');
     expect(c).toContain('ps2_model_int(nth(2 - 1, __ps2_array_ensures_0)) == 7');
     expect(c).toContain('ps2_struct_state(result, ?__ps2_factory_fields)');
-    expect(c).toContain('ps2_model_undefined(ps2_struct_field_lookup(0, __ps2_factory_fields)) == true');
+    expect(c).toContain('ps2_model_null(ps2_struct_field_lookup(0, __ps2_factory_fields)) == true');
     expect(c).not.toContain('//@ assume(ps2_model_undefined(ps2_model_struct_field(__ps2_value, 0)) == true);');
-    expect(c).toContain('ps2_model_undefined(ps2_struct_field_lookup(0, __ps2_struct_ensures_0)) == true');
+    expect(c).toContain('ps2_model_null(ps2_struct_field_lookup(0, __ps2_struct_ensures_0)) == true');
     expect(c).toContain('ps2_model_int(ps2_struct_field_lookup(0, __ps2_struct_ensures_0)) == 7');
     expect(c).toContain('ps2_struct_state(s_7, ?__ps2_struct_requires_0)');
     expect(c).toContain('ps2_model_int(ps2_struct_field_lookup(0, __ps2_struct_requires_0)) == 7');
@@ -599,8 +599,8 @@ describe('CGenerator', () => {
         return s
     `);
 
-    expect(c).toContain('ps2_struct_define(__ps2_obj, 0, 0, "value_0", ps2_undefined());');
-    expect(c).toContain('ps2_struct_define(__ps2_obj, 0, 1, "value_1", ps2_undefined());');
+    expect(c).toContain('ps2_struct_define(__ps2_obj, 0, 0, "value_0", ps2_null());');
+    expect(c).toContain('ps2_struct_define(__ps2_obj, 0, 1, "value_1", ps2_null());');
     expect(c).toContain('ps2_model_int(ps2_struct_field_lookup(1, __ps2_struct_ensures_0)) == 7');
   });
 

@@ -413,7 +413,7 @@ class DirectCGenerator {
         this.typeOfExpr(node.condition)?.base === STRING.base ||
       isNot(node) && this.typeOfExpr(node.value)?.base === STRING.base);
     const optionalPrintKinds = [...new Set(allNodes.filter(isPrintCommand).flatMap(command => {
-      if (!this.isPotentiallyUndefinedField(command.param)) return [];
+      if (!this.isPotentiallyNullField(command.param)) return [];
       const type = this.typeOfExpr(command.param);
       const kind = type && type.depth === 0 ? this.optionalPrintKind(type) : undefined;
       return kind ? [kind] : [];
@@ -545,7 +545,11 @@ class DirectCGenerator {
     ].join('\n');
   }
 
-  /** Erzeugt einen typisierten Struct-Konstruktor mit vollstaendigem VeriFast-Besitz. */
+  /**
+   * Erzeugt einen typisierten Struct-Konstruktor mit vollstaendigem VeriFast-Besitz.
+   * Das false-Flag steht fuer den initialen Nullwert; skalare C-Felder speichern
+   * daneben einen unbenutzten Platzhalter ihres nativen Typs.
+   */
   private emitStructAllocator(struct: StructDeclaration): string {
     const fields = (struct.children ?? []).filter(isStructAttDeclaration);
     const type = `struct ${this.structName(struct)}`;
@@ -1619,9 +1623,24 @@ class DirectCGenerator {
           if (!field || (!defined && !definedAccess)) {
             throw new DirectCGenerationError('undefined kann im Direct-C-Vertrag nur mit einem Struct-Feld verglichen werden.', expr);
           }
-          const expected = equalityOperator === '==' ? 'false' : 'true';
-          return defined ? `${defined} == ${expected}` : `${definedAccess} |-> ${expected}`;
+          // Ausfuehrbares Pseudo2 kann Struct-Felder nicht auf undefined setzen.
+          return equalityOperator === '==' ? 'false' : 'true';
         }
+        if (isNullLiteral(right) || isNullLiteral(left)) {
+          const fieldValue = isNullLiteral(right) ? left : right;
+          const fieldType = this.specTypeOf(fieldValue, state);
+          if (fieldType && !this.isPointerType(fieldType)) {
+            const field = this.specFieldAccess(fieldValue, state);
+            const defined = field && state.specAliases?.definedFields.get(field);
+            const definedAccess = this.specFieldDefinedAccess(fieldValue, state);
+            if (defined || definedAccess) {
+              const expected = equalityOperator === '==' ? 'false' : 'true';
+              return defined ? `${defined} == ${expected}` : `${definedAccess} |-> ${expected}`;
+            }
+          }
+        }
+        const nullableComparison = this.nullableFieldSpecEquality(left, right, equalityOperator, state);
+        if (nullableComparison) return nullableComparison;
         if (isStringLiteral(right) && this.specTypeOf(left, state)?.base === STRING.base) {
           return this.specStringLiteralComparison(left, right.value, equalityOperator, state);
         }
@@ -1797,6 +1816,44 @@ class DirectCGenerator {
     return undefined;
   }
 
+  /** Beruecksichtigt bei Skalarvergleichen den Nullstatus statt den C-Platzhalterwert. */
+  private nullableFieldSpecEquality(left: Expr, right: Expr, operator: string, state: EmitState): string | undefined {
+    const facts: string[] = [];
+    const fields = new Map<string, { value: string; defined: string }>();
+    const scalarField = (source: Expr) => {
+      const type = this.specTypeOf(source, state);
+      const field = this.specFieldAccess(source, state);
+      if (!field || !type || this.isPointerType(type)) return undefined;
+      const previous = fields.get(field);
+      if (previous) return previous;
+      let value = state.specAliases?.fields.get(field);
+      let defined = state.specAliases?.definedFields.get(field);
+      if (!value) {
+        value = this.temp('field_value');
+        facts.push(`${field} |-> ?${value}`);
+      }
+      if (!defined) {
+        defined = this.temp('field_defined');
+        facts.push(`${this.specFieldDefinedAccess(source, state)} |-> ?${defined}`);
+      }
+      const result = { value, defined };
+      fields.set(field, result);
+      return result;
+    };
+    const leftField = scalarField(left);
+    const rightField = scalarField(right);
+    if (!leftField && !rightField) return undefined;
+    const leftValue = leftField?.value ?? this.specExpr(left, state);
+    const rightValue = rightField?.value ?? this.specExpr(right, state);
+    const leftNull = leftField ? `(!${leftField.defined})` : 'false';
+    const rightNull = rightField ? `(!${rightField.defined})` : 'false';
+    const valueComparison = `(${leftValue} ${operator} ${rightValue})`;
+    const comparison = operator === '=='
+      ? `(${leftNull} ? ${rightNull} : (!${rightNull} && ${valueComparison}))`
+      : `(${leftNull} ? (!${rightNull}) : (${rightNull} || ${valueComparison}))`;
+    return facts.length > 0 ? `${facts.join(' &*& ')} &*& ${comparison}` : comparison;
+  }
+
   /** Liefert einen Struct-Feldzugriff und behandelt `result` rein als Vertragswert. */
   private specAttributeAccess(value: Expr & { receiver: Expr; attref: { ref?: { ref?: Variable } } }, state: EmitState): string {
     const field = value.attref.ref?.ref;
@@ -1816,8 +1873,9 @@ class DirectCGenerator {
     }
     if (isAttSelection(expression) && !expression.attref.index && expression.attref.ref?.ref) {
       const receiver = this.unwrap(expression.receiver);
-      const receiverValue = isResultExpr(receiver) ? 'result' : this.expr(receiver, state);
-      return `${receiverValue}->${this.fieldDefinedName(expression.attref.ref.ref)}`;
+      const receiverValue = isResultExpr(receiver) ? 'result' : this.specExpr(receiver, state);
+      const pointer = /^[A-Za-z_]\w*$/.test(receiverValue) ? receiverValue : `(${receiverValue})`;
+      return `${pointer}->${this.fieldDefinedName(expression.attref.ref.ref)}`;
     }
     return undefined;
   }
@@ -1858,12 +1916,12 @@ class DirectCGenerator {
       const output = hasCustomEnding
         ? `${directCArrayPrintEndFunction(this.arrayRuntimeType(type))}(${descriptor}, ${endingLiteral});`
         : `${directCArrayPrintFunction(this.arrayRuntimeType(type))}(${descriptor});`;
-      const undefinedOutput = hasCustomEnding
-        ? `{ fputs("undefined", stdout); fputs(${endingLiteral}, stdout); }`
-        : 'puts("undefined");';
+      const nullOutput = hasCustomEnding
+        ? `{ fputs("null", stdout); fputs(${endingLiteral}, stdout); }`
+        : 'puts("null");';
       return [
         ...(lowered?.prefix ?? []),
-        `${i}${defined ? `if (${defined}) ${output} else ${undefinedOutput}` : output}`
+        `${i}${defined ? `if (${defined}) ${output} else ${nullOutput}` : output}`
       ].join('\n');
     }
     if (type.base.startsWith('struct ')) {
@@ -1871,12 +1929,12 @@ class DirectCGenerator {
       const output = hasCustomEnding
         ? `${DIRECT_C_STRUCT_PRINT_END_FUNCTION}(${lowered.expression}, ${endingLiteral});`
         : `${DIRECT_C_STRUCT_PRINT_FUNCTION}(${lowered.expression});`;
-      const undefinedOutput = hasCustomEnding
-        ? `{ fputs("undefined", stdout); fputs(${endingLiteral}, stdout); }`
-        : 'puts("undefined");';
+      const nullOutput = hasCustomEnding
+        ? `{ fputs("null", stdout); fputs(${endingLiteral}, stdout); }`
+        : 'puts("null");';
       return [
         ...lowered.prefix,
-        `${i}${defined ? `if (${defined}) ${output} else ${undefinedOutput}` : output}`
+        `${i}${defined ? `if (${defined}) ${output} else ${nullOutput}` : output}`
       ].join('\n');
     }
     const lowered = this.lowerRootExpression(value, state, i);
@@ -1915,8 +1973,8 @@ class DirectCGenerator {
     return output;
   }
 
-  /** Erkennt einen Struct-Feldwert, dessen JavaScript-Wert noch `undefined` sein kann. */
-  private isPotentiallyUndefinedField(value: Expr): boolean {
+  /** Erkennt einen Struct-Feldwert, der noch den initialen Nullwert enthalten kann. */
+  private isPotentiallyNullField(value: Expr): boolean {
     const expression = this.unwrap(value);
     return isVarRef(expression) && !expression.index && isStructAttDeclaration(expression.ref?.ref) ||
       isAttSelection(expression) && !expression.attref.index;
@@ -1961,7 +2019,7 @@ class DirectCGenerator {
       return [
         ...(lowered?.prefix ?? []),
         ...(defined ? [
-          `${i}if (!${defined}) { fputs("undefined\\n", stderr); exit(1); }`,
+          `${i}if (!${defined}) { fputs("null\\n", stderr); exit(1); }`,
           `${i}else ${fail}`
         ] : [`${i}${fail}`])
       ].join('\n');
@@ -1972,7 +2030,7 @@ class DirectCGenerator {
       return [
         ...lowered.prefix,
         ...(defined ? [
-          `${i}if (!${defined}) { fputs("undefined\\n", stderr); exit(1); }`,
+          `${i}if (!${defined}) { fputs("null\\n", stderr); exit(1); }`,
           `${i}else ${fail}`
         ] : [`${i}${fail}`])
       ].join('\n');
@@ -2092,6 +2150,7 @@ class DirectCGenerator {
         const rightType = this.typeOfExpr(rights[n]);
         const op = isOr(value) ? '||' : isAnd(value) ? '&&' : value.op?.[n] ?? value.op?.[0] ?? '';
         if (isEquality(value)) {
+          const leftValue = left;
           const leftNull = n === 0 && isNullLiteral(this.unwrap(value.left));
           const rightNull = isNullLiteral(this.unwrap(rights[n]));
           if ((!leftNull && !leftType) || (!rightNull && !rightType)) {
@@ -2112,6 +2171,7 @@ class DirectCGenerator {
           } else {
             left = `(${left} ${op} ${right})`;
           }
+          left = this.nullableFieldEquality(value.left, rights[n], leftValue, right, left, op, state);
           leftType = BOOLEAN;
           continue;
         }
@@ -2148,6 +2208,31 @@ class DirectCGenerator {
     throw new DirectCGenerationError(`Ausdruck '${value.$type}' nicht unterstuetzt.`, value);
   }
 
+  /** Erhaelt null-Gleichheit auch fuer native Skalarfelder mit separatem Statusflag. */
+  private nullableFieldEquality(
+    leftSource: Expr, rightSource: Expr, left: string, right: string,
+    comparison: string, operator: string, state: EmitState
+  ): string {
+    const leftType = this.typeOfExpr(leftSource);
+    const rightType = this.typeOfExpr(rightSource);
+    const leftDefined = leftType && !this.isPointerType(leftType)
+      ? this.fieldDefinedTarget(this.unwrap(leftSource), state) : undefined;
+    const rightDefined = rightType && !this.isPointerType(rightType)
+      ? this.fieldDefinedTarget(this.unwrap(rightSource), state) : undefined;
+    if (!leftDefined && !rightDefined) return comparison;
+    const nullCondition = (source: Expr, type: CType | undefined, value: string, defined?: string): string =>
+      isNullLiteral(this.unwrap(source)) ? 'true'
+        : defined ? `(!${defined})`
+          : type && this.isPointerType(type) ? `(${value} == NULL)` : 'false';
+    const leftNull = nullCondition(leftSource, leftType, left, leftDefined);
+    const rightNull = nullCondition(rightSource, rightType, right, rightDefined);
+    if (isNullLiteral(this.unwrap(leftSource))) return operator === '==' ? rightNull : `(!${rightNull})`;
+    if (isNullLiteral(this.unwrap(rightSource))) return operator === '==' ? leftNull : `(!${leftNull})`;
+    return operator === '=='
+      ? `(${leftNull} ? ${rightNull} : (!${rightNull} && ${comparison}))`
+      : `(${leftNull} ? (!${rightNull}) : (${rightNull} || ${comparison}))`;
+  }
+
   /** Wandelt einen statisch bekannten Pseudo2-Skalar fuer String-`+` in Text um. */
   private textValue(expression: string, type: CType | undefined, source: Expr, state: EmitState): string {
     if (isNullLiteral(this.unwrap(source))) return '"null"';
@@ -2159,7 +2244,7 @@ class DirectCGenerator {
         : type?.base === this.numberType.base && type.depth === 0
           ? `ps2_number_to_text(${expression})`
           : undefined;
-    if (defined && whenDefined) return `(${defined} ? ${whenDefined} : "undefined")`;
+    if (defined && whenDefined) return `(${defined} ? ${whenDefined} : "null")`;
     if (type?.base === STRING.base && type.depth === 0) {
       return `(${expression} == NULL ? "null" : ${expression})`;
     }
@@ -2480,9 +2565,9 @@ class DirectCGenerator {
     return (state.ownedStructs ?? []).flatMap(item => {
       if (transferredRoot && this.structAliasRoot(item.declaration) === transferredRoot) return [];
       if (transferredArrayStructs.has(this.structAliasRoot(item.declaration))) {
-        const chunks = (item.struct.children ?? []).filter(isStructAttDeclaration).map(field =>
-          `${item.name}->${this.fieldDefinedName(field)} |-> _`
-        );
+        const chunks = (item.struct.children ?? []).filter(isStructAttDeclaration)
+          .filter(field => this.isPointerType(this.variableTypes.get(field)!))
+          .map(field => `${item.name}->${this.fieldDefinedName(field)} |-> _`);
         chunks.push(`malloc_block_${this.structName(item.struct)}(${item.name})`);
         return [`${indent}//@ leak ${chunks.join(' &*& ')};`];
       }
@@ -2504,9 +2589,9 @@ class DirectCGenerator {
 
   /**
    * Ermittelt lokale Structobjekte, deren Zeiger als Elemente eines zurueckgegebenen
-   * Arrays weitergegeben werden. Die sichtbaren Feld-Chunks bleiben fuer den
-   * Funktionsvertrag erhalten; nur interne Defined-Flags und der Allokationsblock
-   * werden beim Transfer aus dem lokalen Ownership-Zustand geloest.
+   * Arrays weitergegeben werden. Feld-Chunks und die Nullstatus-Flags nativer
+   * Skalare bleiben fuer den Funktionsvertrag erhalten. Zeigerflags und der
+   * Allokationsblock werden aus dem lokalen Ownership-Zustand geloest.
    */
   private transferredArrayStructRoots(value: Expr, state: EmitState): Set<Variable> {
     const owner = this.arrayAllocationOwner(value);

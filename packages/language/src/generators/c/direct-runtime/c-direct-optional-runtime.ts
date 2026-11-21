@@ -25,7 +25,7 @@ export function directCOptionalPrintEndFunction(kind: DirectCOptionalPrintKind):
  * Der Vertragsmodus deklariert die seiteneffektbehaftete Ausgabe abstrakt. Dadurch
  * muss VeriFast keinen Zweig als unerreichbar beanstanden, wenn der Beweis bereits
  * kennt, dass ein Feld initialisiert ist. Der Implementierungsmodus prueft den
- * Status konkret und gibt wie JavaScript entweder `undefined` oder den Feldwert aus.
+ * Status konkret und gibt wie JavaScript entweder `null` oder den Feldwert aus.
  *
  * @param kinds Tatsaechlich benoetigte, deduplizierte native Feldtypen.
  * @param mode Vertrags- oder ausfuehrbarer Implementierungsmodus.
@@ -67,7 +67,7 @@ export function directCOptionalPrintRuntime(
     return [
       `static void ${name}(bool defined, ${type} value) {`,
       '  if (!defined) {',
-      '    puts("undefined");',
+      '    puts("null");',
       '    return;',
       '  }',
       output,
@@ -75,7 +75,7 @@ export function directCOptionalPrintRuntime(
       '',
       `static void ${endName}(bool defined, ${type} value, const char *ending) {`,
       '  if (!defined) {',
-      '    fputs("undefined", stdout);',
+      '    fputs("null", stdout);',
       '    fputs(ending, stdout);',
       '    return;',
       '  }',

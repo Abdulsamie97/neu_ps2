@@ -35,7 +35,7 @@ const exampleOutputs: Array<[string, string]> = [
   ],
   [
     'serverExamples/basicLanguageConcepts/023_datastructure_struct.pseudo2',
-    '1 2 3 28 28 28 28 30 30 30 undefined 25 undefined finished'
+    '1 2 3 28 28 28 28 30 30 30 null 25 null finished'
   ],
   [
     'serverExamples/basicLanguageConcepts/031_loop_for.pseudo2',

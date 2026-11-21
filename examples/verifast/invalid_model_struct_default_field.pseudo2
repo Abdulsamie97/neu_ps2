@@ -2,6 +2,6 @@ struct S
   num value
 
 @requires true
-@ensures result.value != undefined
+@ensures result.value != null
 func makeStruct()
   return new S

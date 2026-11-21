@@ -2008,6 +2008,14 @@ export class Pseudo2Validator {
       return;
     }
 
+    const left = this.unwrapExpr(node.left);
+    const right = this.unwrapExpr(node.right[0]);
+    const isWholeField = (value: Expr) =>
+      isAttSelection(value) && !value.attref.index ||
+      isVarRef(value) && !value.index && isStructAttDeclaration(value.ref?.ref);
+    // Jedes noch nicht gesetzte Struct-Feld enthaelt null, unabhaengig vom Feldtyp.
+    if (isNullLiteral(left) && isWholeField(right) || isNullLiteral(right) && isWholeField(left)) return;
+
     const operands = [node.left, ...(node.right ?? [])];
     const types = operands.map(e => this.types.typeFor(e));
 

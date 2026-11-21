@@ -13,6 +13,59 @@ import { assertExecResult, assertExecThrows } from '../helpers/runtime-test-util
 
 /** Ausführungsbasierte Regressionstests der Pseudo2-Struct- und Methodensemantik. */
 describe('RuntimeTestsStruct', () => {
+  test('all declared field kinds start at null without making the new object null', async () => {
+    await assertExecResult(`
+      struct Link
+        num key
+        string label
+        bool active
+        num[] values
+        Link next
+
+      var L = new Link
+      print L == null
+      print L.key
+      print L.label
+      print L.active
+      print L.values
+      print L.next
+      print L.key == null
+      print L.label == null
+      print L.active == null
+      print L.values == null
+      print L.next == null
+      print L.key == 0
+      print L.active == false
+      L.key = 0
+      L.active = false
+      L.label = ""
+      L.values = []
+      print L.key == null
+      print L.active == null
+      print L.label == null
+      print L.values == null
+    `, 'false null null null null null true true true true true false false false false false false');
+  });
+
+  test('linked-list traversal stops at the default null next field', async () => {
+    await assertExecResult(`
+      struct Link
+        num key
+        Link next
+      func count(node)
+        if node == null
+          return 0
+        return 1 + count(node.next)
+      var L = new Link
+      var tail = new Link
+      L.key = 5
+      L.next = tail
+      print count(L)
+      print tail.key
+      print tail.next == null
+    `, '2 null true');
+  });
+
   test('simple struct attribute access', async () => {
     await assertExecResult(`
       struct date
@@ -59,7 +112,7 @@ describe('RuntimeTestsStruct', () => {
         var pi = arrDiffPerson[i]
         print i
         print pi.age
-    `, '1 undefined 2 25 3 undefined');
+    `, '1 null 2 25 3 null');
   });
 
   test('struct array element can replace an existing struct variable', async () => {
@@ -80,7 +133,7 @@ describe('RuntimeTestsStruct', () => {
         var pi = arrDiffPerson[i]
         print i
         print pi.age
-    `, '1 undefined 2 25 3 undefined');
+    `, '1 null 2 25 3 null');
   });
 
   test('struct variables compare by reference and support null', async () => {

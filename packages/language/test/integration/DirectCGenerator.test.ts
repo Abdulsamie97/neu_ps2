@@ -127,7 +127,8 @@ print inc(2)`;
       //@ assert text == "abc"
     `);
     expect(c).toMatch(/\/\/@ assert \(values\[0\.\.ps2_length_\d+\] \|-> \?ps2_assert_values_\d+\) &\*& \(\(nth\(1 - 1, ps2_assert_values_\d+\) == 2\)\);/);
-    expect(c).toContain('//@ assert (item->value |-> 5);');
+    expect(c).toMatch(/item->value \|-> \?ps2_field_value_\d+ &\*& item->ps2_value_defined_\d+ \|-> \?ps2_field_defined_\d+/);
+    expect(c).toMatch(/ps2_field_value_\d+ == 5/);
     expect(c).toContain('[_]string((char *)text, cons((char)97,');
     expect(c).toContain('free(item);');
   });

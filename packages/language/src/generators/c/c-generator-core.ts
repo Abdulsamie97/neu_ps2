@@ -1152,7 +1152,7 @@ function isDefinitelyIntegerInitializer(expr: Expr | undefined): boolean {
 }
 
 /**
- * Erzeugt für einen Struct eine Factory mit initial `undefined` gesetzten Feldern sowie
+ * Erzeugt für einen Struct eine Factory mit initial `null` gesetzten Feldern sowie
  * die freien C-Funktionen aller darin deklarierten Methoden.
  * @param structDecl Zu übersetzender Struct.
  * @param context Namens- und Feld-ID-Kontext.
@@ -1172,10 +1172,10 @@ function generateStructDeclaration(
     .filter(isMethodDecl);
   const factoryName = context.getStructFactoryName(structDecl);
   const defineLines = attributes.map((att, index) =>
-    `${indent}  ps2_struct_define(__ps2_obj, ${index}, ${context.getStructFieldId(att)}, ${JSON.stringify(context.getVarName(att))}, ps2_undefined());`
+    `${indent}  ps2_struct_define(__ps2_obj, ${index}, ${context.getStructFieldId(att)}, ${JSON.stringify(context.getVarName(att))}, ps2_null());`
   );
   const defaultFieldFacts = attributes.map(att =>
-    `ps2_model_undefined(ps2_struct_field_lookup(${context.getStructFieldId(att)}, __ps2_factory_fields)) == true &*& ps2_model_kind(ps2_struct_field_lookup(${context.getStructFieldId(att)}, __ps2_factory_fields)) == ps2_undefined_kind`
+    `ps2_model_null(ps2_struct_field_lookup(${context.getStructFieldId(att)}, __ps2_factory_fields)) == true &*& ps2_model_kind(ps2_struct_field_lookup(${context.getStructFieldId(att)}, __ps2_factory_fields)) == ps2_null_kind`
   );
   const factoryEnsures = [
     'result != 0',
